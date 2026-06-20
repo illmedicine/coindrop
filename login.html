@@ -74,15 +74,12 @@
             <h2>Welcome Back</h2>
             <p>Sign in with your Discord account to access your dashboard.</p>
 
-            <a href="#" class="btn btn-discord btn-block btn-lg" id="discord-login-btn" onclick="demoLogin(event)">
+            <a href="https://coindrop-auth.up.railway.app/auth/discord" class="btn btn-discord btn-block btn-lg" id="discord-login-btn">
                 <i class="fab fa-discord"></i> Sign in with Discord
             </a>
 
-            <div class="login-divider">or</div>
-
-            <div class="demo-notice">
-                <i class="fas fa-info-circle text-orange"></i>
-                <strong>Demo Mode:</strong> Click "Sign in with Discord" to preview the member dashboard with sample data.
+            <div id="login-error" style="display:none; margin-top:16px; padding:12px; background:rgba(239,68,68,0.05); border:1px solid rgba(239,68,68,0.2); border-radius:var(--radius-sm); font-size:0.85rem; color:var(--danger); text-align:center;">
+                <i class="fas fa-exclamation-circle"></i> <span id="error-text">Login failed. Please try again.</span>
             </div>
 
             <div class="login-help">
@@ -93,27 +90,23 @@
 
     <script src="js/app.js"></script>
     <script>
-        function demoLogin(e) {
-            e.preventDefault();
-            const btn = document.getElementById('discord-login-btn');
-            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Connecting...';
-            btn.style.pointerEvents = 'none';
+        // Handle OAuth callback — dashboard redirects here with ?auth= param
+        const existing = localStorage.getItem('coindrop_user');
+        if (existing) {
+            window.location.href = 'dashboard.html';
+        }
 
-            localStorage.setItem('coindrop_user', JSON.stringify({
-                id: 'demo_001',
-                displayName: 'Demo User',
-                avatar: 'https://api.dicebear.com/7.x/thumbs/svg?seed=Demo',
-                joinDate: '2025-05-15',
-                prestige: 'silver',
-                tasksCompleted: 247,
-                totalEarned: 1.84,
-                activeSubscriptions: 12,
-                activeFollows: 8,
-            }));
-
-            setTimeout(() => {
-                window.location.href = 'dashboard.html';
-            }, 1500);
+        // Show error if redirected back with error
+        const params = new URLSearchParams(window.location.search);
+        if (params.get('error')) {
+            const errorEl = document.getElementById('login-error');
+            const errorText = document.getElementById('error-text');
+            errorEl.style.display = 'block';
+            const errors = {
+                no_code: 'Discord authorization was cancelled.',
+                auth_failed: 'Authentication failed. Please try again.',
+            };
+            errorText.textContent = errors[params.get('error')] || 'Something went wrong. Please try again.';
         }
     </script>
 </body>

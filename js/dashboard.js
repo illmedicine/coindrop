@@ -18,6 +18,19 @@ document.querySelectorAll('.sidebar-link[data-tab]').forEach(link => {
     });
 });
 
+// Handle OAuth callback — auth server redirects here with ?auth= param
+const urlParams = new URLSearchParams(window.location.search);
+const authData = urlParams.get('auth');
+if (authData) {
+    try {
+        const userData = JSON.parse(decodeURIComponent(authData));
+        localStorage.setItem('coindrop_user', JSON.stringify(userData));
+        window.history.replaceState({}, '', 'dashboard.html');
+    } catch (e) {
+        console.error('Failed to parse auth data:', e);
+    }
+}
+
 // Load user data
 const user = JSON.parse(localStorage.getItem('coindrop_user') || 'null');
 if (!user) {
