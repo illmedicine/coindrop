@@ -65,7 +65,7 @@ const ACTIVITIES = [
     { type: 'ig', action: 'Liked Instagram post', detail: '@cryptotrader', reward: '+0.0005 SOL', time: '12 min ago' },
     { type: 'sub', action: 'Subscribed to channel', detail: 'CoinDesk', reward: '+$0.05', time: '1 hr ago' },
     { type: 'yt', action: 'Left a comment', detail: '"Great video, thanks!"', reward: '+0.002 SOL', time: '2 hrs ago' },
-    { type: 'payout', action: 'Daily payout received', detail: '14 tasks completed', reward: '+0.024 SOL', time: 'Yesterday' },
+    { type: 'payout', action: 'Daily payout received', detail: '14 tasks completed', reward: '+0.008 SOL', time: 'Yesterday' },
     { type: 'ig', action: 'Followed account', detail: '@dailycrypto', reward: '+$0.05', time: 'Yesterday' },
     { type: 'yt', action: 'Watched YouTube video', detail: '"Solana 2025 Guide"', reward: '+0.001 SOL', time: '2 days ago' },
 ];
@@ -87,11 +87,11 @@ if (activityList) {
 
 // Mini leaderboard
 const LEADERS = [
-    { name: 'Kwame G.', seed: 'Kwame', earned: '18.42 SOL' },
-    { name: 'Priya S.', seed: 'Priya', earned: '14.88 SOL' },
-    { name: 'Ahmed M.', seed: 'Ahmed', earned: '12.03 SOL' },
-    { name: 'Maria L.', seed: 'Maria', earned: '9.71 SOL' },
-    { name: 'Chen W.', seed: 'Chen', earned: '8.22 SOL' },
+    { name: 'Kwame G.', seed: 'Kwame', earned: '2.84 SOL' },
+    { name: 'Priya S.', seed: 'Priya', earned: '2.31 SOL' },
+    { name: 'Ahmed M.', seed: 'Ahmed', earned: '1.97 SOL' },
+    { name: 'Maria L.', seed: 'Maria', earned: '1.58 SOL' },
+    { name: 'Chen W.', seed: 'Chen', earned: '1.22 SOL' },
 ];
 
 const miniLb = document.getElementById('mini-leaderboard');
@@ -298,15 +298,15 @@ if (subsList) {
 
 // Full leaderboard
 const FULL_LB = [
-    { rank: 1, name: 'Kwame G.', seed: 'Kwame', tasks: '4,821', earned: '18.42 SOL', prestige: 'diamond' },
-    { rank: 2, name: 'Priya S.', seed: 'Priya', tasks: '3,947', earned: '14.88 SOL', prestige: 'platinum' },
-    { rank: 3, name: 'Ahmed M.', seed: 'Ahmed', tasks: '3,512', earned: '12.03 SOL', prestige: 'gold' },
-    { rank: 4, name: 'Maria L.', seed: 'Maria', tasks: '2,891', earned: '9.71 SOL', prestige: 'gold' },
-    { rank: 5, name: 'Chen W.', seed: 'Chen', tasks: '2,445', earned: '8.22 SOL', prestige: 'silver' },
-    { rank: 6, name: 'Fatima B.', seed: 'Fatima', tasks: '2,103', earned: '7.05 SOL', prestige: 'silver' },
-    { rank: 7, name: 'Carlos R.', seed: 'Carlos', tasks: '1,876', earned: '6.31 SOL', prestige: 'silver' },
-    { rank: 8, name: 'Aisha K.', seed: 'Aisha', tasks: '1,544', earned: '5.19 SOL', prestige: 'bronze' },
-    { rank: 42, name: 'Demo User (You)', seed: 'Demo', tasks: '247', earned: '1.84 SOL', prestige: 'silver', you: true },
+    { rank: 1, name: 'Kwame G.', seed: 'Kwame', tasks: '1,847', earned: '2.84 SOL', prestige: 'gold' },
+    { rank: 2, name: 'Priya S.', seed: 'Priya', tasks: '1,520', earned: '2.31 SOL', prestige: 'gold' },
+    { rank: 3, name: 'Ahmed M.', seed: 'Ahmed', tasks: '1,312', earned: '1.97 SOL', prestige: 'silver' },
+    { rank: 4, name: 'Maria L.', seed: 'Maria', tasks: '1,045', earned: '1.58 SOL', prestige: 'silver' },
+    { rank: 5, name: 'Chen W.', seed: 'Chen', tasks: '814', earned: '1.22 SOL', prestige: 'silver' },
+    { rank: 6, name: 'Fatima B.', seed: 'Fatima', tasks: '692', earned: '0.98 SOL', prestige: 'bronze' },
+    { rank: 7, name: 'Carlos R.', seed: 'Carlos', tasks: '581', earned: '0.84 SOL', prestige: 'bronze' },
+    { rank: 8, name: 'Aisha K.', seed: 'Aisha', tasks: '443', earned: '0.61 SOL', prestige: 'bronze' },
+    { rank: 42, name: 'Demo User (You)', seed: 'Demo', tasks: '247', earned: '0.34 SOL', prestige: 'starter', you: true },
 ];
 
 const fullLb = document.getElementById('full-leaderboard');
@@ -326,13 +326,13 @@ if (fullLb) {
 
 // Payouts history
 const PAYOUTS = [
-    { date: 'Jun 19, 2025', tasks: 14, amount: '0.024 SOL' },
-    { date: 'Jun 18, 2025', tasks: 11, amount: '0.019 SOL' },
-    { date: 'Jun 17, 2025', tasks: 18, amount: '0.031 SOL' },
-    { date: 'Jun 16, 2025', tasks: 9, amount: '0.015 SOL' },
-    { date: 'Jun 15, 2025', tasks: 22, amount: '0.038 SOL' },
-    { date: 'Jun 14, 2025', tasks: 16, amount: '0.027 SOL' },
-    { date: 'Jun 13, 2025', tasks: 13, amount: '0.022 SOL' },
+    { date: 'Jun 19, 2025', tasks: 14, amount: '0.008 SOL' },
+    { date: 'Jun 18, 2025', tasks: 11, amount: '0.006 SOL' },
+    { date: 'Jun 17, 2025', tasks: 18, amount: '0.012 SOL' },
+    { date: 'Jun 16, 2025', tasks: 9, amount: '0.005 SOL' },
+    { date: 'Jun 15, 2025', tasks: 22, amount: '0.014 SOL' },
+    { date: 'Jun 14, 2025', tasks: 16, amount: '0.009 SOL' },
+    { date: 'Jun 13, 2025', tasks: 13, amount: '0.007 SOL' },
     { date: 'Jun 1, 2025', tasks: 0, amount: '$0.20', type: 'Residual payout' },
 ];
 
