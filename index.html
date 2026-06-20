@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CoinDrop — Watch. Engage. Earn.</title>
+    <meta name="description" content="Turn your screen time into Solana. Watch YouTube, engage on Instagram, earn daily SOL payouts. Free to join, no age restrictions, available worldwide.">
+    <link rel="icon" type="image/svg+xml" href="assets/logo.svg">
+    <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="css/landing.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+</head>
+<body>
+    <!-- Live Signup Popup -->
+    <div id="signup-popup" class="signup-popup hidden">
+        <div class="popup-avatar"></div>
+        <div class="popup-text">
+            <strong id="popup-name"></strong> just joined CoinDrop!
+            <span id="popup-country"></span>
+        </div>
+    </div>
+
+    <!-- Navigation -->
+    <nav class="navbar">
+        <div class="nav-container">
+            <a href="index.html" class="nav-logo">
+                <img src="assets/logo.svg" alt="CoinDrop" class="logo-img">
+                <span class="logo-text">COIN<span class="logo-accent">DROP</span></span>
+            </a>
+            <div class="nav-links" id="nav-links">
+                <a href="#how-it-works">How It Works</a>
+                <a href="#earn">Earn</a>
+                <a href="#leaderboard">Leaderboard</a>
+                <a href="#community">Community</a>
+                <a href="register.html" class="btn btn-outline">Sign Up</a>
+                <a href="login.html" class="btn btn-primary">Login</a>
+            </div>
+            <button class="nav-toggle" id="nav-toggle" aria-label="Toggle menu">
+                <i class="fas fa-bars"></i>
+            </button>
+        </div>
+    </nav>
+
+    <!-- Hero Section -->
+    <section class="hero">
+        <div class="hero-bg-shapes">
+            <div class="shape shape-1"></div>
+            <div class="shape shape-2"></div>
+            <div class="shape shape-3"></div>
+        </div>
+        <div class="container">
+            <div class="hero-content">
+                <div class="hero-badge">
+                    <i class="fas fa-globe"></i> Available in 190+ Countries
+                </div>
+                <h1>Turn Your Screen Time Into <span class="gradient-text">Solana</span></h1>
+                <p class="hero-subtitle">Watch YouTube. Like Instagram posts. Subscribe to channels. Earn daily SOL payouts directly to your Phantom wallet. 100% free to join.</p>
+                <div class="hero-actions">
+                    <a href="register.html" class="btn btn-primary btn-lg">
+                        <i class="fas fa-rocket"></i> Get Started — It's Free
+                    </a>
+                    <a href="#how-it-works" class="btn btn-ghost btn-lg">
+                        <i class="fas fa-play-circle"></i> See How It Works
+                    </a>
+                </div>
+                <div class="hero-stats">
+                    <div class="stat">
+                        <span class="stat-value" id="active-members">12,847</span>
+                        <span class="stat-label">Active Earners</span>
+                    </div>
+                    <div class="stat">
+                        <span class="stat-value">$0.00</span>
+                        <span class="stat-label">Min. Investment</span>
+                    </div>
+                    <div class="stat">
+                        <span class="stat-value" id="sol-paid">4,291 SOL</span>
+                        <span class="stat-label">Paid Out</span>
+                    </div>
+                </div>
+            </div>
+            <div class="hero-visual">
+                <div class="phone-mockup">
+                    <div class="phone-screen">
+                        <div class="mock-header">
+                            <span class="mock-time">9:41</span>
+                            <span class="mock-title">Dashboard</span>
+                        </div>
+                        <div class="mock-balance">
+                            <span class="mock-label">Total SOL Earned</span>
+                            <span class="mock-amount">0.1 SOL</span>
+                            <div class="mock-bar"></div>
+                        </div>
+                        <div class="mock-tasks">
+                            <div class="mock-task">
+                                <div class="mock-task-icon yt"><i class="fab fa-youtube"></i></div>
+                                <div class="mock-task-info">
+                                    <span>Watch YouTube</span>
+                                    <small>3 min watch</small>
+                                </div>
+                                <span class="mock-task-reward">0.1 SOL</span>
+                            </div>
+                            <div class="mock-task">
+                                <div class="mock-task-icon ig"><i class="fab fa-instagram"></i></div>
+                                <div class="mock-task-info">
+                                    <span>Like Instagram</span>
+                                    <small>Like + Follow</small>
+                                </div>
+                                <span class="mock-task-reward">0.05 SOL</span>
+                            </div>
+                            <div class="mock-task">
+                                <div class="mock-task-icon sub"><i class="fas fa-bell"></i></div>
+                                <div class="mock-task-info">
+                                    <span>Subscribe</span>
+                                    <small>+ monthly residual</small>
+                                </div>
+                                <span class="mock-task-reward">0.5 SOL</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Social Proof Ticker -->
+    <section class="ticker-section">
+        <div class="ticker">
+            <div class="ticker-track">
+                <span class="ticker-item"><i class="fas fa-check-circle"></i> Maria from Brazil earned 2.4 SOL this week</span>
+                <span class="ticker-item"><i class="fas fa-check-circle"></i> Kwame from Ghana completed 150 tasks today</span>
+                <span class="ticker-item"><i class="fas fa-check-circle"></i> Priya from India just hit Gold Prestige</span>
+                <span class="ticker-item"><i class="fas fa-check-circle"></i> 847 members earned SOL in the last hour</span>
+                <span class="ticker-item"><i class="fas fa-check-circle"></i> Ahmed from Nigeria earned 5.1 SOL this month</span>
+                <span class="ticker-item"><i class="fas fa-check-circle"></i> CoinDrop has paid out 4,291 SOL worldwide</span>
+                <span class="ticker-item"><i class="fas fa-check-circle"></i> Maria from Brazil earned 2.4 SOL this week</span>
+                <span class="ticker-item"><i class="fas fa-check-circle"></i> Kwame from Ghana completed 150 tasks today</span>
+            </div>
+        </div>
+    </section>
+
+    <!-- How It Works -->
+    <section id="how-it-works" class="section">
+        <div class="container">
+            <div class="section-header">
+                <span class="section-tag">Simple Process</span>
+                <h2>Start Earning in <span class="gradient-text">3 Easy Steps</span></h2>
+                <p>No experience needed. No upfront costs. Just your phone and an internet connection.</p>
+            </div>
+            <div class="steps-grid">
+                <div class="step-card">
+                    <div class="step-number">1</div>
+                    <div class="step-icon"><i class="fas fa-user-plus"></i></div>
+                    <h3>Sign Up Free</h3>
+                    <p>Create your account, connect your YouTube, and set up your Phantom SOL wallet. Join our Discord community to get verified.</p>
+                </div>
+                <div class="step-card">
+                    <div class="step-number">2</div>
+                    <div class="step-icon"><i class="fas fa-tasks"></i></div>
+                    <h3>Complete Tasks</h3>
+                    <p>Watch YouTube videos, like Instagram posts, subscribe to channels, leave comments. Each action earns you SOL.</p>
+                </div>
+                <div class="step-card">
+                    <div class="step-number">3</div>
+                    <div class="step-icon"><i class="fas fa-wallet"></i></div>
+                    <h3>Get Paid Daily</h3>
+                    <p>Your verified tasks are tallied and SOL drops directly to your Phantom wallet every 24 hours. No minimum withdrawal.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Earning Categories -->
+    <section id="earn" class="section section-dark">
+        <div class="container">
+            <div class="section-header">
+                <span class="section-tag">Earning Opportunities</span>
+                <h2>Multiple Ways to <span class="gradient-text">Earn SOL</span></h2>
+                <p>Choose the tasks that fit your style. The more you engage, the more you earn.</p>
+            </div>
+            <div class="earn-grid">
+                <div class="earn-card">
+                    <div class="earn-icon"><i class="fab fa-youtube"></i></div>
+                    <h3>YouTube Watch</h3>
+                    <p>Watch videos for 3+ minutes</p>
+                    <div class="earn-reward">
+                        <span class="reward-amount">0.001 SOL</span>
+                        <span class="reward-label">per watch</span>
+                    </div>
+                </div>
+                <div class="earn-card">
+                    <div class="earn-icon"><i class="fas fa-thumbs-up"></i></div>
+                    <h3>Likes</h3>
+                    <p>Like videos & posts on YouTube or Instagram</p>
+                    <div class="earn-reward">
+                        <span class="reward-amount">0.0005 SOL</span>
+                        <span class="reward-label">per like</span>
+                    </div>
+                </div>
+                <div class="earn-card">
+                    <div class="earn-icon"><i class="fas fa-comment"></i></div>
+                    <h3>Comments</h3>
+                    <p>Leave meaningful comments on content</p>
+                    <div class="earn-reward">
+                        <span class="reward-amount">0.002 SOL</span>
+                        <span class="reward-label">per comment</span>
+                    </div>
+                </div>
+                <div class="earn-card featured">
+                    <div class="earn-badge">Best Value</div>
+                    <div class="earn-icon"><i class="fas fa-bell"></i></div>
+                    <h3>Subscribe / Follow</h3>
+                    <p>Subscribe to YouTube channels or follow Instagram accounts</p>
+                    <div class="earn-reward">
+                        <span class="reward-amount">$0.05 upfront</span>
+                        <span class="reward-label">+ $0.01/month residual</span>
+                    </div>
+                </div>
+                <div class="earn-card">
+                    <div class="earn-icon"><i class="fas fa-star"></i></div>
+                    <h3>Favorites</h3>
+                    <p>Add videos or posts to your favorites</p>
+                    <div class="earn-reward">
+                        <span class="reward-amount">0.0005 SOL</span>
+                        <span class="reward-label">per favorite</span>
+                    </div>
+                </div>
+                <div class="earn-card">
+                    <div class="earn-icon"><i class="fas fa-share"></i></div>
+                    <h3>Share & Repost</h3>
+                    <p>Share content to your social feeds</p>
+                    <div class="earn-reward">
+                        <span class="reward-amount">0.003 SOL</span>
+                        <span class="reward-label">per share</span>
+                    </div>
+                </div>
+            </div>
+            <div class="residual-callout">
+                <div class="callout-icon"><i class="fas fa-coins"></i></div>
+                <div class="callout-content">
+                    <h3>Passive Monthly Income</h3>
+                    <p>Subscribes & Follows earn you <strong>$0.05 upfront</strong> plus <strong>$0.01 every month</strong> for as long as you stay subscribed. Track all your active subscriptions and see your next payout date in your dashboard.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Leaderboard Preview -->
+    <section id="leaderboard" class="section">
+        <div class="container">
+            <div class="section-header">
+                <span class="section-tag">Top Earners</span>
+                <h2>Global <span class="gradient-text">Leaderboard</span></h2>
+                <p>See who's earning the most. Will you be next?</p>
+            </div>
+            <div class="leaderboard-table">
+                <div class="lb-header">
+                    <span>Rank</span>
+                    <span>Member</span>
+                    <span>Tasks</span>
+                    <span>Earned (SOL)</span>
+                    <span>Prestige</span>
+                </div>
+                <div class="lb-row gold">
+                    <span class="lb-rank"><i class="fas fa-trophy"></i> 1</span>
+                    <span class="lb-member"><img src="https://api.dicebear.com/7.x/thumbs/svg?seed=Kwame" alt="" class="lb-avatar"> Kwame G.</span>
+                    <span class="lb-tasks">4,821</span>
+                    <span class="lb-earned">18.42 SOL</span>
+                    <span class="lb-prestige"><span class="badge badge-diamond"><i class="fas fa-gem"></i> Diamond</span></span>
+                </div>
+                <div class="lb-row silver">
+                    <span class="lb-rank"><i class="fas fa-medal"></i> 2</span>
+                    <span class="lb-member"><img src="https://api.dicebear.com/7.x/thumbs/svg?seed=Priya" alt="" class="lb-avatar"> Priya S.</span>
+                    <span class="lb-tasks">3,947</span>
+                    <span class="lb-earned">14.88 SOL</span>
+                    <span class="lb-prestige"><span class="badge badge-platinum"><i class="fas fa-crown"></i> Platinum</span></span>
+                </div>
+                <div class="lb-row bronze">
+                    <span class="lb-rank"><i class="fas fa-award"></i> 3</span>
+                    <span class="lb-member"><img src="https://api.dicebear.com/7.x/thumbs/svg?seed=Ahmed" alt="" class="lb-avatar"> Ahmed M.</span>
+                    <span class="lb-tasks">3,512</span>
+                    <span class="lb-earned">12.03 SOL</span>
+                    <span class="lb-prestige"><span class="badge badge-gold"><i class="fas fa-star"></i> Gold</span></span>
+                </div>
+                <div class="lb-row">
+                    <span class="lb-rank">4</span>
+                    <span class="lb-member"><img src="https://api.dicebear.com/7.x/thumbs/svg?seed=Maria" alt="" class="lb-avatar"> Maria L.</span>
+                    <span class="lb-tasks">2,891</span>
+                    <span class="lb-earned">9.71 SOL</span>
+                    <span class="lb-prestige"><span class="badge badge-gold"><i class="fas fa-star"></i> Gold</span></span>
+                </div>
+                <div class="lb-row">
+                    <span class="lb-rank">5</span>
+                    <span class="lb-member"><img src="https://api.dicebear.com/7.x/thumbs/svg?seed=Chen" alt="" class="lb-avatar"> Chen W.</span>
+                    <span class="lb-tasks">2,445</span>
+                    <span class="lb-earned">8.22 SOL</span>
+                    <span class="lb-prestige"><span class="badge badge-silver"><i class="fas fa-shield-alt"></i> Silver</span></span>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Community Section -->
+    <section id="community" class="section section-dark">
+        <div class="container">
+            <div class="section-header">
+                <span class="section-tag">Join The Community</span>
+                <h2>A Global <span class="gradient-text">Family of Earners</span></h2>
+                <p>Connect with thousands of members worldwide in our vibrant Discord community.</p>
+            </div>
+            <div class="community-grid">
+                <div class="community-card">
+                    <div class="community-icon"><i class="fab fa-discord"></i></div>
+                    <h3>Discord Community</h3>
+                    <p>Join our active server with task drops, support, and live leaderboards.</p>
+                    <div class="community-stat">
+                        <span class="online-dot"></span>
+                        <span id="discord-online">2,341</span> members online now
+                    </div>
+                </div>
+                <div class="community-card">
+                    <div class="community-icon"><i class="fas fa-globe-americas"></i></div>
+                    <h3>190+ Countries</h3>
+                    <p>From Lagos to Manila, São Paulo to Dhaka — CoinDrop earners are everywhere.</p>
+                    <div class="community-stat">
+                        <i class="fas fa-map-marker-alt"></i> Global reach, local impact
+                    </div>
+                </div>
+                <div class="community-card">
+                    <div class="community-icon"><i class="fas fa-hand-holding-usd"></i></div>
+                    <h3>Daily Payouts</h3>
+                    <p>No waiting weeks. Your SOL drops hit your wallet every single day.</p>
+                    <div class="community-stat">
+                        <i class="fas fa-clock"></i> Next drop in <span id="next-drop-timer">--:--:--</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- CTA Section -->
+    <section class="cta-section">
+        <div class="container">
+            <div class="cta-content">
+                <h2>Ready to Start Earning?</h2>
+                <p>Join thousands of earners worldwide. No investment needed — just your time.</p>
+                <a href="register.html" class="btn btn-primary btn-lg">
+                    <i class="fas fa-rocket"></i> Join CoinDrop Free
+                </a>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <div class="container">
+            <div class="footer-grid">
+                <div class="footer-brand">
+                    <div class="footer-logo">
+                        <img src="assets/logo.svg" alt="CoinDrop" class="logo-img">
+                        <span class="logo-text">COIN<span class="logo-accent">DROP</span></span>
+                    </div>
+                    <p>Watch. Engage. Earn. Your global side hustle powered by Solana.</p>
+                    <div class="footer-socials">
+                        <a href="#"><i class="fab fa-discord"></i></a>
+                        <a href="#"><i class="fab fa-twitter"></i></a>
+                        <a href="#"><i class="fab fa-instagram"></i></a>
+                        <a href="#"><i class="fab fa-youtube"></i></a>
+                    </div>
+                </div>
+                <div class="footer-links">
+                    <h4>Platform</h4>
+                    <a href="#how-it-works">How It Works</a>
+                    <a href="#earn">Earn SOL</a>
+                    <a href="#leaderboard">Leaderboard</a>
+                    <a href="register.html">Sign Up</a>
+                </div>
+                <div class="footer-links">
+                    <h4>Support</h4>
+                    <a href="mailto:support@illyrobotic-ai.com">Contact Us</a>
+                    <a href="#">FAQ</a>
+                    <a href="#">Terms of Service</a>
+                    <a href="#">Privacy Policy</a>
+                </div>
+                <div class="footer-links">
+                    <h4>Resources</h4>
+                    <a href="https://phantom.app" target="_blank">Get Phantom Wallet</a>
+                    <a href="#">Earning Guide</a>
+                    <a href="#">Prestige Levels</a>
+                </div>
+            </div>
+            <div class="footer-bottom">
+                <p>&copy; 2025 CoinDrop. All rights reserved. Powered by Solana.</p>
+            </div>
+        </div>
+    </footer>
+
+    <script src="js/app.js"></script>
+    <script src="js/landing.js"></script>
+</body>
+</html>

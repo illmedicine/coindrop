@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard — CoinDrop</title>
+    <link rel="icon" type="image/png" href="assets/logo.svg">
+    <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="css/dashboard.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+</head>
+<body class="dashboard-body">
+    <!-- Sidebar -->
+    <aside class="sidebar" id="sidebar">
+        <div class="sidebar-header">
+            <a href="index.html" class="nav-logo">
+                <img src="assets/logo.svg" alt="CoinDrop" class="logo-img">
+                <span class="logo-text">COIN<span class="logo-accent">DROP</span></span>
+            </a>
+        </div>
+        <nav class="sidebar-nav">
+            <a href="#" class="sidebar-link active" data-tab="overview">
+                <i class="fas fa-th-large"></i> Overview
+            </a>
+            <a href="#" class="sidebar-link" data-tab="tasks">
+                <i class="fas fa-tasks"></i> Available Tasks
+            </a>
+            <a href="#" class="sidebar-link" data-tab="subscriptions">
+                <i class="fas fa-bell"></i> Subs & Follows
+            </a>
+            <a href="#" class="sidebar-link" data-tab="leaderboard">
+                <i class="fas fa-trophy"></i> Leaderboard
+            </a>
+            <a href="#" class="sidebar-link" data-tab="earnings">
+                <i class="fas fa-chart-line"></i> Earnings
+            </a>
+        </nav>
+        <div class="sidebar-footer">
+            <div class="discord-status">
+                <span class="online-dot"></span>
+                <span id="discord-count">2,341</span> in Discord
+            </div>
+            <a href="index.html" class="sidebar-link" onclick="localStorage.removeItem('coindrop_user')">
+                <i class="fas fa-sign-out-alt"></i> Logout
+            </a>
+        </div>
+    </aside>
+
+    <!-- Main Content -->
+    <main class="main-content">
+        <!-- Top Bar -->
+        <header class="topbar">
+            <button class="sidebar-toggle" id="sidebar-toggle">
+                <i class="fas fa-bars"></i>
+            </button>
+            <div class="topbar-right">
+                <div class="drop-timer">
+                    <i class="fas fa-clock text-orange"></i>
+                    Next drop: <strong id="next-drop-timer">--:--:--</strong>
+                </div>
+                <div class="user-menu">
+                    <img src="https://api.dicebear.com/7.x/thumbs/svg?seed=Demo" alt="" class="user-avatar" id="user-avatar">
+                    <span id="user-name">Demo User</span>
+                    <span class="badge badge-silver" id="user-badge"><i class="fas fa-shield-alt"></i> Silver</span>
+                </div>
+            </div>
+        </header>
+
+        <!-- Overview Tab -->
+        <div class="tab-content active" id="tab-overview">
+            <!-- Stats Cards -->
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="stat-card-icon"><i class="fas fa-coins"></i></div>
+                    <div class="stat-card-info">
+                        <span class="stat-card-value" id="total-earned">1.84 SOL</span>
+                        <span class="stat-card-label">Total Earned</span>
+                    </div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-card-icon green"><i class="fas fa-check-double"></i></div>
+                    <div class="stat-card-info">
+                        <span class="stat-card-value" id="tasks-done">247</span>
+                        <span class="stat-card-label">Tasks Completed</span>
+                    </div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-card-icon purple"><i class="fas fa-bell"></i></div>
+                    <div class="stat-card-info">
+                        <span class="stat-card-value" id="active-subs">12</span>
+                        <span class="stat-card-label">Active Subscriptions</span>
+                    </div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-card-icon blue"><i class="fas fa-user-plus"></i></div>
+                    <div class="stat-card-info">
+                        <span class="stat-card-value" id="active-follows">8</span>
+                        <span class="stat-card-label">Active Follows</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Residual Income Card -->
+            <div class="residual-card">
+                <div class="residual-header">
+                    <h3><i class="fas fa-sync-alt"></i> Monthly Residual Income</h3>
+                    <span class="residual-next">Next payout: <strong>July 1, 2025</strong></span>
+                </div>
+                <div class="residual-body">
+                    <div class="residual-stat">
+                        <span class="residual-amount">$0.20</span>
+                        <span class="residual-label">Estimated Monthly Residual</span>
+                        <small>12 subscriptions + 8 follows × $0.01/mo</small>
+                    </div>
+                    <div class="residual-breakdown">
+                        <div class="rb-item">
+                            <i class="fab fa-youtube" style="color:#FF0000"></i>
+                            <span>YouTube Subs</span>
+                            <strong>12 active</strong>
+                            <span class="text-success">$0.12/mo</span>
+                        </div>
+                        <div class="rb-item">
+                            <i class="fab fa-instagram" style="color:#E1306C"></i>
+                            <span>Instagram Follows</span>
+                            <strong>8 active</strong>
+                            <span class="text-success">$0.08/mo</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Recent Activity + Mini Leaderboard -->
+            <div class="overview-grid">
+                <div class="card">
+                    <h3 class="card-title">Recent Activity</h3>
+                    <div class="activity-list" id="activity-list">
+                        <!-- Populated by JS -->
+                    </div>
+                </div>
+                <div class="card">
+                    <h3 class="card-title">Top Earners Today</h3>
+                    <div class="mini-leaderboard" id="mini-leaderboard">
+                        <!-- Populated by JS -->
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Available Tasks Tab -->
+        <div class="tab-content" id="tab-tasks">
+            <div class="tab-header">
+                <h2>Available Tasks</h2>
+                <div class="task-filters">
+                    <button class="filter-btn active" data-filter="all">All</button>
+                    <button class="filter-btn" data-filter="youtube"><i class="fab fa-youtube"></i> YouTube</button>
+                    <button class="filter-btn" data-filter="instagram"><i class="fab fa-instagram"></i> Instagram</button>
+                </div>
+            </div>
+            <div class="tasks-grid" id="tasks-grid">
+                <!-- Populated by JS -->
+            </div>
+        </div>
+
+        <!-- Subscriptions & Follows Tab -->
+        <div class="tab-content" id="tab-subscriptions">
+            <div class="tab-header">
+                <h2>Subscriptions & Follows</h2>
+                <p class="text-muted">Track your active subscriptions and follows. Each earns $0.01/month residual.</p>
+            </div>
+            <div class="subs-list" id="subs-list">
+                <!-- Populated by JS -->
+            </div>
+        </div>
+
+        <!-- Leaderboard Tab -->
+        <div class="tab-content" id="tab-leaderboard">
+            <div class="tab-header">
+                <h2>Global Leaderboard</h2>
+            </div>
+            <div class="full-leaderboard" id="full-leaderboard">
+                <!-- Populated by JS -->
+            </div>
+        </div>
+
+        <!-- Earnings Tab -->
+        <div class="tab-content" id="tab-earnings">
+            <div class="tab-header">
+                <h2>Earnings History</h2>
+            </div>
+            <div class="earnings-summary">
+                <div class="earn-sum-card">
+                    <span class="earn-sum-label">Today</span>
+                    <span class="earn-sum-value">0.024 SOL</span>
+                </div>
+                <div class="earn-sum-card">
+                    <span class="earn-sum-label">This Week</span>
+                    <span class="earn-sum-value">0.18 SOL</span>
+                </div>
+                <div class="earn-sum-card">
+                    <span class="earn-sum-label">This Month</span>
+                    <span class="earn-sum-value">0.72 SOL</span>
+                </div>
+                <div class="earn-sum-card">
+                    <span class="earn-sum-label">All Time</span>
+                    <span class="earn-sum-value">1.84 SOL</span>
+                </div>
+            </div>
+            <div class="card">
+                <h3 class="card-title">Recent Payouts</h3>
+                <div class="payouts-list" id="payouts-list">
+                    <!-- Populated by JS -->
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- Live signup popup -->
+    <div id="signup-popup" class="signup-popup hidden">
+        <div class="popup-avatar"></div>
+        <div class="popup-text">
+            <strong id="popup-name"></strong> just joined CoinDrop!
+            <span id="popup-country"></span>
+        </div>
+    </div>
+
+    <script src="js/app.js"></script>
+    <script src="js/dashboard.js"></script>
+</body>
+</html>

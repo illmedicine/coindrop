@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="120" height="120">
+  <defs>
+    <linearGradient id="coinGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#F7931A"/>
+      <stop offset="100%" style="stop-color:#FFB347"/>
+    </linearGradient>
+    <linearGradient id="ringGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#1B2A4A"/>
+      <stop offset="100%" style="stop-color:#243656"/>
+    </linearGradient>
+  </defs>
+  <!-- Outer ring -->
+  <circle cx="60" cy="60" r="56" fill="url(#ringGrad)" stroke="#F7931A" stroke-width="3"/>
+  <!-- Inner coin -->
+  <circle cx="60" cy="60" r="40" fill="url(#coinGrad)"/>
+  <!-- Drop shape -->
+  <path d="M60 28 C60 28 42 50 42 64 C42 74 50 82 60 82 C70 82 78 74 78 64 C78 50 60 28 60 28Z" fill="#1B2A4A" opacity="0.9"/>
+  <!-- SOL symbol lines -->
+  <line x1="48" y1="56" x2="72" y2="56" stroke="#F7931A" stroke-width="2.5" stroke-linecap="round"/>
+  <line x1="48" y1="64" x2="72" y2="64" stroke="#F7931A" stroke-width="2.5" stroke-linecap="round"/>
+  <line x1="48" y1="72" x2="72" y2="72" stroke="#F7931A" stroke-width="2.5" stroke-linecap="round"/>
+</svg>

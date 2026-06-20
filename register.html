@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Join CoinDrop — Start Earning SOL Today</title>
+    <link rel="icon" type="image/png" href="assets/logo.svg">
+    <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="css/register.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+</head>
+<body>
+    <div id="signup-popup" class="signup-popup hidden">
+        <div class="popup-avatar"></div>
+        <div class="popup-text">
+            <strong id="popup-name"></strong> just joined CoinDrop!
+            <span id="popup-country"></span>
+        </div>
+    </div>
+
+    <nav class="navbar">
+        <div class="nav-container">
+            <a href="index.html" class="nav-logo">
+                <img src="assets/logo.svg" alt="CoinDrop" class="logo-img">
+                <span class="logo-text">COIN<span class="logo-accent">DROP</span></span>
+            </a>
+            <div class="nav-links" id="nav-links">
+                <a href="index.html">Home</a>
+                <a href="login.html" class="btn btn-outline">Login</a>
+            </div>
+            <button class="nav-toggle" id="nav-toggle" aria-label="Toggle menu">
+                <i class="fas fa-bars"></i>
+            </button>
+        </div>
+    </nav>
+
+    <section class="register-page">
+        <div class="container">
+            <div class="register-layout">
+                <!-- Left: Info -->
+                <div class="register-info">
+                    <h1>Become a <span class="gradient-text">CoinDrop Staffer</span></h1>
+                    <p>Complete 3 simple verification steps to join our global earning community.</p>
+
+                    <div class="checklist">
+                        <div class="check-item" id="check-discord">
+                            <div class="check-icon pending"><i class="fas fa-circle"></i></div>
+                            <div>
+                                <strong>Join Discord Server</strong>
+                                <p>Connect with the CoinDrop community</p>
+                            </div>
+                        </div>
+                        <div class="check-item" id="check-youtube">
+                            <div class="check-icon pending"><i class="fas fa-circle"></i></div>
+                            <div>
+                                <strong>Verify YouTube Account</strong>
+                                <p>Link your YouTube @ handle</p>
+                            </div>
+                        </div>
+                        <div class="check-item" id="check-wallet">
+                            <div class="check-icon pending"><i class="fas fa-circle"></i></div>
+                            <div>
+                                <strong>Connect SOL Wallet</strong>
+                                <p>Paste your Phantom wallet address</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="info-box">
+                        <i class="fas fa-shield-alt"></i>
+                        <div>
+                            <strong>100% Free</strong>
+                            <p>No investment required. No hidden fees. Start earning immediately after approval.</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Right: Form -->
+                <div class="register-form-container">
+                    <form id="register-form" class="register-form">
+                        <!-- Step 1: Basic Info -->
+                        <div class="form-step active" data-step="1">
+                            <div class="step-header">
+                                <span class="step-badge">Step 1 of 3</span>
+                                <h2>Your Details</h2>
+                            </div>
+
+                            <div class="form-group">
+                                <label>Display Name</label>
+                                <div class="input-with-icon">
+                                    <i class="fas fa-user"></i>
+                                    <input type="text" class="form-input" id="display-name" placeholder="How you'll appear on leaderboards" required>
+                                </div>
+                            </div>
+
+                            <div class="form-group">
+                                <label>Email Address</label>
+                                <div class="input-with-icon">
+                                    <i class="fas fa-envelope"></i>
+                                    <input type="email" class="form-input" id="email" placeholder="your@email.com" required>
+                                </div>
+                            </div>
+
+                            <div class="form-group">
+                                <label>Country</label>
+                                <div class="input-with-icon">
+                                    <i class="fas fa-globe"></i>
+                                    <select class="form-input" id="country" required>
+                                        <option value="">Select your country</option>
+                                        <option>Nigeria</option>
+                                        <option>India</option>
+                                        <option>Philippines</option>
+                                        <option>Brazil</option>
+                                        <option>Ghana</option>
+                                        <option>Kenya</option>
+                                        <option>Bangladesh</option>
+                                        <option>Pakistan</option>
+                                        <option>Vietnam</option>
+                                        <option>Indonesia</option>
+                                        <option>Colombia</option>
+                                        <option>Mexico</option>
+                                        <option>Egypt</option>
+                                        <option>Tanzania</option>
+                                        <option>Senegal</option>
+                                        <option>South Africa</option>
+                                        <option>Uganda</option>
+                                        <option>Ethiopia</option>
+                                        <option>Argentina</option>
+                                        <option>Peru</option>
+                                        <option>Other</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            <button type="button" class="btn btn-primary btn-block" onclick="nextStep(2)">
+                                Continue <i class="fas fa-arrow-right"></i>
+                            </button>
+                        </div>
+
+                        <!-- Step 2: Discord + YouTube -->
+                        <div class="form-step" data-step="2">
+                            <div class="step-header">
+                                <span class="step-badge">Step 2 of 3</span>
+                                <h2>Connect Accounts</h2>
+                            </div>
+
+                            <div class="form-group">
+                                <label><i class="fab fa-discord" style="color:#5865F2"></i> Join CoinDrop Discord</label>
+                                <p class="field-desc">You must join our Discord server to receive tasks and get verified.</p>
+                                <a href="#" class="btn btn-discord btn-block" id="discord-join-btn" target="_blank">
+                                    <i class="fab fa-discord"></i> Join CoinDrop Discord Server
+                                </a>
+                                <div class="confirm-check mt-2">
+                                    <label class="checkbox-label">
+                                        <input type="checkbox" id="discord-joined" onchange="checkDiscord()">
+                                        <span>I have joined the Discord server</span>
+                                    </label>
+                                </div>
+                            </div>
+
+                            <div class="form-group">
+                                <label><i class="fab fa-youtube" style="color:#FF0000"></i> YouTube Account</label>
+                                <p class="field-desc">Enter your YouTube @ handle so we can verify your engagement.</p>
+                                <div class="input-with-icon">
+                                    <i class="fab fa-youtube"></i>
+                                    <input type="text" class="form-input" id="youtube-handle" placeholder="@yourhandle" oninput="verifyYouTube()">
+                                    <span class="input-status" id="yt-status"></span>
+                                </div>
+                                <small id="yt-feedback"></small>
+                            </div>
+
+                            <div class="form-row">
+                                <button type="button" class="btn btn-ghost" onclick="prevStep(1)" style="color:var(--navy)">
+                                    <i class="fas fa-arrow-left"></i> Back
+                                </button>
+                                <button type="button" class="btn btn-primary" onclick="nextStep(3)" id="step2-next" disabled>
+                                    Continue <i class="fas fa-arrow-right"></i>
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Step 3: Wallet -->
+                        <div class="form-step" data-step="3">
+                            <div class="step-header">
+                                <span class="step-badge">Step 3 of 3</span>
+                                <h2>Connect Your Wallet</h2>
+                            </div>
+
+                            <div class="wallet-info">
+                                <div class="wallet-logo">
+                                    <img src="https://raw.githubusercontent.com/nicbou/phantom-wallet-logo/main/phantom-icon-purple.png" alt="Phantom" width="40" onerror="this.style.display='none'">
+                                </div>
+                                <div>
+                                    <h3>Phantom Wallet (Solana)</h3>
+                                    <p>This is how you'll receive your daily SOL payouts.</p>
+                                    <a href="https://phantom.app" target="_blank" class="wallet-download">
+                                        <i class="fas fa-download"></i> Download Phantom Wallet
+                                    </a>
+                                </div>
+                            </div>
+
+                            <div class="form-group">
+                                <label>Your SOL Wallet Address</label>
+                                <div class="input-with-icon">
+                                    <i class="fas fa-wallet"></i>
+                                    <input type="text" class="form-input" id="sol-wallet" placeholder="e.g. 7xKX..." oninput="verifyWallet()">
+                                    <span class="input-status" id="wallet-status"></span>
+                                </div>
+                                <small id="wallet-feedback"></small>
+                            </div>
+
+                            <div class="form-group">
+                                <label class="checkbox-label">
+                                    <input type="checkbox" id="terms-agree" required>
+                                    <span>I agree to the CoinDrop Terms of Service and understand that payouts are processed daily in SOL to my Phantom wallet.</span>
+                                </label>
+                            </div>
+
+                            <div class="form-row">
+                                <button type="button" class="btn btn-ghost" onclick="prevStep(2)" style="color:var(--navy)">
+                                    <i class="fas fa-arrow-left"></i> Back
+                                </button>
+                                <button type="submit" class="btn btn-primary" id="submit-btn" disabled>
+                                    <i class="fas fa-rocket"></i> Join CoinDrop
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Success -->
+                        <div class="form-step" data-step="success">
+                            <div class="success-state">
+                                <div class="success-icon">
+                                    <i class="fas fa-check-circle"></i>
+                                </div>
+                                <h2>Application Submitted!</h2>
+                                <p>Your CoinDrop application has been sent. A Discord admin will review and approve your access shortly.</p>
+                                <div class="success-steps">
+                                    <div class="success-step">
+                                        <i class="fas fa-clock text-orange"></i>
+                                        <span>Wait for Discord approval (usually within 24 hours)</span>
+                                    </div>
+                                    <div class="success-step">
+                                        <i class="fab fa-discord" style="color:#5865F2"></i>
+                                        <span>Complete onboarding in Discord</span>
+                                    </div>
+                                    <div class="success-step">
+                                        <i class="fas fa-sign-in-alt text-orange"></i>
+                                        <span>Login to CoinDrop with Discord SSO</span>
+                                    </div>
+                                </div>
+                                <a href="login.html" class="btn btn-primary btn-block mt-3">
+                                    <i class="fab fa-discord"></i> Go to Login
+                                </a>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <footer class="footer">
+        <div class="container">
+            <div class="footer-bottom" style="margin-top:0; border-top:none;">
+                <p>&copy; 2025 CoinDrop. All rights reserved. Powered by Solana.</p>
+            </div>
+        </div>
+    </footer>
+
+    <script src="js/app.js"></script>
+    <script src="js/register.js"></script>
+</body>
+</html>
