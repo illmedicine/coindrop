@@ -94,51 +94,147 @@ if (miniLb) {
     });
 }
 
-// Available tasks
-const TASKS = [
-    { platform: 'youtube', type: 'Watch', title: 'Watch: "Crypto Trading 101"', desc: 'Watch at least 3 minutes of this educational video.', reward: '0.001 SOL' },
-    { platform: 'youtube', type: 'Comment', title: 'Comment: "DeFi Explained"', desc: 'Leave a meaningful comment (10+ words).', reward: '0.002 SOL' },
-    { platform: 'youtube', type: 'Like', title: 'Like: "Solana vs Ethereum"', desc: 'Like this comparison video.', reward: '0.0005 SOL' },
-    { platform: 'youtube', type: 'Subscribe', title: 'Subscribe: CoinDesk', desc: 'Subscribe and earn upfront + monthly residual.', reward: '$0.05', residual: true },
-    { platform: 'instagram', type: 'Like', title: 'Like: @cryptodaily post', desc: 'Like the latest post from @cryptodaily.', reward: '0.0005 SOL' },
-    { platform: 'instagram', type: 'Follow', title: 'Follow: @solananews', desc: 'Follow and earn upfront + monthly residual.', reward: '$0.05', residual: true },
-    { platform: 'youtube', type: 'Watch', title: 'Watch: "NFT Marketplace Tour"', desc: 'Watch the full 5-minute walkthrough.', reward: '0.001 SOL' },
-    { platform: 'instagram', type: 'Like', title: 'Like: @web3daily post', desc: 'Like the pinned post from @web3daily.', reward: '0.0005 SOL' },
-    { platform: 'youtube', type: 'Favorite', title: 'Favorite: "Top 5 Altcoins"', desc: 'Add this video to your favorites.', reward: '0.0005 SOL' },
+// Creator-based available tasks
+const CREATORS = [
+    {
+        id: 'illmedicine',
+        handle: '@illmedicine',
+        name: 'IllMedicine',
+        platform: 'youtube',
+        avatar: 'https://api.dicebear.com/7.x/thumbs/svg?seed=illmedicine',
+        channelUrl: 'https://youtube.com/@illmedicine',
+        about: 'Music, culture, and creative expression. IllMedicine blends hip-hop, storytelling, and digital artistry into compelling video content that explores the intersection of music and technology.',
+        category: 'Music & Culture',
+        subscribers: '1.2K',
+        videos: [
+            { title: 'IllMedicine - Official Music Video', duration: '4:12', views: '320' },
+            { title: 'Studio Session: Behind The Beat', duration: '6:45', views: '185' },
+            { title: 'IllMedicine Live Performance', duration: '8:30', views: '412' },
+            { title: 'Making a Hit Record in 2025', duration: '5:18', views: '267' },
+            { title: 'IllMedicine x Podcast Interview', duration: '12:03', views: '198' },
+        ]
+    },
+    {
+        id: 'illmedicineai',
+        handle: '@illmedicineai',
+        name: 'IllMedicine AI',
+        platform: 'youtube',
+        avatar: 'https://api.dicebear.com/7.x/thumbs/svg?seed=illmedicineai',
+        channelUrl: 'https://youtube.com/@illmedicineai',
+        about: 'AI-powered creativity and innovation. Exploring the cutting edge of artificial intelligence, machine learning, and how emerging tech is transforming content creation, automation, and the future of work.',
+        category: 'AI & Technology',
+        subscribers: '850',
+        videos: [
+            { title: 'AI-Generated Music: The Future is Here', duration: '7:22', views: '540' },
+            { title: 'Building Apps with Claude Code', duration: '10:15', views: '312' },
+            { title: 'How AI is Changing Music Production', duration: '6:48', views: '445' },
+            { title: 'Automating Your Workflow with AI Tools', duration: '8:33', views: '289' },
+            { title: 'AI Art vs Human Art: The Debate', duration: '9:10', views: '367' },
+        ]
+    },
+    {
+        id: 'minds_through_time',
+        handle: '@MINDS_THROUGH_TIME',
+        name: 'Minds Through Time',
+        platform: 'youtube',
+        avatar: 'https://api.dicebear.com/7.x/thumbs/svg?seed=mindstime',
+        channelUrl: 'https://youtube.com/@MINDS_THROUGH_TIME',
+        about: 'What if you could sit across the table from the architects of human history and ask them anything? Minds Through Time brings legendary figures together for AI-powered philosophical conversations spanning centuries of human thought.',
+        category: 'Philosophy & History',
+        subscribers: '106',
+        videos: [
+            { title: 'MINDS THROUGH TIME : SAM ALTMAN X OSAMA LADIN', duration: '5:35', views: '15' },
+            { title: 'MINDS THROUGH TIME CLEOPATRA X KIM K MEET', duration: '5:25', views: '9' },
+            { title: 'MINDS THROUGH TIME ALEX KARP x GENGHIS KHAN', duration: '5:46', views: '7' },
+            { title: 'Minds Through Time (Short)', duration: '0:11', views: '1' },
+            { title: 'MINDS THROUGH TIME EPISODE 2 WILSON X TESLA', duration: '7:01', views: '4' },
+            { title: 'MINDS THROUGH TIME EPISODE 1', duration: '6:35', views: '8' },
+        ]
+    }
 ];
 
-const tasksGrid = document.getElementById('tasks-grid');
-function renderTasks(filter) {
-    if (!tasksGrid) return;
-    tasksGrid.innerHTML = '';
-    TASKS.filter(t => filter === 'all' || t.platform === filter).forEach(t => {
-        tasksGrid.innerHTML += `
-            <div class="task-card" data-platform="${t.platform}">
-                <div class="task-card-header">
-                    <div class="task-platform ${t.platform}"><i class="fab fa-${t.platform}"></i></div>
-                    <div>
-                        <div class="task-title">${t.title}</div>
-                        <div class="task-type">${t.type}</div>
+const creatorsContainer = document.getElementById('creators-list');
+
+function renderCreators(filter) {
+    if (!creatorsContainer) return;
+    creatorsContainer.innerHTML = '';
+
+    const filtered = filter === 'all' ? CREATORS : CREATORS.filter(c => c.id === filter);
+
+    filtered.forEach(creator => {
+        const videoCards = creator.videos.map(v => `
+            <div class="video-task-card">
+                <div class="video-thumb">
+                    <div class="video-thumb-placeholder">
+                        <i class="fab fa-youtube"></i>
+                    </div>
+                    <span class="video-duration">${v.duration}</span>
+                </div>
+                <div class="video-task-info">
+                    <div class="video-task-title">${v.title}</div>
+                    <div class="video-task-meta">${v.views} views</div>
+                </div>
+                <div class="video-task-actions">
+                    <div class="vta-row">
+                        <span class="vta-label"><i class="fas fa-play"></i> Watch</span>
+                        <span class="vta-reward">0.001 SOL</span>
+                        <button class="task-action-sm">Go</button>
+                    </div>
+                    <div class="vta-row">
+                        <span class="vta-label"><i class="fas fa-thumbs-up"></i> Like</span>
+                        <span class="vta-reward">0.0005 SOL</span>
+                        <button class="task-action-sm">Go</button>
+                    </div>
+                    <div class="vta-row">
+                        <span class="vta-label"><i class="fas fa-comment"></i> Comment</span>
+                        <span class="vta-reward">$0.02</span>
+                        <button class="task-action-sm">Go</button>
                     </div>
                 </div>
-                <div class="task-card-body">
-                    <p>${t.desc}</p>
-                    ${t.residual ? '<div class="task-residual-tag"><i class="fas fa-sync-alt"></i> + $0.01/month residual</div>' : ''}
+            </div>
+        `).join('');
+
+        creatorsContainer.innerHTML += `
+            <div class="creator-section" data-creator="${creator.id}">
+                <div class="creator-header">
+                    <div class="creator-profile">
+                        <img src="${creator.avatar}" alt="${creator.name}" class="creator-avatar">
+                        <div class="creator-info">
+                            <div class="creator-name-row">
+                                <h3>${creator.name}</h3>
+                                <span class="creator-handle">${creator.handle}</span>
+                                <span class="creator-category-tag">${creator.category}</span>
+                            </div>
+                            <p class="creator-about">${creator.about}</p>
+                            <div class="creator-stats-row">
+                                <span><i class="fab fa-youtube"></i> ${creator.subscribers} subscribers</span>
+                                <span><i class="fas fa-video"></i> ${creator.videos.length} videos</span>
+                                <span class="creator-platform-tag"><i class="fab fa-${creator.platform}"></i> ${creator.platform === 'youtube' ? 'YouTube' : 'Instagram'}</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="creator-subscribe-action">
+                        <a href="${creator.channelUrl}" target="_blank" class="btn-visit"><i class="fas fa-external-link-alt"></i> Visit Channel</a>
+                        <button class="task-action subscribe-btn">
+                            <i class="fas fa-bell"></i> Subscribe — $0.05 + $0.01/mo
+                        </button>
+                    </div>
                 </div>
-                <div class="task-card-footer">
-                    <span class="task-reward-tag">${t.reward}</span>
-                    <button class="task-action">Start Task</button>
+                <div class="creator-videos-grid">
+                    ${videoCards}
                 </div>
-            </div>`;
+            </div>
+        `;
     });
 }
-renderTasks('all');
+
+renderCreators('all');
 
 document.querySelectorAll('.filter-btn').forEach(btn => {
     btn.addEventListener('click', () => {
         document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
-        renderTasks(btn.dataset.filter);
+        renderCreators(btn.dataset.filter);
     });
 });
 
