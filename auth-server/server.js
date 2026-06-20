@@ -17,7 +17,7 @@ app.get('/auth/discord', (req, res) => {
         client_id: CLIENT_ID,
         redirect_uri: REDIRECT_URI,
         response_type: 'code',
-        scope: 'identify guilds guilds.members.read',
+        scope: 'identify guilds',
     });
     res.redirect(`https://discord.com/api/oauth2/authorize?${params}`);
 });
@@ -34,6 +34,11 @@ app.get('/auth/discord/callback', async (req, res) => {
             code,
             redirect_uri: REDIRECT_URI,
         }), 'application/x-www-form-urlencoded');
+
+        if (tokenData.error) {
+            console.error('Token error:', tokenData);
+            return res.redirect(`${FRONTEND_URL}/login.html?error=auth_failed`);
+        }
 
         const user = await discordGet('/users/@me', tokenData.access_token);
         const guilds = await discordGet('/users/@me/guilds', tokenData.access_token);
@@ -60,7 +65,7 @@ app.get('/auth/discord/callback', async (req, res) => {
         const encodedUser = encodeURIComponent(JSON.stringify(userData));
         res.redirect(`${FRONTEND_URL}/dashboard.html?auth=${encodedUser}`);
     } catch (err) {
-        console.error('OAuth error:', err);
+        console.error('OAuth error:', err.message || err);
         res.redirect(`${FRONTEND_URL}/login.html?error=auth_failed`);
     }
 });
