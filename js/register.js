@@ -180,6 +180,9 @@ document.getElementById('register-form').addEventListener('submit', async (e) =>
     submitBtn.disabled = true;
 
     try {
+        localStorage.setItem('coindrop_application', JSON.stringify(data));
+
+        // Send application via mailto in background iframe to avoid page navigation
         const mailtoBody = encodeURIComponent(
             `New CoinDrop Staffer Application\n\n` +
             `Display Name: ${data.displayName}\n` +
@@ -189,14 +192,16 @@ document.getElementById('register-form').addEventListener('submit', async (e) =>
             `SOL Wallet: ${data.solWallet}\n` +
             `Submitted: ${data.timestamp}\n`
         );
+        const mailtoUrl = `mailto:support@illyrobotic-ai.com?subject=${encodeURIComponent('New CoinDrop Application - ' + data.displayName)}&body=${mailtoBody}`;
 
-        const formEndpoint = `mailto:support@illyrobotic-ai.com?subject=${encodeURIComponent('New CoinDrop Application - ' + data.displayName)}&body=${mailtoBody}`;
-
-        localStorage.setItem('coindrop_application', JSON.stringify(data));
+        // Open mailto without leaving the page
+        const mailFrame = document.createElement('iframe');
+        mailFrame.style.display = 'none';
+        mailFrame.src = mailtoUrl;
+        document.body.appendChild(mailFrame);
+        setTimeout(() => mailFrame.remove(), 3000);
 
         setTimeout(() => {
-            window.open(formEndpoint, '_blank');
-
             document.querySelector('.form-step.active').classList.remove('active');
             document.querySelector('[data-step="success"]').classList.add('active');
         }, 1500);
