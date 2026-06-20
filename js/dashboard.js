@@ -112,56 +112,70 @@ const CREATORS = [
     {
         id: 'illmedicine',
         handle: '@illmedicine',
-        name: 'IllMedicine',
+        name: 'ILLMEDICINE',
         platform: 'youtube',
-        avatar: 'https://api.dicebear.com/7.x/thumbs/svg?seed=illmedicine',
         channelUrl: 'https://youtube.com/@illmedicine',
-        about: 'Music, culture, and creative expression. IllMedicine blends hip-hop, storytelling, and digital artistry into compelling video content that explores the intersection of music and technology.',
-        category: 'Music & Culture',
+        about: 'Music, culture, comedy, and creative expression. ILLMEDICINE blends hip-hop, storytelling, hot takes, and digital artistry into compelling video content exploring the intersection of entertainment and technology.',
+        category: 'Music & Entertainment',
         subscribers: '1.2K',
         videos: [
-            { title: 'IllMedicine - Official Music Video', duration: '4:12', views: '320' },
-            { title: 'Studio Session: Behind The Beat', duration: '6:45', views: '185' },
-            { title: 'IllMedicine Live Performance', duration: '8:30', views: '412' },
-            { title: 'Making a Hit Record in 2025', duration: '5:18', views: '267' },
-            { title: 'IllMedicine x Podcast Interview', duration: '12:03', views: '198' },
+            { id: 'a1oreMYT_54', title: 'MINDS THROUGH TIME : EPISODE 4 : CARDI B | AYN RANDT | SEXXY REDD | DR RUTH', views: '7' },
+            { id: '6u7Y-fN6QUw', title: 'MINDS THROUGH TIME : EPISODE 3 : 1:1 WITH NICOLA TESLA', views: '1' },
+            { id: 'o7kRRVZrmvc', title: 'MINDS THROUGH TIME : EPISODE 2 : TESLA | RAND | DAVINCI | WATTS', views: '6' },
+            { id: 'Qke0MUfIsCc', title: 'IMSI Spoof Hacking Explained', views: '3' },
+            { id: '0D77Fpm51vY', title: '5 Tips to build lean muscle fast!', views: '10' },
+            { id: 'Ln0uOILTgsg', title: 'Charleston White trolls Big Banks over Tekashi69 interview', views: '3,850' },
+            { id: 'y3ghN2m11Jg', title: 'when coding with Claude AI goes left', views: '219' },
+            { id: 'dmt5gEK1hPU', title: 'Corey Holcomb 5150 SHOW LIVE', views: '307' },
+            { id: 'HYRpedXRcx4', title: 'Akademiks starts Beef with Wack 100', views: '456' },
+            { id: 'lX5NZ0b0FoQ', title: 'NO JUMPER NEWS', views: '0' },
+            { id: 'ypYFDafIWHM', title: 'Illmedicine LIVE', views: '0' },
+            { id: 'UQLVWUYCjzk', title: 'Funny stuff while making wings', views: '1' },
+            { id: 'tnPkbtUBNs0', title: 'Poker with the boys LIV STREAM', views: '0' },
         ]
     },
     {
         id: 'illmedicineai',
         handle: '@illmedicineai',
-        name: 'IllMedicine AI',
+        name: 'ILLY LAB ARTV',
         platform: 'youtube',
-        avatar: 'https://api.dicebear.com/7.x/thumbs/svg?seed=illmedicineai',
         channelUrl: 'https://youtube.com/@illmedicineai',
-        about: 'AI-powered creativity and innovation. Exploring the cutting edge of artificial intelligence, machine learning, and how emerging tech is transforming content creation, automation, and the future of work.',
+        about: 'AI-powered creativity, robotics, and innovation. Exploring AI art, autonomous systems, blockchain tools like DisCryptoBank, and how emerging tech is transforming content creation, automation, and the future of work.',
         category: 'AI & Technology',
         subscribers: '850',
         videos: [
-            { title: 'AI-Generated Music: The Future is Here', duration: '7:22', views: '540' },
-            { title: 'Building Apps with Claude Code', duration: '10:15', views: '312' },
-            { title: 'How AI is Changing Music Production', duration: '6:48', views: '445' },
-            { title: 'Automating Your Workflow with AI Tools', duration: '8:33', views: '289' },
-            { title: 'AI Art vs Human Art: The Debate', duration: '9:10', views: '367' },
+            { id: 'POfwK0S0HNw', title: 'MINDS THROUGH TIME: 1:1 with Nicola Tesla as he discusses his life hardships', views: '23' },
+            { id: '6VjTvxy-9ds', title: 'Heated discussion with Ayn Rand, Alan Watts, Nicola Tesla, DaVinci', views: '2' },
+            { id: 'hyVhRfySJzQ', title: 'MINDS THROUGH TIME: Tesla / Watts / Rand / DaVinci', views: '12' },
+            { id: 'qmhnfbnGZ9s', title: 'Filter from Epson Projector was growing algae', views: '1,262' },
+            { id: 'Sw38SrfQe2Q', title: 'VS Code Walkthrough BTS', views: '9' },
+            { id: 'gOfLz-3zAEk', title: 'Connect Travel Go Fund Me Commercial', views: '394' },
+            { id: 'sV-lfWrxBFA', title: 'Unique Robot Identification Signature (URIS)', views: '28' },
+            { id: 'PEUgOiYZdOw', title: 'Exploring FUTOROBOTS', views: '5' },
+            { id: 'CZgSIzPuLNg', title: 'TIP.CC is Dead! Try DisCryptoBank (DCB) by Illy Robotics', views: '29' },
+            { id: 's59Y1oC9smk', title: 'DOPE Marketing DCB Demo', views: '5' },
+            { id: 'iJOXfm3BdwY', title: 'The Reclamation now streaming on illy-ris.com', views: '260' },
+            { id: '3xZuaJ2EO-Q', title: 'this is from my real conversation transcript with Claude', views: '151' },
         ]
     },
     {
         id: 'minds_through_time',
         handle: '@MINDS_THROUGH_TIME',
-        name: 'Minds Through Time',
+        name: 'MINDS THROUGH TIME',
         platform: 'youtube',
-        avatar: 'https://api.dicebear.com/7.x/thumbs/svg?seed=mindstime',
         channelUrl: 'https://youtube.com/@MINDS_THROUGH_TIME',
         about: 'What if you could sit across the table from the architects of human history and ask them anything? Minds Through Time brings legendary figures together for AI-powered philosophical conversations spanning centuries of human thought.',
         category: 'Philosophy & History',
         subscribers: '106',
         videos: [
-            { title: 'MINDS THROUGH TIME : SAM ALTMAN X OSAMA LADIN', duration: '5:35', views: '15' },
-            { title: 'MINDS THROUGH TIME CLEOPATRA X KIM K MEET', duration: '5:25', views: '9' },
-            { title: 'MINDS THROUGH TIME ALEX KARP x GENGHIS KHAN', duration: '5:46', views: '7' },
-            { title: 'Minds Through Time (Short)', duration: '0:11', views: '1' },
-            { title: 'MINDS THROUGH TIME EPISODE 2 WILSON X TESLA', duration: '7:01', views: '4' },
-            { title: 'MINDS THROUGH TIME EPISODE 1', duration: '6:35', views: '8' },
+            { id: 'bU5Ik5TREho', title: 'The Sexxy Randt Show 1', views: '600' },
+            { id: 'U5XeHnzL7qM', title: 'MINDS THROUGH TIME : SAM ALTMAN X OSAMA LADIN', views: '15' },
+            { id: 'S4kkj_FQJuU', title: 'MINDS THROUGH TIME CLEOPATRA X KIM K MEET', views: '9' },
+            { id: 'TrhfDceCCb0', title: 'MINDS THROUGH TIME ALEX KARP x GENGHIS KHAN', views: '7' },
+            { id: 'IzE2sJoNsvU', title: 'Minds Through Time', views: '1' },
+            { id: '9DQjShoxcdQ', title: 'Sexyy Rand', views: '114' },
+            { id: 'rRpv4qmIvrA', title: 'MINDS THROUGH TIME EPISODE 2 WILSON X TESLA', views: '4' },
+            { id: 'NzTlHSL4NUg', title: 'MINDS THROUGH TIME EPISODE 1', views: '8' },
         ]
     }
 ];
@@ -177,12 +191,9 @@ function renderCreators(filter) {
     filtered.forEach(creator => {
         const videoCards = creator.videos.map(v => `
             <div class="video-task-card">
-                <div class="video-thumb">
-                    <div class="video-thumb-placeholder">
-                        <i class="fab fa-youtube"></i>
-                    </div>
-                    <span class="video-duration">${v.duration}</span>
-                </div>
+                <a href="https://www.youtube.com/watch?v=${v.id}" target="_blank" class="video-thumb">
+                    <img src="https://img.youtube.com/vi/${v.id}/mqdefault.jpg" alt="${v.title}" class="video-thumb-img">
+                </a>
                 <div class="video-task-info">
                     <div class="video-task-title">${v.title}</div>
                     <div class="video-task-meta">${v.views} views</div>
