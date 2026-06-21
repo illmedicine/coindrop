@@ -258,9 +258,23 @@ function decryptPrivateKey(encryptedData, encryptionKey) {
 
 // ===== Solana Payout =====
 async function sendSolPayment(privateKeyBase58, recipientAddress, amountSOL) {
-    // Placeholder — will use @solana/web3.js when treasury key is configured
-    console.log(`PAYOUT: ${amountSOL} SOL to ${recipientAddress}`);
-    return null;
+    const { Connection, Keypair, PublicKey, Transaction, SystemProgram, LAMPORTS_PER_SOL } = require('@solana/web3.js');
+    const bs58 = require('bs58');
+
+    const connection = new Connection('https://api.mainnet-beta.solana.com', 'confirmed');
+    const secretKey = bs58.decode(privateKeyBase58);
+    const payer = Keypair.fromSecretKey(secretKey);
+    const recipient = new PublicKey(recipientAddress);
+    const lamports = Math.round(amountSOL * LAMPORTS_PER_SOL);
+
+    const transaction = new Transaction().add(
+        SystemProgram.transfer({ fromPubkey: payer.publicKey, toPubkey: recipient, lamports })
+    );
+
+    const signature = await connection.sendTransaction(transaction, [payer]);
+    await connection.confirmTransaction(signature, 'confirmed');
+    console.log(`PAYOUT: ${amountSOL} SOL to ${recipientAddress} — tx: ${signature}`);
+    return signature;
 }
 
 // ===== Anthropic API =====
