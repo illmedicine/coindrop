@@ -228,17 +228,17 @@ function renderCreators(filter) {
                     <div class="vta-row">
                         <span class="vta-label"><i class="fas fa-play"></i> Watch</span>
                         <span class="vta-reward">0.001 SOL</span>
-                        <a href="${watchUrl}" target="_blank" class="task-action-sm">Go</a>
+                        <button class="task-action-sm" onclick="openTaskModal('${v.id}',\`${v.title.replace(/'/g,"\\'"  ).replace(/`/g,"")}\`,'${creator.name}','watch','${creator.platform}',${!!v.short})">Go</button>
                     </div>
                     <div class="vta-row">
                         <span class="vta-label"><i class="fas fa-thumbs-up"></i> Like</span>
                         <span class="vta-reward">0.0005 SOL</span>
-                        <a href="${watchUrl}" target="_blank" class="task-action-sm">Go</a>
+                        <button class="task-action-sm" onclick="openTaskModal('${v.id}',\`${v.title.replace(/'/g,"\\'").replace(/`/g,"")}\`,'${creator.name}','like','${creator.platform}',${!!v.short})">Go</button>
                     </div>
                     <div class="vta-row">
                         <span class="vta-label"><i class="fas fa-comment"></i> Comment</span>
                         <span class="vta-reward">$0.02</span>
-                        <a href="${commentUrl}" target="_blank" class="task-action-sm">Go</a>
+                        <button class="task-action-sm" onclick="openTaskModal('${v.id}',\`${v.title.replace(/'/g,"\\'").replace(/`/g,"")}\`,'${creator.name}','comment','${creator.platform}',${!!v.short})">Go</button>
                     </div>
                 </div>
             </div>
