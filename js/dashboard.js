@@ -126,13 +126,20 @@ const CREATORS = [
             { id: 'Qke0MUfIsCc', title: 'IMSI Spoof Hacking Explained', views: '3' },
             { id: '0D77Fpm51vY', title: '5 Tips to build lean muscle fast!', views: '10' },
             { id: 'Ln0uOILTgsg', title: 'Charleston White trolls Big Banks over Tekashi69 interview', views: '3,850' },
-            { id: 'y3ghN2m11Jg', title: 'when coding with Claude AI goes left', views: '219' },
+            { id: 'y3ghN2m11Jg', title: 'when coding with Claude AI goes left', views: '219', short: true },
             { id: 'dmt5gEK1hPU', title: 'Corey Holcomb 5150 SHOW LIVE', views: '307' },
             { id: 'HYRpedXRcx4', title: 'Akademiks starts Beef with Wack 100', views: '456' },
             { id: 'lX5NZ0b0FoQ', title: 'NO JUMPER NEWS', views: '0' },
             { id: 'ypYFDafIWHM', title: 'Illmedicine LIVE', views: '0' },
             { id: 'UQLVWUYCjzk', title: 'Funny stuff while making wings', views: '1' },
             { id: 'tnPkbtUBNs0', title: 'Poker with the boys LIV STREAM', views: '0' },
+            { id: 'Jo3ZVujhak0', title: 'The Reclamation Season 1 Trailer', views: '120', short: true },
+            { id: '8k7pZTxxV3A', title: 'Part 1 Stitch Highschool Years', views: '0', short: true },
+            { id: 'bk14mUUZdFk', title: 'The Captains Quarters', views: '0', short: true },
+            { id: '-nH5V7X5jPY', title: 'Clifton Powel cooking and dropping jewels', views: '0', short: true },
+            { id: 'E_glGntqmB8', title: 'Brody loves raw ground beef! #pitbull', views: '0', short: true },
+            { id: 'mYIF-g_mQXk', title: 'Brody watches Baddies Doggo edition #americanbully', views: '0', short: true },
+            { id: '2_5VT3CndH4', title: '#americanbully tries to bite his owner', views: '0', short: true },
         ]
     },
     {
@@ -149,15 +156,21 @@ const CREATORS = [
             { id: 'POfwK0S0HNw', title: 'MINDS THROUGH TIME: 1:1 with Nicola Tesla as he discusses his life hardships', views: '23' },
             { id: '6VjTvxy-9ds', title: 'Heated discussion with Ayn Rand, Alan Watts, Nicola Tesla, DaVinci', views: '2' },
             { id: 'hyVhRfySJzQ', title: 'MINDS THROUGH TIME: Tesla / Watts / Rand / DaVinci', views: '12' },
-            { id: 'qmhnfbnGZ9s', title: 'Filter from Epson Projector was growing algae', views: '1,262' },
+            { id: 'qmhnfbnGZ9s', title: 'Filter from Epson Projector was growing algae', views: '1,262', short: true },
             { id: 'Sw38SrfQe2Q', title: 'VS Code Walkthrough BTS', views: '9' },
-            { id: 'gOfLz-3zAEk', title: 'Connect Travel Go Fund Me Commercial', views: '394' },
+            { id: 'gOfLz-3zAEk', title: 'Connect Travel Go Fund Me Commercial', views: '394', short: true },
             { id: 'sV-lfWrxBFA', title: 'Unique Robot Identification Signature (URIS)', views: '28' },
             { id: 'PEUgOiYZdOw', title: 'Exploring FUTOROBOTS', views: '5' },
             { id: 'CZgSIzPuLNg', title: 'TIP.CC is Dead! Try DisCryptoBank (DCB) by Illy Robotics', views: '29' },
             { id: 's59Y1oC9smk', title: 'DOPE Marketing DCB Demo', views: '5' },
-            { id: 'iJOXfm3BdwY', title: 'The Reclamation now streaming on illy-ris.com', views: '260' },
-            { id: '3xZuaJ2EO-Q', title: 'this is from my real conversation transcript with Claude', views: '151' },
+            { id: 'iJOXfm3BdwY', title: 'The Reclamation now streaming on illy-ris.com', views: '260', short: true },
+            { id: '3xZuaJ2EO-Q', title: 'this is from my real conversation transcript with Claude', views: '151', short: true },
+            { id: 'aaZzQzwkWS0', title: 'This is soo me arguing with Claude like he stole money', views: '0', short: true },
+            { id: 'xGlY9K1wRSo', title: 'IllySocial', views: '0', short: true },
+            { id: 'NwvnYRw5NXk', title: 'AstroKids Digital Microscope demo for STEM students', views: '0', short: true },
+            { id: 'MtoJy8G0Klc', title: 'Revolutionizing Cruise Loyalty - The Voyager\'s Guild', views: '0', short: true },
+            { id: 'V1f0Plkh8I4', title: 'Building LRI Robot hand #ai', views: '0', short: true },
+            { id: 'HjOYhmQpu84', title: 'Powering your home with a Stirling Motor', views: '0', short: true },
         ]
     },
     {
@@ -171,12 +184,12 @@ const CREATORS = [
         category: 'Philosophy & History',
         subscribers: '106',
         videos: [
-            { id: 'bU5Ik5TREho', title: 'The Sexxy Randt Show 1', views: '600' },
+            { id: 'bU5Ik5TREho', title: 'The Sexxy Randt Show 1', views: '600', short: true },
             { id: 'U5XeHnzL7qM', title: 'MINDS THROUGH TIME : SAM ALTMAN X OSAMA LADIN', views: '15' },
             { id: 'S4kkj_FQJuU', title: 'MINDS THROUGH TIME CLEOPATRA X KIM K MEET', views: '9' },
             { id: 'TrhfDceCCb0', title: 'MINDS THROUGH TIME ALEX KARP x GENGHIS KHAN', views: '7' },
-            { id: 'IzE2sJoNsvU', title: 'Minds Through Time', views: '1' },
-            { id: '9DQjShoxcdQ', title: 'Sexyy Rand', views: '114' },
+            { id: 'IzE2sJoNsvU', title: 'Minds Through Time', views: '1', short: true },
+            { id: '9DQjShoxcdQ', title: 'Sexyy Rand', views: '114', short: true },
             { id: 'rRpv4qmIvrA', title: 'MINDS THROUGH TIME EPISODE 2 WILSON X TESLA', views: '4' },
             { id: 'NzTlHSL4NUg', title: 'MINDS THROUGH TIME EPISODE 1', views: '8' },
         ]
@@ -192,10 +205,20 @@ function renderCreators(filter) {
     const filtered = filter === 'all' ? CREATORS : CREATORS.filter(c => c.id === filter);
 
     filtered.forEach(creator => {
-        const videoCards = creator.videos.map(v => `
-            <div class="video-task-card">
-                <a href="https://www.youtube.com/watch?v=${v.id}" target="_blank" class="video-thumb">
-                    <img src="https://img.youtube.com/vi/${v.id}/mqdefault.jpg" alt="${v.title}" class="video-thumb-img">
+        const videoCards = creator.videos.map(v => {
+            const watchUrl = v.short
+                ? `https://www.youtube.com/shorts/${v.id}`
+                : `https://www.youtube.com/watch?v=${v.id}`;
+            const commentUrl = `https://www.youtube.com/watch?v=${v.id}&lc=`;
+            const thumbUrl = v.short
+                ? `https://img.youtube.com/vi/${v.id}/oar2.jpg`
+                : `https://img.youtube.com/vi/${v.id}/mqdefault.jpg`;
+            const badge = v.short ? '<span class="short-badge">SHORT</span>' : '';
+            return `
+            <div class="video-task-card ${v.short ? 'is-short' : ''}">
+                <a href="${watchUrl}" target="_blank" class="video-thumb ${v.short ? 'video-thumb-short' : ''}">
+                    <img src="${thumbUrl}" alt="${v.title}" class="video-thumb-img" onerror="this.src='https://img.youtube.com/vi/${v.id}/hqdefault.jpg'">
+                    ${badge}
                 </a>
                 <div class="video-task-info">
                     <div class="video-task-title">${v.title}</div>
@@ -205,21 +228,21 @@ function renderCreators(filter) {
                     <div class="vta-row">
                         <span class="vta-label"><i class="fas fa-play"></i> Watch</span>
                         <span class="vta-reward">0.001 SOL</span>
-                        <button class="task-action-sm">Go</button>
+                        <a href="${watchUrl}" target="_blank" class="task-action-sm">Go</a>
                     </div>
                     <div class="vta-row">
                         <span class="vta-label"><i class="fas fa-thumbs-up"></i> Like</span>
                         <span class="vta-reward">0.0005 SOL</span>
-                        <button class="task-action-sm">Go</button>
+                        <a href="${watchUrl}" target="_blank" class="task-action-sm">Go</a>
                     </div>
                     <div class="vta-row">
                         <span class="vta-label"><i class="fas fa-comment"></i> Comment</span>
                         <span class="vta-reward">$0.02</span>
-                        <button class="task-action-sm">Go</button>
+                        <a href="${commentUrl}" target="_blank" class="task-action-sm">Go</a>
                     </div>
                 </div>
             </div>
-        `).join('');
+        `;}).join('');
 
         creatorsContainer.innerHTML += `
             <div class="creator-section" data-creator="${creator.id}">
