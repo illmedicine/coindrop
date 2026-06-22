@@ -178,7 +178,11 @@ PLATFORM: ${platform}
 
 ${taskRules[taskType] || taskRules.watch}
 
-IMPORTANT: You must check EACH condition independently. Do not assume — look carefully at the actual screenshot. If you cannot clearly see a required element, FAIL the verification.
+IMPORTANT RULES:
+- Check EACH condition independently. Do not assume — look carefully at the actual screenshot.
+- IGNORE ALL WATERMARKS: Videos may contain AI-generation watermarks (Sora, Runway, Kling, Pika, Midjourney, OpenAI, Google DeepMind, Stability AI, HiDream, Seedance, Higgsfield, etc.). These watermarks are part of the video content itself and are NOT relevant to verification. Do NOT fail or reduce confidence because of watermarks visible in the video player or on the video content.
+- IGNORE overlays, badges, or text burned into the video content — only evaluate the YouTube/Instagram UI elements (title, channel name, like button state, comments, progress bar).
+- If you cannot clearly see a REQUIRED UI element (title, channel name, or action state), FAIL the verification.
 
 Respond with EXACTLY this JSON (no other text):
 {"verified": true/false, "confidence": 0.0-1.0, "reason": "brief explanation of what you found/didn't find"}`;
