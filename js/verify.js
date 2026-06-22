@@ -160,7 +160,7 @@ async function submitVerification(videoId, videoTitleEnc, creatorNameEnc, taskTy
                 platform,
                 userId,
                 username: user.username || username,
-                walletAddress: app.solWallet || '',
+                walletAddress: user.walletAddress || app.solWallet || '',
             }),
         });
 
