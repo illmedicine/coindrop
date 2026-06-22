@@ -23,13 +23,46 @@ const DISCORD_WEBHOOKS = {
     subscriber: process.env.DISCORD_WEBHOOK_SUBSCRIBER,
 };
 
-const TASK_REWARDS = {
-    watch: 0.001,
-    like: 0.0005,
-    comment: 0.002,
+// All rewards in USD cents — converted to SOL at payout time
+const TASK_REWARDS_USD = {
+    watch: 0.01,
+    like: 0.005,
+    comment: 0.02,
     subscribe: 0.05,
     follow: 0.05,
 };
+
+// Fetch live SOL/USD price
+let _solPriceCache = { price: 150, timestamp: 0 };
+async function getSolPrice() {
+    if (Date.now() - _solPriceCache.timestamp < 60000) return _solPriceCache.price;
+    try {
+        const data = await httpGet('https://api.coingecko.com/api/v3/simple/price?ids=solana&vs_currencies=usd');
+        const parsed = JSON.parse(data);
+        _solPriceCache = { price: parsed.solana.usd, timestamp: Date.now() };
+        return parsed.solana.usd;
+    } catch (e) {
+        console.error('SOL price fetch error:', e.message);
+        return _solPriceCache.price;
+    }
+}
+
+function httpGet(url) {
+    return new Promise((resolve, reject) => {
+        const u = new URL(url);
+        https.get({ hostname: u.hostname, path: u.pathname + u.search, headers: { 'Accept': 'application/json' } }, (res) => {
+            let data = '';
+            res.on('data', c => data += c);
+            res.on('end', () => resolve(data));
+        }).on('error', reject);
+    });
+}
+
+// SOL price endpoint for frontend
+app.get('/api/sol-price', async (req, res) => {
+    const price = await getSolPrice();
+    res.json({ price, timestamp: Date.now() });
+});
 
 // ===== Discord OAuth =====
 app.get('/auth/discord', (req, res) => {
@@ -181,8 +214,10 @@ Respond with EXACTLY this JSON (no other text):
             });
         }
 
-        // Verification passed — process payout
-        const rewardSOL = TASK_REWARDS[taskType] || 0.001;
+        // Verification passed — convert USD reward to SOL at live rate
+        const rewardUSD = TASK_REWARDS_USD[taskType] || 0.01;
+        const solPrice = await getSolPrice();
+        const rewardSOL = parseFloat((rewardUSD / solPrice).toFixed(9));
         let payoutSuccess = false;
         let txSignature = null;
 
@@ -217,7 +252,7 @@ Respond with EXACTLY this JSON (no other text):
                     fields: [
                         { name: '📺 Content', value: videoTitle, inline: true },
                         { name: '🎬 Creator', value: creatorName, inline: true },
-                        { name: '💰 Reward', value: `${rewardSOL} SOL`, inline: true },
+                        { name: '💰 Reward', value: `$${rewardUSD.toFixed(3)} (${rewardSOL} SOL @ $${solPrice})`, inline: true },
                         { name: '🔗 Platform', value: platform === 'youtube' ? 'YouTube' : 'Instagram', inline: true },
                         ...(txSignature ? [{ name: '📋 Transaction', value: `[View on Solscan](https://solscan.io/tx/${txSignature})` }] : []),
                     ],
@@ -232,7 +267,9 @@ Respond with EXACTLY this JSON (no other text):
             verified: true,
             confidence: verification.confidence,
             reason: verification.reason,
-            reward: rewardSOL,
+            rewardUSD,
+            rewardSOL,
+            solPrice,
             payoutSuccess,
             txSignature,
             taskType,

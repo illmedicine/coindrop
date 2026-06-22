@@ -3,13 +3,22 @@ const API_BASE = 'https://coindrop-auth.up.railway.app';
 
 function openTaskModal(videoId, videoTitle, creatorName, taskType, platform, isShort) {
     const user = JSON.parse(localStorage.getItem('coindrop_user') || '{}');
+
+    // Check wallet before allowing task
+    if (!user.walletAddress) {
+        if (confirm('You need to connect your Phantom wallet to earn payouts. Set it up now?')) {
+            openWalletModal();
+        }
+        return;
+    }
+
     const watchUrl = isShort
         ? `https://www.youtube.com/shorts/${videoId}`
         : `https://www.youtube.com/watch?v=${videoId}`;
     const embedUrl = isShort
         ? `https://www.youtube.com/embed/${videoId}`
         : `https://www.youtube.com/embed/${videoId}?rel=0`;
-    const reward = { watch: '0.001 SOL', like: '0.0005 SOL', comment: '$0.02', subscribe: '$0.05 + $0.01/mo', follow: '$0.05 + $0.01/mo' }[taskType];
+    const reward = { watch: '$0.01', like: '$0.005', comment: '$0.02', subscribe: '$0.05 + $0.01/mo', follow: '$0.05 + $0.01/mo' }[taskType];
     const actionLabel = { watch: 'Watch the video', like: 'Like the video', comment: 'Leave a comment', subscribe: 'Subscribe to channel', follow: 'Follow account' }[taskType];
     const actionIcon = { watch: 'fa-play', like: 'fa-thumbs-up', comment: 'fa-comment', subscribe: 'fa-bell', follow: 'fa-user-plus' }[taskType];
 
@@ -171,7 +180,8 @@ async function submitVerification(videoId, videoTitleEnc, creatorNameEnc, taskTy
                     <p class="verify-reason">${result.reason}</p>
                     <div class="verify-reward">
                         <span class="reward-label">Reward Earned</span>
-                        <span class="reward-value">${result.reward} SOL</span>
+                        <span class="reward-value">$${(result.rewardUSD || result.reward || 0).toFixed ? (result.rewardUSD || 0).toFixed(3) : result.reward}</span>
+                        <span class="reward-sub">${result.rewardSOL || result.reward || 0} SOL @ $${result.solPrice || '?'}</span>
                     </div>
                     ${result.payoutSuccess ? `<p class="verify-tx"><i class="fas fa-check"></i> Payout sent to your wallet</p>` : '<p class="verify-tx pending"><i class="fas fa-clock"></i> Payout will be processed in next daily drop</p>'}
                     <p class="verify-discord"><i class="fab fa-discord"></i> Task posted to CoinDrop Discord</p>

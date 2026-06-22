@@ -262,6 +262,13 @@
     color: var(--orange);
 }
 
+.reward-sub {
+    display: block;
+    font-size: 0.7rem;
+    color: var(--gray-400);
+    margin-top: 2px;
+}
+
 .verify-tx {
     font-size: 0.85rem;
     color: var(--success);

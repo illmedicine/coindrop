@@ -42,6 +42,105 @@ if (authData) {
 
 // Account linking is handled when user signs in with Google (see firebase-config.js)
 
+// ===== Wallet Management =====
+function openWalletModal() {
+    document.getElementById('wallet-modal').classList.remove('hidden');
+    const input = document.getElementById('wallet-input');
+    const user = JSON.parse(localStorage.getItem('coindrop_user') || '{}');
+    if (user.walletAddress) input.value = user.walletAddress;
+    input.addEventListener('input', validateWalletInput);
+}
+
+function closeWalletModal() {
+    document.getElementById('wallet-modal').classList.add('hidden');
+}
+
+function validateWalletInput() {
+    const input = document.getElementById('wallet-input');
+    const status = document.getElementById('wallet-input-status');
+    const feedback = document.getElementById('wallet-input-feedback');
+    const btn = document.getElementById('save-wallet-btn');
+    const val = input.value.trim();
+
+    if (!val) {
+        status.textContent = '';
+        feedback.textContent = '';
+        input.classList.remove('is-valid', 'is-invalid');
+        btn.disabled = true;
+        return;
+    }
+
+    if (/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(val)) {
+        status.innerHTML = '<i class="fas fa-check-circle"></i>';
+        status.className = 'input-status valid';
+        feedback.textContent = 'Valid Solana address';
+        feedback.style.color = 'var(--success)';
+        input.classList.add('is-valid');
+        input.classList.remove('is-invalid');
+        btn.disabled = false;
+    } else {
+        status.innerHTML = '<i class="fas fa-times-circle"></i>';
+        status.className = 'input-status invalid';
+        feedback.textContent = 'Invalid Solana address format';
+        feedback.style.color = 'var(--danger)';
+        input.classList.add('is-invalid');
+        input.classList.remove('is-valid');
+        btn.disabled = true;
+    }
+}
+
+async function saveWalletAddress() {
+    const input = document.getElementById('wallet-input');
+    const btn = document.getElementById('save-wallet-btn');
+    const result = document.getElementById('wallet-save-result');
+    const address = input.value.trim();
+
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Saving...';
+
+    const user = JSON.parse(localStorage.getItem('coindrop_user') || '{}');
+    user.walletAddress = address;
+    localStorage.setItem('coindrop_user', JSON.stringify(user));
+
+    // Save to Firebase if authenticated
+    if (typeof CoinDropDB !== 'undefined' && user.id) {
+        try {
+            await CoinDropDB.saveUser(user.id, { walletAddress: address });
+        } catch(e) { console.warn('Wallet save to Firebase failed:', e.message); }
+    }
+
+    btn.innerHTML = '<i class="fas fa-check"></i> Saved!';
+    result.innerHTML = '<span style="color:var(--success)"><i class="fas fa-check-circle"></i> Wallet connected! You will receive SOL payouts for verified tasks.</span>';
+
+    updateWalletUI(address);
+    document.getElementById('wallet-required-banner')?.classList.add('hidden');
+
+    setTimeout(() => {
+        btn.innerHTML = '<i class="fas fa-check"></i> Save Wallet Address';
+        btn.disabled = false;
+        closeWalletModal();
+    }, 2000);
+}
+
+function updateWalletUI(address) {
+    const statusEl = document.getElementById('pd-wallet-status');
+    const btnText = document.getElementById('pd-wallet-btn-text');
+    if (address) {
+        const short = address.substring(0, 4) + '...' + address.substring(address.length - 4);
+        if (statusEl) {
+            statusEl.className = 'pd-wallet-status is-set';
+            statusEl.innerHTML = `<i class="fas fa-check-circle"></i> Wallet: <span class="pd-wallet-addr">${short}</span>`;
+        }
+        if (btnText) btnText.textContent = 'Change Wallet';
+    } else {
+        if (statusEl) {
+            statusEl.className = 'pd-wallet-status not-set';
+            statusEl.innerHTML = '<i class="fas fa-exclamation-triangle"></i> No wallet connected';
+        }
+        if (btnText) btnText.textContent = 'Set Up Phantom Wallet';
+    }
+}
+
 // Load user data
 const user = JSON.parse(localStorage.getItem('coindrop_user') || 'null');
 if (!user) {
@@ -102,6 +201,13 @@ if (user) {
     document.querySelectorAll('.pd-rank').forEach((el, i) => {
         if (i <= currentIdx) el.classList.add('active');
     });
+
+    // Wallet UI
+    updateWalletUI(user.walletAddress || '');
+    if (!user.walletAddress) {
+        const banner = document.getElementById('wallet-required-banner');
+        if (banner) banner.classList.remove('hidden');
+    }
 }
 
 // Profile dropdown toggle
@@ -369,10 +475,11 @@ function updateEarningsBanner() {
     let totalCreators = CREATORS.length;
     CREATORS.forEach(c => totalVideos += c.videos.length);
 
-    const dailyWatchSOL = totalVideos * 0.001;
-    const dailyLikeSOL = totalVideos * 0.0005;
+    // All rewards in USD: watch=$0.01, like=$0.005, comment=$0.02 per video per day
+    const dailyWatchUSD = totalVideos * 0.01;
+    const dailyLikeUSD = totalVideos * 0.005;
     const dailyCommentUSD = totalVideos * 0.02;
-    const dailyTotalSOL = dailyWatchSOL + dailyLikeSOL;
+    const dailyTotalUSD = dailyWatchUSD + dailyLikeUSD + dailyCommentUSD;
     const subOnetimeUSD = totalCreators * 0.05;
     const monthlyResidualUSD = totalCreators * 0.01;
 
@@ -381,7 +488,7 @@ function updateEarningsBanner() {
     const ebResidual = document.getElementById('eb-residual');
     const ebNetwork = document.getElementById('eb-network');
 
-    if (ebDaily) ebDaily.textContent = `${dailyTotalSOL.toFixed(4)} SOL + $${dailyCommentUSD.toFixed(2)}`;
+    if (ebDaily) ebDaily.textContent = `$${dailyTotalUSD.toFixed(2)} USD`;
     if (ebSub) ebSub.textContent = `$${subOnetimeUSD.toFixed(2)}`;
     if (ebResidual) ebResidual.textContent = `$${monthlyResidualUSD.toFixed(2)}/mo`;
     if (ebNetwork) ebNetwork.textContent = `${totalCreators} creators · ${totalVideos} videos`;
