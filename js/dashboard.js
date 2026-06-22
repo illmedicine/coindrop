@@ -57,6 +57,69 @@ if (user) {
     document.getElementById('tasks-done').textContent = user.tasksCompleted;
     document.getElementById('active-subs').textContent = user.activeSubscriptions;
     document.getElementById('active-follows').textContent = user.activeFollows;
+
+    // Profile dropdown data
+    const pdAvatar = document.getElementById('pd-avatar');
+    if (pdAvatar) pdAvatar.src = user.avatar;
+    const pdName = document.getElementById('pd-name');
+    if (pdName) pdName.textContent = user.displayName;
+    const pdUsername = document.getElementById('pd-username');
+    if (pdUsername) pdUsername.textContent = `@${user.username || user.displayName}`;
+    const pdBadge = document.getElementById('pd-badge');
+    if (pdBadge) { pdBadge.innerHTML = `<i class="${p.icon}"></i> ${p.label}`; pdBadge.className = `badge ${p.class}`; }
+    const pdEarned = document.getElementById('pd-earned');
+    if (pdEarned) pdEarned.textContent = `${user.totalEarned} SOL`;
+    const pdTasks = document.getElementById('pd-tasks');
+    if (pdTasks) pdTasks.textContent = user.tasksCompleted;
+
+    const taskBreakdown = JSON.parse(localStorage.getItem('coindrop_task_breakdown') || '{"views":0,"likes":0,"comments":0,"subs":0}');
+    const pdViews = document.getElementById('pd-views');
+    if (pdViews) pdViews.textContent = taskBreakdown.views;
+    const pdLikes = document.getElementById('pd-likes');
+    if (pdLikes) pdLikes.textContent = taskBreakdown.likes;
+    const pdComments = document.getElementById('pd-comments');
+    if (pdComments) pdComments.textContent = taskBreakdown.comments;
+    const pdSubs = document.getElementById('pd-subs');
+    if (pdSubs) pdSubs.textContent = (user.activeSubscriptions || 0) + (user.activeFollows || 0);
+
+    // Prestige progress
+    const prestigeOrder = ['starter','bronze','silver','gold','platinum','diamond'];
+    const currentIdx = prestigeOrder.indexOf(user.prestige || 'starter');
+    const progressPct = Math.round(((currentIdx + 1) / prestigeOrder.length) * 100);
+    const pdProgress = document.getElementById('pd-progress');
+    if (pdProgress) pdProgress.style.width = progressPct + '%';
+    document.querySelectorAll('.pd-rank').forEach((el, i) => {
+        if (i <= currentIdx) el.classList.add('active');
+    });
+}
+
+// Profile dropdown toggle
+function toggleProfileDropdown(e) {
+    e.stopPropagation();
+    const dropdown = document.getElementById('profile-dropdown');
+    const menu = document.getElementById('user-menu-toggle');
+    dropdown.classList.toggle('hidden');
+    menu.classList.toggle('open');
+}
+
+function closeProfileDropdown() {
+    document.getElementById('profile-dropdown')?.classList.add('hidden');
+    document.getElementById('user-menu-toggle')?.classList.remove('open');
+}
+
+document.addEventListener('click', (e) => {
+    const dropdown = document.getElementById('profile-dropdown');
+    if (dropdown && !dropdown.contains(e.target) && !document.getElementById('user-menu-toggle')?.contains(e.target)) {
+        closeProfileDropdown();
+    }
+});
+
+function switchTab(tabName) {
+    document.querySelectorAll('.sidebar-link').forEach(l => l.classList.remove('active'));
+    const link = document.querySelector(`[data-tab="${tabName}"]`);
+    if (link) link.classList.add('active');
+    document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+    document.getElementById(`tab-${tabName}`)?.classList.add('active');
 }
 
 // Recent activity

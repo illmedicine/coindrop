@@ -60,10 +60,75 @@
                     <i class="fas fa-clock text-orange"></i>
                     Next drop: <strong id="next-drop-timer">--:--:--</strong>
                 </div>
-                <div class="user-menu">
+                <div class="user-menu" id="user-menu-toggle" onclick="toggleProfileDropdown(event)">
                     <img src="https://api.dicebear.com/7.x/thumbs/svg?seed=Demo" alt="" class="user-avatar" id="user-avatar">
                     <span id="user-name">Demo User</span>
                     <span class="badge badge-silver" id="user-badge"><i class="fas fa-shield-alt"></i> Silver</span>
+                    <i class="fas fa-chevron-down user-menu-arrow"></i>
+                </div>
+                <!-- Profile Dropdown -->
+                <div class="profile-dropdown hidden" id="profile-dropdown">
+                    <div class="profile-dropdown-header">
+                        <img src="https://api.dicebear.com/7.x/thumbs/svg?seed=Demo" alt="" class="pd-avatar" id="pd-avatar">
+                        <div class="pd-info">
+                            <strong id="pd-name">Demo User</strong>
+                            <span id="pd-username" class="pd-handle">@demo</span>
+                        </div>
+                        <span class="badge badge-silver" id="pd-badge"><i class="fas fa-shield-alt"></i> Silver</span>
+                    </div>
+                    <div class="pd-stats-grid">
+                        <div class="pd-stat">
+                            <i class="fas fa-coins"></i>
+                            <span class="pd-stat-value" id="pd-earned">0 SOL</span>
+                            <span class="pd-stat-label">Earned</span>
+                        </div>
+                        <div class="pd-stat">
+                            <i class="fas fa-check-double"></i>
+                            <span class="pd-stat-value" id="pd-tasks">0</span>
+                            <span class="pd-stat-label">Tasks</span>
+                        </div>
+                        <div class="pd-stat">
+                            <i class="fas fa-eye"></i>
+                            <span class="pd-stat-value" id="pd-views">0</span>
+                            <span class="pd-stat-label">Views</span>
+                        </div>
+                        <div class="pd-stat">
+                            <i class="fas fa-thumbs-up"></i>
+                            <span class="pd-stat-value" id="pd-likes">0</span>
+                            <span class="pd-stat-label">Likes</span>
+                        </div>
+                        <div class="pd-stat">
+                            <i class="fas fa-comment"></i>
+                            <span class="pd-stat-value" id="pd-comments">0</span>
+                            <span class="pd-stat-label">Comments</span>
+                        </div>
+                        <div class="pd-stat">
+                            <i class="fas fa-bell"></i>
+                            <span class="pd-stat-value" id="pd-subs">0</span>
+                            <span class="pd-stat-label">Subs</span>
+                        </div>
+                    </div>
+                    <div class="pd-prestige">
+                        <span class="pd-prestige-label">Prestige Rank</span>
+                        <div class="pd-prestige-track">
+                            <div class="pd-rank"><i class="fas fa-seedling"></i> Starter</div>
+                            <div class="pd-rank"><i class="fas fa-medal"></i> Bronze</div>
+                            <div class="pd-rank"><i class="fas fa-shield-alt"></i> Silver</div>
+                            <div class="pd-rank"><i class="fas fa-star"></i> Gold</div>
+                            <div class="pd-rank"><i class="fas fa-crown"></i> Platinum</div>
+                            <div class="pd-rank"><i class="fas fa-gem"></i> Diamond</div>
+                        </div>
+                        <div class="pd-progress-bar">
+                            <div class="pd-progress-fill" id="pd-progress" style="width:10%"></div>
+                        </div>
+                    </div>
+                    <div class="pd-actions">
+                        <a href="#" class="pd-action" onclick="switchTab('earnings');closeProfileDropdown()"><i class="fas fa-chart-line"></i> Earnings History</a>
+                        <a href="#" class="pd-action" onclick="switchTab('subscriptions');closeProfileDropdown()"><i class="fas fa-bell"></i> My Subscriptions</a>
+                        <a href="#" class="pd-action" onclick="switchTab('leaderboard');closeProfileDropdown()"><i class="fas fa-trophy"></i> Leaderboard</a>
+                        <div class="pd-divider"></div>
+                        <a href="index.html" class="pd-action pd-logout" onclick="localStorage.removeItem('coindrop_user')"><i class="fas fa-sign-out-alt"></i> Logout</a>
+                    </div>
                 </div>
             </div>
         </header>

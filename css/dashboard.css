@@ -124,11 +124,150 @@
     display: flex;
     align-items: center;
     gap: 10px;
+    cursor: pointer;
+    padding: 6px 10px;
+    border-radius: var(--radius-md);
+    transition: background 0.2s;
+    position: relative;
 }
 
-.user-avatar { width: 32px; height: 32px; border-radius: 50%; }
+.user-menu:hover { background: var(--gray-50); }
+
+.user-avatar { width: 36px; height: 36px; border-radius: 50%; border: 2px solid var(--orange); }
 
 #user-name { font-weight: 600; font-size: 0.9rem; color: var(--navy); }
+
+.user-menu-arrow { font-size: 0.6rem; color: var(--gray-400); transition: transform 0.2s; }
+.user-menu.open .user-menu-arrow { transform: rotate(180deg); }
+
+/* Profile Dropdown */
+.profile-dropdown {
+    position: absolute;
+    top: 60px;
+    right: 20px;
+    width: 360px;
+    background: var(--white);
+    border-radius: var(--radius-lg);
+    box-shadow: 0 20px 50px rgba(0,0,0,0.15), 0 0 0 1px rgba(0,0,0,0.05);
+    z-index: 200;
+    overflow: hidden;
+    animation: dropdownIn 0.2s ease;
+}
+
+.profile-dropdown.hidden { display: none; }
+
+@keyframes dropdownIn {
+    from { opacity: 0; transform: translateY(-8px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.profile-dropdown-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 18px 20px;
+    background: var(--navy-dark);
+    color: var(--white);
+}
+
+.pd-avatar { width: 48px; height: 48px; border-radius: 50%; border: 2px solid var(--orange); flex-shrink: 0; }
+
+.pd-info { flex: 1; }
+.pd-info strong { display: block; font-size: 1rem; }
+.pd-handle { font-size: 0.8rem; color: rgba(255,255,255,0.5); }
+
+.pd-stats-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1px;
+    background: var(--gray-100);
+    border-bottom: 1px solid var(--gray-100);
+}
+
+.pd-stat {
+    background: var(--white);
+    padding: 12px 8px;
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+}
+
+.pd-stat i { font-size: 0.8rem; color: var(--orange); margin-bottom: 2px; }
+.pd-stat-value { font-family: 'Space Grotesk', sans-serif; font-weight: 700; font-size: 0.95rem; color: var(--navy); }
+.pd-stat-label { font-size: 0.65rem; color: var(--gray-400); text-transform: uppercase; letter-spacing: 0.5px; }
+
+.pd-prestige {
+    padding: 14px 20px;
+    border-bottom: 1px solid var(--gray-100);
+}
+
+.pd-prestige-label { font-size: 0.75rem; color: var(--gray-400); font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; display: block; margin-bottom: 8px; }
+
+.pd-prestige-track {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 6px;
+}
+
+.pd-rank {
+    font-size: 0.6rem;
+    color: var(--gray-300);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+}
+
+.pd-rank i { font-size: 0.7rem; }
+.pd-rank.active { color: var(--orange); font-weight: 700; }
+
+.pd-progress-bar {
+    height: 4px;
+    background: var(--gray-100);
+    border-radius: 2px;
+    overflow: hidden;
+}
+
+.pd-progress-fill {
+    height: 100%;
+    background: var(--gradient-orange);
+    border-radius: 2px;
+    transition: width 0.5s ease;
+}
+
+.pd-actions { padding: 8px; }
+
+.pd-action {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px;
+    color: var(--gray-600);
+    text-decoration: none;
+    font-size: 0.85rem;
+    font-weight: 500;
+    border-radius: var(--radius-sm);
+    transition: background 0.2s;
+    cursor: pointer;
+}
+
+.pd-action:hover { background: var(--gray-50); color: var(--navy); }
+
+.pd-logout { color: var(--danger); }
+.pd-logout:hover { background: rgba(239,68,68,0.05); color: var(--danger); }
+
+.pd-divider { height: 1px; background: var(--gray-100); margin: 4px 0; }
+
+@media (max-width: 768px) {
+    .profile-dropdown { width: calc(100vw - 32px); right: 16px; top: 56px; }
+    .pd-stats-grid { grid-template-columns: repeat(3, 1fr); }
+    #user-name { display: none; }
+    #user-badge { display: none; }
+    .user-menu-arrow { display: none; }
+    .user-avatar { width: 32px; height: 32px; }
+}
 
 /* Tab content */
 .tab-content {
