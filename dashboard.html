@@ -338,7 +338,7 @@
     </main>
 
     <!-- Wallet Setup Modal -->
-    <div class="task-modal-overlay hidden" id="wallet-modal">
+    <div class="task-modal-overlay hidden" id="wallet-modal" onclick="if(event.target===this)closeWalletModal()">
         <div class="task-modal" style="max-width:480px">
             <button class="task-modal-close" onclick="closeWalletModal()">&times;</button>
             <div class="task-modal-header">

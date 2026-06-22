@@ -42,17 +42,28 @@ if (authData) {
 
 // Account linking is handled when user signs in with Google (see firebase-config.js)
 
+// Early declarations needed by renderCreators
+var _subscribedCreators = new Set();
+var _cooldownCache = {};
+
 // ===== Wallet Management =====
 function openWalletModal() {
-    document.getElementById('wallet-modal').classList.remove('hidden');
+    const modal = document.getElementById('wallet-modal');
+    if (!modal) return;
+    modal.classList.remove('hidden');
     const input = document.getElementById('wallet-input');
     const user = JSON.parse(localStorage.getItem('coindrop_user') || '{}');
-    if (user.walletAddress) input.value = user.walletAddress;
+    if (user.walletAddress) {
+        input.value = user.walletAddress;
+        setTimeout(validateWalletInput, 100);
+    }
+    input.removeEventListener('input', validateWalletInput);
     input.addEventListener('input', validateWalletInput);
 }
 
 function closeWalletModal() {
-    document.getElementById('wallet-modal').classList.add('hidden');
+    const modal = document.getElementById('wallet-modal');
+    if (modal) modal.classList.add('hidden');
 }
 
 function validateWalletInput() {
@@ -92,34 +103,43 @@ function validateWalletInput() {
 async function saveWalletAddress() {
     const input = document.getElementById('wallet-input');
     const btn = document.getElementById('save-wallet-btn');
-    const result = document.getElementById('wallet-save-result');
+    const resultEl = document.getElementById('wallet-save-result');
     const address = input.value.trim();
+
+    if (!/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(address)) {
+        resultEl.innerHTML = '<span style="color:var(--danger)"><i class="fas fa-times-circle"></i> Invalid Solana address.</span>';
+        return;
+    }
 
     btn.disabled = true;
     btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Saving...';
 
-    const user = JSON.parse(localStorage.getItem('coindrop_user') || '{}');
-    user.walletAddress = address;
-    localStorage.setItem('coindrop_user', JSON.stringify(user));
+    // Update localStorage
+    const userData = JSON.parse(localStorage.getItem('coindrop_user') || '{}');
+    userData.walletAddress = address;
+    localStorage.setItem('coindrop_user', JSON.stringify(userData));
 
-    // Save to Firebase if authenticated
-    if (typeof CoinDropDB !== 'undefined' && user.id) {
+    // Save to Firebase
+    if (typeof CoinDropDB !== 'undefined' && userData.id) {
         try {
-            await CoinDropDB.saveUser(user.id, { walletAddress: address });
-        } catch(e) { console.warn('Wallet save to Firebase failed:', e.message); }
+            await CoinDropDB.saveUser(userData.id, { walletAddress: address });
+        } catch(e) { console.warn('Wallet Firebase save skipped:', e.message); }
     }
 
-    btn.innerHTML = '<i class="fas fa-check"></i> Saved!';
-    result.innerHTML = '<span style="color:var(--success)"><i class="fas fa-check-circle"></i> Wallet connected! You will receive SOL payouts for verified tasks.</span>';
-
+    // Update UI
     updateWalletUI(address);
-    document.getElementById('wallet-required-banner')?.classList.add('hidden');
+    const banner = document.getElementById('wallet-required-banner');
+    if (banner) banner.classList.add('hidden');
+
+    resultEl.innerHTML = '<span style="color:var(--success)"><i class="fas fa-check-circle"></i> Wallet connected! You can now earn SOL.</span>';
+    btn.innerHTML = '<i class="fas fa-check"></i> Saved!';
 
     setTimeout(() => {
+        closeWalletModal();
         btn.innerHTML = '<i class="fas fa-check"></i> Save Wallet Address';
         btn.disabled = false;
-        closeWalletModal();
-    }, 2000);
+        resultEl.innerHTML = '';
+    }, 1500);
 }
 
 function updateWalletUI(address) {
@@ -202,11 +222,14 @@ if (user) {
         if (i <= currentIdx) el.classList.add('active');
     });
 
-    // Wallet UI
+    // Wallet UI — show banner if no wallet, never auto-open modal
     updateWalletUI(user.walletAddress || '');
     if (!user.walletAddress) {
         const banner = document.getElementById('wallet-required-banner');
         if (banner) banner.classList.remove('hidden');
+    } else {
+        const banner = document.getElementById('wallet-required-banner');
+        if (banner) banner.classList.add('hidden');
     }
 }
 
@@ -299,7 +322,7 @@ if (miniLb) {
 // CREATORS array is loaded from creators-data.js (included before this file)
 
 // 24h cooldown tracking — uses cached cooldowns from Firebase
-let _cooldownCache = {};
+// _cooldownCache declared at top of file
 
 async function loadCooldowns() {
     if (typeof CoinDropDB !== 'undefined' && user && user.id) {
@@ -570,7 +593,7 @@ async function loadSubsAndCooldowns() {
 }
 
 // Track which creators user has subscribed to (for greying out)
-let _subscribedCreators = new Set();
+// _subscribedCreators declared at top of file
 async function loadSubscribedCreators() {
     if (typeof CoinDropDB === 'undefined' || !user || !user.id) return;
     try {
