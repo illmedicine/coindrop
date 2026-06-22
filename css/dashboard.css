@@ -83,6 +83,99 @@
     padding: 0;
 }
 
+/* Earnings Banner */
+.earnings-banner {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 14px 28px;
+    background: linear-gradient(135deg, var(--navy-dark), var(--navy));
+    border-bottom: 2px solid var(--orange);
+}
+
+.eb-icon {
+    width: 40px;
+    height: 40px;
+    background: var(--gradient-orange);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--white);
+    font-size: 1rem;
+    flex-shrink: 0;
+    animation: pulse 2s infinite;
+}
+
+.eb-content { flex: 1; }
+
+.eb-row {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    flex-wrap: wrap;
+}
+
+.eb-stat { text-align: center; }
+
+.eb-label {
+    display: block;
+    font-size: 0.6rem;
+    color: rgba(255,255,255,0.45);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 2px;
+}
+
+.eb-value {
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: var(--orange);
+}
+
+.eb-divider {
+    width: 1px;
+    height: 30px;
+    background: rgba(255,255,255,0.1);
+}
+
+@media (max-width: 768px) {
+    .earnings-banner { padding: 12px 16px; }
+    .eb-row { gap: 12px; }
+    .eb-value { font-size: 0.9rem; }
+    .eb-divider { display: none; }
+    .eb-icon { display: none; }
+}
+
+/* Task cooldown/disabled states */
+.task-action-sm.disabled, .subscribe-btn.disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+    pointer-events: none;
+    background: var(--gray-300);
+}
+
+.task-cooldown {
+    font-size: 0.65rem;
+    color: var(--gray-400);
+    white-space: nowrap;
+}
+
+.task-cooldown i { margin-right: 2px; }
+
+/* Sub section titles */
+.sub-section-title {
+    font-size: 1rem;
+    color: var(--navy);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 12px;
+}
+
+.sub-section-title i { color: var(--orange); }
+
 /* Topbar */
 .topbar {
     position: sticky;

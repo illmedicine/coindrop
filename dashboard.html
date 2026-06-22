@@ -133,6 +133,34 @@
             </div>
         </header>
 
+        <!-- Earnings Potential Banner -->
+        <div class="earnings-banner" id="earnings-banner">
+            <div class="eb-icon"><i class="fas fa-bolt"></i></div>
+            <div class="eb-content">
+                <div class="eb-row">
+                    <div class="eb-stat">
+                        <span class="eb-label">Daily Earning Potential</span>
+                        <span class="eb-value" id="eb-daily">--</span>
+                    </div>
+                    <div class="eb-divider"></div>
+                    <div class="eb-stat">
+                        <span class="eb-label">One-Time Subscribe Payout</span>
+                        <span class="eb-value" id="eb-sub-onetime">--</span>
+                    </div>
+                    <div class="eb-divider"></div>
+                    <div class="eb-stat">
+                        <span class="eb-label">Monthly Residual (all channels)</span>
+                        <span class="eb-value" id="eb-residual">--</span>
+                    </div>
+                    <div class="eb-divider"></div>
+                    <div class="eb-stat">
+                        <span class="eb-label">Network</span>
+                        <span class="eb-value" id="eb-network">--</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <!-- Overview Tab -->
         <div class="tab-content active" id="tab-overview">
             <!-- Stats Cards -->
@@ -231,10 +259,16 @@
         <div class="tab-content" id="tab-subscriptions">
             <div class="tab-header">
                 <h2>Subscriptions & Follows</h2>
-                <p class="text-muted">Track your active subscriptions and follows. Each earns $0.01/month residual.</p>
+                <p class="text-muted">Track your active subscriptions ($0.01/month residual each) and daily task cooldowns.</p>
             </div>
+            <h3 class="sub-section-title"><i class="fas fa-bell"></i> Active Subscriptions</h3>
             <div class="subs-list" id="subs-list">
-                <!-- Populated by JS -->
+                <p class="text-muted" id="no-subs-msg">No subscriptions yet. Subscribe to creator channels in Available Tasks to start earning monthly residuals.</p>
+            </div>
+            <h3 class="sub-section-title mt-3"><i class="fas fa-clock"></i> Daily Cooldowns</h3>
+            <p class="text-muted mb-2">Tasks you've completed today. Cooldowns reset 24 hours after each task.</p>
+            <div class="cooldowns-list" id="cooldowns-list">
+                <p class="text-muted" id="no-cooldowns-msg">No active cooldowns.</p>
             </div>
         </div>
 

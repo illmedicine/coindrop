@@ -407,7 +407,11 @@ function renderCreators(filter) {
                 : `https://img.youtube.com/vi/${v.id}/mqdefault.jpg`;
             const badge = v.short ? '<span class="short-badge">SHORT</span>' : '';
             const safeTitle = v.title.replace(/'/g, "\\'").replace(/`/g, '');
+            const watchCd = isOnCooldown(v.id, 'watch');
+            const likeCd = isOnCooldown(v.id, 'like');
             const commentCd = isOnCooldown(v.id, 'comment');
+            const watchCdText = watchCd ? cooldownRemaining(v.id, 'watch') : '';
+            const likeCdText = likeCd ? cooldownRemaining(v.id, 'like') : '';
             const commentCdText = commentCd ? cooldownRemaining(v.id, 'comment') : '';
             return `
             <div class="video-task-card ${v.short ? 'is-short' : ''}">
@@ -423,18 +427,24 @@ function renderCreators(filter) {
                     <div class="vta-row">
                         <span class="vta-label"><i class="fas fa-play"></i> Watch</span>
                         <span class="vta-reward">0.001 SOL</span>
-                        <button class="task-action-sm" onclick="openTaskModal('${v.id}','${safeTitle}','${safeCreatorName}','watch','${creator.platform}',${!!v.short})">Go</button>
+                        ${watchCd
+                            ? `<span class="task-cooldown"><i class="fas fa-clock"></i> ${watchCdText}</span>`
+                            : `<button class="task-action-sm" onclick="openTaskModal('${v.id}','${safeTitle}','${safeCreatorName}','watch','${creator.platform}',${!!v.short})">Go</button>`
+                        }
                     </div>
                     <div class="vta-row">
                         <span class="vta-label"><i class="fas fa-thumbs-up"></i> Like</span>
                         <span class="vta-reward">0.0005 SOL</span>
-                        <button class="task-action-sm" onclick="openTaskModal('${v.id}','${safeTitle}','${safeCreatorName}','like','${creator.platform}',${!!v.short})">Go</button>
+                        ${likeCd
+                            ? `<span class="task-cooldown"><i class="fas fa-clock"></i> ${likeCdText}</span>`
+                            : `<button class="task-action-sm" onclick="openTaskModal('${v.id}','${safeTitle}','${safeCreatorName}','like','${creator.platform}',${!!v.short})">Go</button>`
+                        }
                     </div>
                     <div class="vta-row">
                         <span class="vta-label"><i class="fas fa-comment"></i> Comment</span>
                         <span class="vta-reward">$0.02</span>
                         ${commentCd
-                            ? `<span class="task-cooldown" title="1 comment per 24hrs"><i class="fas fa-clock"></i> ${commentCdText}</span>`
+                            ? `<span class="task-cooldown"><i class="fas fa-clock"></i> ${commentCdText}</span>`
                             : `<button class="task-action-sm" onclick="openTaskModal('${v.id}','${safeTitle}','${safeCreatorName}','comment','${creator.platform}',${!!v.short})">Go</button>`
                         }
                     </div>
@@ -463,9 +473,10 @@ function renderCreators(filter) {
                     </div>
                     <div class="creator-subscribe-action">
                         <a href="${creator.channelUrl}" target="_blank" class="btn-visit"><i class="fas fa-external-link-alt"></i> Visit Channel</a>
-                        <button class="task-action subscribe-btn">
-                            <i class="fas fa-bell"></i> Subscribe — $0.05 + $0.01/mo
-                        </button>
+                        ${_subscribedCreators.has(creator.id)
+                            ? `<button class="task-action subscribe-btn disabled"><i class="fas fa-check"></i> Subscribed</button>`
+                            : `<button class="task-action subscribe-btn" onclick="openTaskModal('${creator.id}','${safeCreatorName} Channel','${safeCreatorName}','subscribe','${creator.platform}',false)"><i class="fas fa-bell"></i> Subscribe — $0.05 + $0.01/mo</button>`
+                        }
                     </div>
                 </div>
                 <div class="creator-videos-grid">
@@ -493,39 +504,114 @@ document.querySelectorAll('.filter-btn').forEach(btn => {
     });
 });
 
-// Subscriptions & Follows
-const SUBS = [
-    { platform: 'yt', name: 'CoinDesk', type: 'Subscription', since: '2025-05-20', months: 2 },
-    { platform: 'yt', name: 'Crypto Daily', type: 'Subscription', since: '2025-05-22', months: 2 },
-    { platform: 'yt', name: 'Solana Labs', type: 'Subscription', since: '2025-04-10', months: 3 },
-    { platform: 'yt', name: 'Coin Bureau', type: 'Subscription', since: '2025-06-01', months: 1 },
-    { platform: 'ig', name: '@cryptodaily', type: 'Follow', since: '2025-05-15', months: 2 },
-    { platform: 'ig', name: '@solananews', type: 'Follow', since: '2025-06-05', months: 1 },
-    { platform: 'ig', name: '@web3daily', type: 'Follow', since: '2025-04-20', months: 3 },
-    { platform: 'yt', name: 'Altcoin Daily', type: 'Subscription', since: '2025-03-15', months: 4 },
-    { platform: 'yt', name: 'Digital Asset News', type: 'Subscription', since: '2025-06-10', months: 1 },
-    { platform: 'ig', name: '@phantomwallet', type: 'Follow', since: '2025-05-01', months: 2 },
-];
+// ===== Earnings Potential Banner (live calculated from CREATORS) =====
+function updateEarningsBanner() {
+    let totalVideos = 0;
+    let totalCreators = CREATORS.length;
+    CREATORS.forEach(c => totalVideos += c.videos.length);
 
-const subsList = document.getElementById('subs-list');
-if (subsList) {
-    SUBS.forEach(s => {
-        const totalEarned = (0.05 + s.months * 0.01).toFixed(2);
-        subsList.innerHTML += `
-            <div class="sub-card">
-                <div class="sub-platform ${s.platform}"><i class="fab fa-${s.platform === 'yt' ? 'youtube' : 'instagram'}"></i></div>
-                <div class="sub-info">
-                    <strong>${s.name}</strong>
-                    <small>${s.type} · Since ${s.since}</small>
-                </div>
-                <div class="sub-meta">
-                    <span class="sub-earning">$${totalEarned} earned</span>
-                    <span class="sub-duration">${s.months} month${s.months > 1 ? 's' : ''} active</span>
-                    <span class="sub-next-payout">Next: Jul 1, 2025</span>
-                </div>
-            </div>`;
-    });
+    const dailyWatchSOL = totalVideos * 0.001;
+    const dailyLikeSOL = totalVideos * 0.0005;
+    const dailyCommentUSD = totalVideos * 0.02;
+    const dailyTotalSOL = dailyWatchSOL + dailyLikeSOL;
+    const subOnetimeUSD = totalCreators * 0.05;
+    const monthlyResidualUSD = totalCreators * 0.01;
+
+    const ebDaily = document.getElementById('eb-daily');
+    const ebSub = document.getElementById('eb-sub-onetime');
+    const ebResidual = document.getElementById('eb-residual');
+    const ebNetwork = document.getElementById('eb-network');
+
+    if (ebDaily) ebDaily.textContent = `${dailyTotalSOL.toFixed(4)} SOL + $${dailyCommentUSD.toFixed(2)}`;
+    if (ebSub) ebSub.textContent = `$${subOnetimeUSD.toFixed(2)}`;
+    if (ebResidual) ebResidual.textContent = `$${monthlyResidualUSD.toFixed(2)}/mo`;
+    if (ebNetwork) ebNetwork.textContent = `${totalCreators} creators · ${totalVideos} videos`;
 }
+updateEarningsBanner();
+
+// ===== Subscriptions & Cooldowns (Firebase-powered) =====
+async function loadSubsAndCooldowns() {
+    const subsList = document.getElementById('subs-list');
+    const cooldownsList = document.getElementById('cooldowns-list');
+    if (!subsList || typeof CoinDropDB === 'undefined' || !user || !user.id) return;
+
+    // Load real subscriptions from Firebase
+    try {
+        const subs = await CoinDropDB.getSubscriptions(user.id);
+        const noSubsMsg = document.getElementById('no-subs-msg');
+        if (subs.length > 0) {
+            if (noSubsMsg) noSubsMsg.style.display = 'none';
+            subsList.innerHTML = subs.map(s => {
+                const startDate = s.startDate?.toDate ? s.startDate.toDate() : new Date(s.startDate);
+                const months = Math.max(1, Math.floor((Date.now() - startDate.getTime()) / (30 * 24 * 60 * 60 * 1000)));
+                const totalEarned = (0.05 + months * 0.01).toFixed(2);
+                return `<div class="sub-card">
+                    <div class="sub-platform yt"><i class="fab fa-youtube"></i></div>
+                    <div class="sub-info">
+                        <strong>${s.creatorName || 'Unknown'}</strong>
+                        <small>Subscribed · Since ${startDate.toLocaleDateString()}</small>
+                    </div>
+                    <div class="sub-meta">
+                        <span class="sub-earning">$${totalEarned} earned</span>
+                        <span class="sub-duration">${months} month${months > 1 ? 's' : ''} active</span>
+                        <span class="sub-next-payout">$0.01/mo residual</span>
+                    </div>
+                </div>`;
+            }).join('');
+        }
+    } catch(e) { console.error('Load subs error:', e); }
+
+    // Load cooldowns and show active ones
+    if (cooldownsList) {
+        try {
+            const cd = _cooldownCache;
+            const activeItems = [];
+            for (const [key, val] of Object.entries(cd)) {
+                const lastTime = val.toMillis ? val.toMillis() : (val.seconds ? val.seconds * 1000 : val);
+                const remaining = (24 * 60 * 60 * 1000) - (Date.now() - lastTime);
+                if (remaining > 0) {
+                    const [videoId, taskType] = key.split('_');
+                    const h = Math.floor(remaining / 3600000);
+                    const m = Math.floor((remaining % 3600000) / 60000);
+                    let videoTitle = videoId;
+                    CREATORS.forEach(c => c.videos.forEach(v => { if (v.id === videoId) videoTitle = v.title; }));
+                    activeItems.push(`<div class="sub-card">
+                        <div class="sub-platform yt"><i class="fas fa-${taskType === 'watch' ? 'play' : taskType === 'like' ? 'thumbs-up' : taskType === 'comment' ? 'comment' : 'bell'}"></i></div>
+                        <div class="sub-info">
+                            <strong>${videoTitle.substring(0, 50)}${videoTitle.length > 50 ? '...' : ''}</strong>
+                            <small>${taskType} · Completed today</small>
+                        </div>
+                        <div class="sub-meta">
+                            <span class="sub-next-payout"><i class="fas fa-clock"></i> Resets in ${h}h ${m}m</span>
+                        </div>
+                    </div>`);
+                }
+            }
+            const nocdMsg = document.getElementById('no-cooldowns-msg');
+            if (activeItems.length > 0) {
+                if (nocdMsg) nocdMsg.style.display = 'none';
+                cooldownsList.innerHTML = activeItems.join('');
+            }
+        } catch(e) { console.error('Load cooldowns error:', e); }
+    }
+}
+
+// Track which creators user has subscribed to (for greying out)
+let _subscribedCreators = new Set();
+async function loadSubscribedCreators() {
+    if (typeof CoinDropDB === 'undefined' || !user || !user.id) return;
+    try {
+        const subs = await CoinDropDB.getSubscriptions(user.id);
+        subs.forEach(s => { if (s.creatorId) _subscribedCreators.add(s.creatorId); });
+    } catch(e) {}
+}
+
+// Run after Firebase sync
+setTimeout(async () => {
+    await loadSubscribedCreators();
+    await loadSubsAndCooldowns();
+    renderCreators('all');
+}, 1500);
 
 // Full leaderboard
 const FULL_LB = [
