@@ -114,6 +114,14 @@ document.addEventListener('click', (e) => {
     }
 });
 
+async function handleLogout() {
+    localStorage.removeItem('coindrop_user');
+    if (typeof auth !== 'undefined') {
+        try { await auth.signOut(); } catch(e) {}
+    }
+    window.location.href = 'index.html';
+}
+
 function switchTab(tabName) {
     document.querySelectorAll('.sidebar-link').forEach(l => l.classList.remove('active'));
     const link = document.querySelector(`[data-tab="${tabName}"]`);
@@ -170,10 +178,65 @@ if (miniLb) {
     });
 }
 
-// Creator-based available tasks
-const CREATORS = [
-    {
-        id: 'illmedicine',
+// CREATORS array is loaded from creators-data.js (included before this file)
+
+// 24h cooldown tracking — uses cached cooldowns from Firebase
+let _cooldownCache = {};
+
+async function loadCooldowns() {
+    if (typeof CoinDropDB !== 'undefined' && user && user.id) {
+        _cooldownCache = await CoinDropDB.getCooldowns(user.id);
+    }
+}
+
+function isOnCooldown(videoId, taskType) {
+    const key = `${videoId}_${taskType}`;
+    const last = _cooldownCache[key];
+    if (!last) return false;
+    const lastTime = last.toMillis ? last.toMillis() : (last.seconds ? last.seconds * 1000 : last);
+    return (Date.now() - lastTime) < 24 * 60 * 60 * 1000;
+}
+
+function cooldownRemaining(videoId, taskType) {
+    const key = `${videoId}_${taskType}`;
+    const last = _cooldownCache[key];
+    if (!last) return '';
+    const lastTime = last.toMillis ? last.toMillis() : (last.seconds ? last.seconds * 1000 : last);
+    const remaining = (24 * 60 * 60 * 1000) - (Date.now() - lastTime);
+    if (remaining <= 0) return '';
+    const h = Math.floor(remaining / 3600000);
+    const m = Math.floor((remaining % 3600000) / 60000);
+    return `${h}h ${m}m`;
+}
+
+// Load Firebase stats into dashboard on page load
+async function syncFromFirebase() {
+    if (typeof CoinDropDB === 'undefined' || !user || !user.id) return;
+    try {
+        const stats = await CoinDropDB.getTaskBreakdown(user.id);
+        if (stats.tasksCompleted > 0 || stats.totalEarned > 0) {
+            user.tasksCompleted = stats.tasksCompleted || 0;
+            user.totalEarned = stats.totalEarned || 0;
+            user.activeSubscriptions = stats.subs || 0;
+            document.getElementById('total-earned').textContent = `${user.totalEarned.toFixed(4)} SOL`;
+            document.getElementById('tasks-done').textContent = user.tasksCompleted;
+            document.getElementById('active-subs').textContent = user.activeSubscriptions;
+            if (document.getElementById('pd-earned')) document.getElementById('pd-earned').textContent = `${user.totalEarned.toFixed(4)} SOL`;
+            if (document.getElementById('pd-tasks')) document.getElementById('pd-tasks').textContent = user.tasksCompleted;
+            if (document.getElementById('pd-views')) document.getElementById('pd-views').textContent = stats.views || 0;
+            if (document.getElementById('pd-likes')) document.getElementById('pd-likes').textContent = stats.likes || 0;
+            if (document.getElementById('pd-comments')) document.getElementById('pd-comments').textContent = stats.comments || 0;
+            if (document.getElementById('pd-subs')) document.getElementById('pd-subs').textContent = stats.subs || 0;
+            localStorage.setItem('coindrop_user', JSON.stringify(user));
+        }
+        await loadCooldowns();
+    } catch (e) { console.error('Firebase sync error:', e); }
+}
+
+syncFromFirebase();
+
+// Old inline CREATORS removed — now in creators-data.js
+void 0; if(false){void({id:'_removed_',
         handle: '@illmedicine',
         name: 'ILLMEDICINE',
         platform: 'youtube',
@@ -257,7 +320,7 @@ const CREATORS = [
             { id: 'NzTlHSL4NUg', title: 'MINDS THROUGH TIME EPISODE 1', views: '8' },
         ]
     }
-];
+];}
 
 const creatorsContainer = document.getElementById('creators-list');
 
@@ -268,15 +331,18 @@ function renderCreators(filter) {
     const filtered = filter === 'all' ? CREATORS : CREATORS.filter(c => c.id === filter);
 
     filtered.forEach(creator => {
+        const safeCreatorName = creator.name.replace(/'/g, "\\'");
         const videoCards = creator.videos.map(v => {
             const watchUrl = v.short
                 ? `https://www.youtube.com/shorts/${v.id}`
                 : `https://www.youtube.com/watch?v=${v.id}`;
-            const commentUrl = `https://www.youtube.com/watch?v=${v.id}&lc=`;
             const thumbUrl = v.short
                 ? `https://img.youtube.com/vi/${v.id}/oar2.jpg`
                 : `https://img.youtube.com/vi/${v.id}/mqdefault.jpg`;
             const badge = v.short ? '<span class="short-badge">SHORT</span>' : '';
+            const safeTitle = v.title.replace(/'/g, "\\'").replace(/`/g, '');
+            const commentCd = isOnCooldown(v.id, 'comment');
+            const commentCdText = commentCd ? cooldownRemaining(v.id, 'comment') : '';
             return `
             <div class="video-task-card ${v.short ? 'is-short' : ''}">
                 <a href="${watchUrl}" target="_blank" class="video-thumb ${v.short ? 'video-thumb-short' : ''}">
@@ -291,17 +357,20 @@ function renderCreators(filter) {
                     <div class="vta-row">
                         <span class="vta-label"><i class="fas fa-play"></i> Watch</span>
                         <span class="vta-reward">0.001 SOL</span>
-                        <button class="task-action-sm" onclick="openTaskModal('${v.id}',\`${v.title.replace(/'/g,"\\'"  ).replace(/`/g,"")}\`,'${creator.name}','watch','${creator.platform}',${!!v.short})">Go</button>
+                        <button class="task-action-sm" onclick="openTaskModal('${v.id}','${safeTitle}','${safeCreatorName}','watch','${creator.platform}',${!!v.short})">Go</button>
                     </div>
                     <div class="vta-row">
                         <span class="vta-label"><i class="fas fa-thumbs-up"></i> Like</span>
                         <span class="vta-reward">0.0005 SOL</span>
-                        <button class="task-action-sm" onclick="openTaskModal('${v.id}',\`${v.title.replace(/'/g,"\\'").replace(/`/g,"")}\`,'${creator.name}','like','${creator.platform}',${!!v.short})">Go</button>
+                        <button class="task-action-sm" onclick="openTaskModal('${v.id}','${safeTitle}','${safeCreatorName}','like','${creator.platform}',${!!v.short})">Go</button>
                     </div>
                     <div class="vta-row">
                         <span class="vta-label"><i class="fas fa-comment"></i> Comment</span>
                         <span class="vta-reward">$0.02</span>
-                        <button class="task-action-sm" onclick="openTaskModal('${v.id}',\`${v.title.replace(/'/g,"\\'").replace(/`/g,"")}\`,'${creator.name}','comment','${creator.platform}',${!!v.short})">Go</button>
+                        ${commentCd
+                            ? `<span class="task-cooldown" title="1 comment per 24hrs"><i class="fas fa-clock"></i> ${commentCdText}</span>`
+                            : `<button class="task-action-sm" onclick="openTaskModal('${v.id}','${safeTitle}','${safeCreatorName}','comment','${creator.platform}',${!!v.short})">Go</button>`
+                        }
                     </div>
                 </div>
             </div>
@@ -339,6 +408,13 @@ function renderCreators(filter) {
             </div>
         `;
     });
+}
+
+// Build filter buttons dynamically from CREATORS
+const filtersContainer = document.getElementById('creator-filters');
+if (filtersContainer) {
+    filtersContainer.innerHTML = '<button class="filter-btn active" data-filter="all">All Creators</button>' +
+        CREATORS.map(c => `<button class="filter-btn" data-filter="${c.id}"><i class="fab fa-youtube"></i> ${c.handle}</button>`).join('');
 }
 
 renderCreators('all');

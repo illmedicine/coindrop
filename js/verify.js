@@ -178,10 +178,15 @@ async function submitVerification(videoId, videoTitleEnc, creatorNameEnc, taskTy
                     <button class="btn btn-primary btn-block" onclick="closeTaskModal()">Done</button>
                 </div>
             `;
-            // Update local user stats
-            if (user.tasksCompleted !== undefined) {
-                user.tasksCompleted++;
-                user.totalEarned = parseFloat((user.totalEarned + result.reward).toFixed(6));
+            // Update Firebase stats + cooldown
+            if (typeof CoinDropDB !== 'undefined' && userId) {
+                await CoinDropDB.incrementTaskStat(userId, taskType, result.reward);
+                await CoinDropDB.setCooldown(userId, videoId, taskType);
+                await CoinDropDB.logTask(userId, { videoId, videoTitle, creatorName, taskType, platform, reward: result.reward, txSignature: result.txSignature });
+                // Sync local user cache
+                const stats = await CoinDropDB.getTaskBreakdown(userId);
+                user.tasksCompleted = stats.tasksCompleted || 0;
+                user.totalEarned = stats.totalEarned || 0;
                 localStorage.setItem('coindrop_user', JSON.stringify(user));
             }
         } else {

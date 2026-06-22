@@ -42,7 +42,7 @@
                 <span class="online-dot"></span>
                 <span id="discord-count">2,341</span> in Discord
             </div>
-            <a href="index.html" class="sidebar-link" onclick="localStorage.removeItem('coindrop_user')">
+            <a href="#" class="sidebar-link" onclick="handleLogout()">
                 <i class="fas fa-sign-out-alt"></i> Logout
             </a>
         </div>
@@ -127,7 +127,7 @@
                         <a href="#" class="pd-action" onclick="switchTab('subscriptions');closeProfileDropdown()"><i class="fas fa-bell"></i> My Subscriptions</a>
                         <a href="#" class="pd-action" onclick="switchTab('leaderboard');closeProfileDropdown()"><i class="fas fa-trophy"></i> Leaderboard</a>
                         <div class="pd-divider"></div>
-                        <a href="index.html" class="pd-action pd-logout" onclick="localStorage.removeItem('coindrop_user')"><i class="fas fa-sign-out-alt"></i> Logout</a>
+                        <a href="#" class="pd-action pd-logout" onclick="handleLogout()"><i class="fas fa-sign-out-alt"></i> Logout</a>
                     </div>
                 </div>
             </div>
@@ -218,11 +218,8 @@
             <div class="tab-header">
                 <h2>Available Tasks</h2>
                 <p class="text-muted">Browse earning opportunities by creator. Watch, like, comment, and subscribe to earn SOL.</p>
-                <div class="task-filters">
-                    <button class="filter-btn active" data-filter="all">All Creators</button>
-                    <button class="filter-btn" data-filter="illmedicine"><i class="fab fa-youtube"></i> @illmedicine</button>
-                    <button class="filter-btn" data-filter="illmedicineai"><i class="fab fa-youtube"></i> @illmedicineai</button>
-                    <button class="filter-btn" data-filter="minds_through_time"><i class="fab fa-youtube"></i> @MINDS_THROUGH_TIME</button>
+                <div class="task-filters" id="creator-filters">
+                    <!-- Populated by JS from CREATORS array -->
                 </div>
             </div>
             <div class="creators-list" id="creators-list">
@@ -292,8 +289,13 @@
         </div>
     </div>
 
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+    <script src="js/firebase-config.js"></script>
     <script src="js/app.js"></script>
     <script src="js/verify.js"></script>
+    <script src="js/creators-data.js"></script>
     <script src="js/dashboard.js"></script>
 </body>
 </html>

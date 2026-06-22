@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Login — CoinDrop</title>
-    <link rel="icon" type="image/png" href="assets/logo.svg">
+    <link rel="icon" type="image/svg+xml" href="assets/logo.svg">
     <link rel="stylesheet" href="css/style.css">
     <link rel="stylesheet" href="css/register.css">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
@@ -30,10 +30,10 @@
         .login-logo { margin-bottom: 24px; }
         .login-logo .logo-text { color: var(--navy); font-size: 1.8rem; }
         .login-card h2 { color: var(--navy); margin-bottom: 8px; }
-        .login-card > p { color: var(--gray-400); font-size: 0.9rem; margin-bottom: 32px; }
+        .login-card > p { color: var(--gray-400); font-size: 0.9rem; margin-bottom: 28px; }
         .login-divider {
             display: flex; align-items: center; gap: 16px;
-            margin: 24px 0; color: var(--gray-300); font-size: 0.8rem;
+            margin: 20px 0; color: var(--gray-300); font-size: 0.8rem;
         }
         .login-divider::before, .login-divider::after {
             content: ''; flex: 1; height: 1px; background: var(--gray-200);
@@ -42,10 +42,28 @@
             margin-top: 24px; font-size: 0.85rem; color: var(--gray-400);
         }
         .login-help a { color: var(--orange); text-decoration: none; font-weight: 600; }
-        .demo-notice {
-            margin-top: 20px; padding: 12px; background: rgba(247,147,26,0.05);
-            border: 1px solid rgba(247,147,26,0.15); border-radius: var(--radius-sm);
-            font-size: 0.8rem; color: var(--gray-500);
+        .btn-google {
+            background: var(--white);
+            color: var(--gray-700);
+            border: 2px solid var(--gray-200);
+            font-weight: 600;
+        }
+        .btn-google:hover {
+            background: var(--gray-50);
+            border-color: var(--gray-300);
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        }
+        .btn-google img { width: 20px; height: 20px; }
+        .login-loading {
+            display: none;
+            margin-top: 16px;
+            padding: 14px;
+            background: rgba(247,147,26,0.05);
+            border: 1px solid rgba(247,147,26,0.15);
+            border-radius: var(--radius-sm);
+            font-size: 0.85rem;
+            color: var(--orange);
         }
     </style>
 </head>
@@ -72,11 +90,21 @@
                 <span class="logo-text">COIN<span class="logo-accent">DROP</span></span>
             </div>
             <h2>Welcome Back</h2>
-            <p>Sign in with your Discord account to access your dashboard.</p>
+            <p>Sign in to access your CoinDrop dashboard and start earning.</p>
+
+            <button class="btn btn-google btn-block btn-lg" id="google-login-btn" onclick="handleGoogleLogin()">
+                <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="Google"> Sign in with Google
+            </button>
+
+            <div class="login-divider">or</div>
 
             <a href="https://coindrop-auth.up.railway.app/auth/discord" class="btn btn-discord btn-block btn-lg" id="discord-login-btn">
                 <i class="fab fa-discord"></i> Sign in with Discord
             </a>
+
+            <div id="login-loading" class="login-loading">
+                <i class="fas fa-spinner fa-spin"></i> Signing you in...
+            </div>
 
             <div id="login-error" style="display:none; margin-top:16px; padding:12px; background:rgba(239,68,68,0.05); border:1px solid rgba(239,68,68,0.2); border-radius:var(--radius-sm); font-size:0.85rem; color:var(--danger); text-align:center;">
                 <i class="fas fa-exclamation-circle"></i> <span id="error-text">Login failed. Please try again.</span>
@@ -88,15 +116,17 @@
         </div>
     </section>
 
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+    <script src="js/firebase-config.js"></script>
     <script src="js/app.js"></script>
     <script>
-        // Handle OAuth callback — dashboard redirects here with ?auth= param
         const existing = localStorage.getItem('coindrop_user');
         if (existing) {
             window.location.href = 'dashboard.html';
         }
 
-        // Show error if redirected back with error
         const params = new URLSearchParams(window.location.search);
         if (params.get('error')) {
             const errorEl = document.getElementById('login-error');
@@ -107,6 +137,29 @@
                 auth_failed: 'Authentication failed. Please try again.',
             };
             errorText.textContent = errors[params.get('error')] || 'Something went wrong. Please try again.';
+        }
+
+        async function handleGoogleLogin() {
+            const btn = document.getElementById('google-login-btn');
+            const loading = document.getElementById('login-loading');
+            const errorEl = document.getElementById('login-error');
+            errorEl.style.display = 'none';
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Connecting...';
+            loading.style.display = 'block';
+
+            try {
+                const userData = await signInWithGoogle();
+                window.location.href = 'dashboard.html';
+            } catch (err) {
+                btn.disabled = false;
+                btn.innerHTML = '<img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="Google"> Sign in with Google';
+                loading.style.display = 'none';
+                if (err.code !== 'auth/popup-closed-by-user') {
+                    errorEl.style.display = 'block';
+                    document.getElementById('error-text').textContent = err.message || 'Google sign-in failed. Please try again.';
+                }
+            }
         }
     </script>
 </body>
