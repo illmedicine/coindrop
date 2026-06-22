@@ -3,6 +3,11 @@ const cors = require('cors');
 const https = require('https');
 const crypto = require('crypto');
 const querystring = require('querystring');
+const admin = require('firebase-admin');
+
+// Initialize Firebase Admin with project ID (uses Application Default Credentials or env var)
+admin.initializeApp({ projectId: 'coindrop-e39de' });
+const firestore = admin.firestore();
 
 const app = express();
 app.use(cors({ origin: ['https://coindrop.in', 'http://localhost:4200'], credentials: true }));
@@ -132,6 +137,22 @@ app.post('/api/verify-task', async (req, res) => {
         if (!screenshot || !taskType || !videoTitle || !userId) {
             return res.status(400).json({ success: false, error: 'Missing required fields' });
         }
+
+        // Server-side cooldown check (24h per video per task type)
+        try {
+            const cdDoc = await firestore.collection('cooldowns').doc(userId).get();
+            if (cdDoc.exists) {
+                const cdKey = `${videoId}_${taskType}`;
+                const lastTime = cdDoc.data()[cdKey];
+                if (lastTime) {
+                    const lastMs = lastTime.toMillis ? lastTime.toMillis() : lastTime;
+                    if (Date.now() - lastMs < 24 * 60 * 60 * 1000) {
+                        const remaining = Math.ceil((24 * 60 * 60 * 1000 - (Date.now() - lastMs)) / 3600000);
+                        return res.json({ success: false, verified: false, reason: `You already completed this ${taskType} task. Cooldown resets in ~${remaining} hours.` });
+                    }
+                }
+            }
+        } catch(cdErr) { console.warn('Cooldown check skipped:', cdErr.message); }
 
         const base64Data = screenshot.replace(/^data:image\/\w+;base64,/, '');
         const mediaType = screenshot.match(/^data:(image\/\w+);base64,/)?.[1] || 'image/png';
@@ -264,6 +285,35 @@ Respond with EXACTLY this JSON (no other text):
                     footer: { text: 'CoinDrop • Watch. Engage. Earn.' },
                 }]
             });
+        }
+
+        // Server-side Firestore writes (works for all auth types)
+        try {
+            const statField = { watch: 'views', like: 'likes', comment: 'comments', subscribe: 'subs', follow: 'subs' }[taskType] || 'views';
+
+            // Log completed task
+            await firestore.collection('tasks').add({
+                userId, videoId, videoTitle, creatorName, taskType, platform,
+                rewardUSD, rewardSOL, txSignature,
+                timestamp: admin.firestore.FieldValue.serverTimestamp()
+            });
+
+            // Update user stats
+            await firestore.collection('stats').doc(userId).set({
+                [statField]: admin.firestore.FieldValue.increment(1),
+                tasksCompleted: admin.firestore.FieldValue.increment(1),
+                totalEarned: admin.firestore.FieldValue.increment(rewardUSD),
+                lastActivity: admin.firestore.FieldValue.serverTimestamp()
+            }, { merge: true });
+
+            // Set cooldown
+            await firestore.collection('cooldowns').doc(userId).set({
+                [`${videoId}_${taskType}`]: admin.firestore.FieldValue.serverTimestamp()
+            }, { merge: true });
+
+            console.log(`TASK LOGGED: ${username} (${userId}) — ${taskType} — ${videoTitle} — $${rewardUSD}`);
+        } catch(dbErr) {
+            console.error('Firestore write error:', dbErr.message);
         }
 
         res.json({
@@ -417,6 +467,68 @@ function postToDiscord(webhookUrl, payload) {
         req.end();
     });
 }
+
+// API: Get user stats and task history
+app.get('/api/user-stats/:userId', async (req, res) => {
+    try {
+        const { userId } = req.params;
+        const statsDoc = await firestore.collection('stats').doc(userId).get();
+        const stats = statsDoc.exists ? statsDoc.data() : { views: 0, likes: 0, comments: 0, subs: 0, tasksCompleted: 0, totalEarned: 0 };
+
+        const tasksSnap = await firestore.collection('tasks')
+            .where('userId', '==', userId)
+            .orderBy('timestamp', 'desc')
+            .limit(20)
+            .get();
+        const tasks = tasksSnap.docs.map(d => {
+            const data = d.data();
+            return { ...data, timestamp: data.timestamp?.toDate?.()?.toISOString() || null };
+        });
+
+        const cdDoc = await firestore.collection('cooldowns').doc(userId).get();
+        const cooldowns = {};
+        if (cdDoc.exists) {
+            for (const [key, val] of Object.entries(cdDoc.data())) {
+                const ms = val.toMillis ? val.toMillis() : val;
+                if (Date.now() - ms < 24 * 60 * 60 * 1000) {
+                    cooldowns[key] = ms;
+                }
+            }
+        }
+
+        res.json({ stats, tasks, cooldowns });
+    } catch(e) {
+        console.error('User stats error:', e.message);
+        res.json({ stats: {}, tasks: [], cooldowns: {} });
+    }
+});
+
+// API: Get global leaderboard
+app.get('/api/leaderboard', async (req, res) => {
+    try {
+        const snap = await firestore.collection('stats')
+            .orderBy('totalEarned', 'desc')
+            .limit(20)
+            .get();
+        const leaders = [];
+        for (const doc of snap.docs) {
+            const data = doc.data();
+            let name = doc.id.substring(0, 8);
+            let avatar = null;
+            try {
+                const userDoc = await firestore.collection('users').doc(doc.id).get();
+                if (userDoc.exists) {
+                    name = userDoc.data().displayName || name;
+                    avatar = userDoc.data().avatar || null;
+                }
+            } catch(e) {}
+            leaders.push({ userId: doc.id, name, avatar, ...data });
+        }
+        res.json({ leaders });
+    } catch(e) {
+        res.json({ leaders: [] });
+    }
+});
 
 app.get('/health', (req, res) => res.json({ status: 'ok', features: { verification: !!ANTHROPIC_API_KEY, payouts: !!TREASURY_PRIVATE_KEY_ENCRYPTED, discord: !!DISCORD_WEBHOOKS.views } }));
 

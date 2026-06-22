@@ -284,57 +284,42 @@ function timeAgo(date) {
 async function loadRecentActivity() {
     const el = document.getElementById('activity-list');
     if (!el) return;
-    if (typeof CoinDropDB === 'undefined' || !user || !user.id) {
-        el.innerHTML = '<p class="text-muted" style="font-size:0.85rem">Complete tasks to see your activity.</p>';
-        return;
-    }
-    try {
-        const tasks = await CoinDropDB.getTaskHistory(user.id, 10);
-        if (!tasks.length) { el.innerHTML = '<p class="text-muted" style="font-size:0.85rem">Complete tasks to see your activity.</p>'; return; }
-        const icons = { watch: 'yt', like: 'yt', comment: 'yt', subscribe: 'sub', follow: 'ig' };
-        const cls = { yt: 'fab fa-youtube', ig: 'fab fa-instagram', sub: 'fas fa-bell' };
-        const labels = { watch: 'Watched video', like: 'Liked video', comment: 'Left a comment', subscribe: 'Subscribed', follow: 'Followed' };
-        el.innerHTML = tasks.map(t => {
-            const type = icons[t.taskType] || 'yt';
-            const ts = t.timestamp?.toDate ? t.timestamp.toDate() : new Date();
-            return `<div class="activity-item">
-                <div class="activity-icon ${type}"><i class="${cls[type]}"></i></div>
-                <div class="activity-info"><span>${labels[t.taskType] || t.taskType}</span><small>${(t.videoTitle||'').substring(0,35)} · ${timeAgo(ts)}</small></div>
-                <span class="activity-reward">+$${(t.rewardUSD || t.reward || 0.01).toFixed(3)}</span>
-            </div>`;
-        }).join('');
-    } catch(e) { el.innerHTML = '<p class="text-muted" style="font-size:0.85rem">Complete tasks to see your activity.</p>'; }
+    const tasks = window._serverTasks || [];
+    if (!tasks.length) { el.innerHTML = '<p class="text-muted" style="font-size:0.85rem">Complete tasks to see your activity.</p>'; return; }
+    const icons = { watch: 'yt', like: 'yt', comment: 'yt', subscribe: 'sub', follow: 'ig' };
+    const cls = { yt: 'fab fa-youtube', ig: 'fab fa-instagram', sub: 'fas fa-bell' };
+    const labels = { watch: 'Watched video', like: 'Liked video', comment: 'Left a comment', subscribe: 'Subscribed', follow: 'Followed' };
+    el.innerHTML = tasks.slice(0, 10).map(t => {
+        const type = icons[t.taskType] || 'yt';
+        const ts = t.timestamp ? new Date(t.timestamp) : new Date();
+        return `<div class="activity-item">
+            <div class="activity-icon ${type}"><i class="${cls[type]}"></i></div>
+            <div class="activity-info"><span>${labels[t.taskType] || t.taskType}</span><small>${(t.videoTitle||'').substring(0,35)} · ${timeAgo(ts)}</small></div>
+            <span class="activity-reward">+$${(t.rewardUSD || 0.01).toFixed(3)}</span>
+        </div>`;
+    }).join('');
 }
 
 // Mini leaderboard — from Firebase (global top earners)
 async function loadMiniLeaderboard() {
     const el = document.getElementById('mini-leaderboard');
     if (!el) return;
-    if (typeof CoinDropDB === 'undefined') { el.innerHTML = '<p class="text-muted" style="font-size:0.85rem">No earners yet. Be the first!</p>'; return; }
     try {
-        const leaders = await CoinDropDB.getLeaderboard(5);
+        const resp = await fetch(`${API_URL}/api/leaderboard`);
+        const data = await resp.json();
+        const leaders = data.leaders || [];
         if (!leaders.length) { el.innerHTML = '<p class="text-muted" style="font-size:0.85rem">No earners yet. Be the first!</p>'; return; }
-        const rows = [];
-        for (const [i, l] of leaders.entries()) {
-            let name = l.userId.substring(0, 8);
-            let avatar = `https://api.dicebear.com/7.x/thumbs/svg?seed=${l.userId}`;
-            try {
-                const p = await db.collection('users').doc(l.userId).get();
-                if (p.exists) { name = p.data().displayName || name; avatar = p.data().avatar || avatar; }
-            } catch(e) {}
-            rows.push(`<div class="mini-lb-row">
-                <span class="mini-lb-rank">${i+1}</span>
-                <img src="${avatar}" class="mini-lb-avatar" alt="">
-                <span class="mini-lb-name">${name}</span>
-                <span class="mini-lb-earned">$${(l.totalEarned||0).toFixed(3)}</span>
-            </div>`);
-        }
-        el.innerHTML = rows.join('');
+        el.innerHTML = leaders.slice(0, 5).map((l, i) => `<div class="mini-lb-row">
+            <span class="mini-lb-rank">${i+1}</span>
+            <img src="${l.avatar || 'https://api.dicebear.com/7.x/thumbs/svg?seed=' + l.userId}" class="mini-lb-avatar" alt="">
+            <span class="mini-lb-name">${l.name}</span>
+            <span class="mini-lb-earned">$${(l.totalEarned||0).toFixed(3)}</span>
+        </div>`).join('');
     } catch(e) { el.innerHTML = '<p class="text-muted" style="font-size:0.85rem">No earners yet. Be the first!</p>'; }
 }
 
-loadRecentActivity();
-loadMiniLeaderboard();
+// Delay activity/leaderboard load to let server sync finish
+setTimeout(() => { loadRecentActivity(); loadMiniLeaderboard(); }, 2000);
 
 // CREATORS array is loaded from creators-data.js (included before this file)
 
@@ -351,7 +336,7 @@ function isOnCooldown(videoId, taskType) {
     const key = `${videoId}_${taskType}`;
     const last = _cooldownCache[key];
     if (!last) return false;
-    const lastTime = last.toMillis ? last.toMillis() : (last.seconds ? last.seconds * 1000 : last);
+    const lastTime = typeof last === 'number' ? last : (last.toMillis ? last.toMillis() : (last.seconds ? last.seconds * 1000 : last));
     return (Date.now() - lastTime) < 24 * 60 * 60 * 1000;
 }
 
@@ -359,7 +344,7 @@ function cooldownRemaining(videoId, taskType) {
     const key = `${videoId}_${taskType}`;
     const last = _cooldownCache[key];
     if (!last) return '';
-    const lastTime = last.toMillis ? last.toMillis() : (last.seconds ? last.seconds * 1000 : last);
+    const lastTime = typeof last === 'number' ? last : (last.toMillis ? last.toMillis() : (last.seconds ? last.seconds * 1000 : last));
     const remaining = (24 * 60 * 60 * 1000) - (Date.now() - lastTime);
     if (remaining <= 0) return '';
     const h = Math.floor(remaining / 3600000);
@@ -367,19 +352,24 @@ function cooldownRemaining(videoId, taskType) {
     return `${h}h ${m}m`;
 }
 
-// Load Firebase stats into dashboard on page load
-async function syncFromFirebase() {
-    if (typeof CoinDropDB === 'undefined' || !user || !user.id) return;
+// Load stats from server API (works for ALL auth types)
+const API_URL = 'https://coindrop-auth.up.railway.app';
+
+async function syncFromServer() {
+    if (!user || !user.id) return;
     try {
-        const stats = await CoinDropDB.getTaskBreakdown(user.id);
+        const resp = await fetch(`${API_URL}/api/user-stats/${user.id}`);
+        const data = await resp.json();
+        const stats = data.stats || {};
+
         if (stats.tasksCompleted > 0 || stats.totalEarned > 0) {
             user.tasksCompleted = stats.tasksCompleted || 0;
             user.totalEarned = stats.totalEarned || 0;
             user.activeSubscriptions = stats.subs || 0;
-            document.getElementById('total-earned').textContent = `${user.totalEarned.toFixed(4)} SOL`;
+            document.getElementById('total-earned').textContent = `$${user.totalEarned.toFixed(3)}`;
             document.getElementById('tasks-done').textContent = user.tasksCompleted;
             document.getElementById('active-subs').textContent = user.activeSubscriptions;
-            if (document.getElementById('pd-earned')) document.getElementById('pd-earned').textContent = `${user.totalEarned.toFixed(4)} SOL`;
+            if (document.getElementById('pd-earned')) document.getElementById('pd-earned').textContent = `$${user.totalEarned.toFixed(3)}`;
             if (document.getElementById('pd-tasks')) document.getElementById('pd-tasks').textContent = user.tasksCompleted;
             if (document.getElementById('pd-views')) document.getElementById('pd-views').textContent = stats.views || 0;
             if (document.getElementById('pd-likes')) document.getElementById('pd-likes').textContent = stats.likes || 0;
@@ -387,11 +377,21 @@ async function syncFromFirebase() {
             if (document.getElementById('pd-subs')) document.getElementById('pd-subs').textContent = stats.subs || 0;
             localStorage.setItem('coindrop_user', JSON.stringify(user));
         }
-        await loadCooldowns();
-    } catch (e) { console.error('Firebase sync error:', e); }
+
+        // Load cooldowns from server
+        _cooldownCache = {};
+        if (data.cooldowns) {
+            for (const [key, ms] of Object.entries(data.cooldowns)) {
+                _cooldownCache[key] = ms;
+            }
+        }
+
+        // Cache server tasks for activity/payouts
+        window._serverTasks = data.tasks || [];
+    } catch (e) { console.error('Server sync error:', e); }
 }
 
-syncFromFirebase();
+syncFromServer();
 
 const creatorsContainer = document.getElementById('creators-list');
 
@@ -629,20 +629,15 @@ setTimeout(async () => {
 // Full leaderboard — from Firebase
 async function loadFullLeaderboard() {
     const el = document.getElementById('full-leaderboard');
-    if (!el || typeof CoinDropDB === 'undefined') return;
+    if (!el) return;
     try {
-        const leaders = await CoinDropDB.getLeaderboard(20);
+        const resp = await fetch(`${API_URL}/api/leaderboard`);
+        const data = await resp.json();
+        const leaders = data.leaders || [];
         if (!leaders.length) { el.innerHTML = '<p class="text-muted" style="padding:20px;text-align:center">No earners yet. Complete tasks to appear on the leaderboard!</p>'; return; }
-        const rows = [];
-        for (const [i, l] of leaders.entries()) {
-            let name = l.userId.substring(0, 8);
-            let avatar = `https://api.dicebear.com/7.x/thumbs/svg?seed=${l.userId}`;
-            let prestige = 'starter';
-            try {
-                const p = await db.collection('users').doc(l.userId).get();
-                if (p.exists) { name = p.data().displayName || name; avatar = p.data().avatar || avatar; prestige = p.data().prestige || 'starter'; }
-            } catch(e) {}
+        el.innerHTML = leaders.map((l, i) => {
             const tc = l.tasksCompleted || 0;
+            let prestige = 'starter';
             if (tc >= 500) prestige = 'diamond';
             else if (tc >= 300) prestige = 'platinum';
             else if (tc >= 150) prestige = 'gold';
@@ -650,48 +645,43 @@ async function loadFullLeaderboard() {
             else if (tc >= 10) prestige = 'bronze';
             const pb = PRESTIGE[prestige];
             const isYou = user && l.userId === user.id;
-            rows.push(`<div class="lb-full-row ${isYou ? 'you' : ''}">
+            return `<div class="lb-full-row ${isYou ? 'you' : ''}">
                 <span class="mini-lb-rank">${i+1}</span>
-                <span class="lb-member"><img src="${avatar}" class="lb-avatar" alt=""> ${name}${isYou ? ' (You)' : ''}</span>
+                <span class="lb-member"><img src="${l.avatar || 'https://api.dicebear.com/7.x/thumbs/svg?seed=' + l.userId}" class="lb-avatar" alt=""> ${l.name}${isYou ? ' (You)' : ''}</span>
                 <span class="lb-tasks">${tc}</span>
                 <span class="lb-earned">$${(l.totalEarned||0).toFixed(3)}</span>
                 <span><span class="badge ${pb.class}"><i class="${pb.icon}"></i> ${pb.label}</span></span>
-            </div>`);
-        }
-        el.innerHTML = rows.join('');
+            </div>`;
+        }).join('');
     } catch(e) { el.innerHTML = '<p class="text-muted" style="padding:20px;text-align:center">Leaderboard loading failed.</p>'; }
 }
 
 loadFullLeaderboard();
 
 // Payouts history — from Firebase task history
-async function loadPayoutsHistory() {
+function loadPayoutsHistory() {
     const el = document.getElementById('payouts-list');
-    if (!el || typeof CoinDropDB === 'undefined' || !user || !user.id) {
-        if (el) el.innerHTML = '<p class="text-muted" style="font-size:0.85rem">No payouts yet.</p>';
-        return;
-    }
-    try {
-        const tasks = await CoinDropDB.getTaskHistory(user.id, 20);
-        if (!tasks.length) { el.innerHTML = '<p class="text-muted" style="font-size:0.85rem">No payouts yet. Complete tasks to earn!</p>'; return; }
-        el.innerHTML = tasks.map(t => {
-            const ts = t.timestamp?.toDate ? t.timestamp.toDate() : new Date();
-            const labels = { watch: 'View task', like: 'Like task', comment: 'Comment task', subscribe: 'Subscribe task', follow: 'Follow task' };
-            return `<div class="payout-row">
-                <div class="payout-info">
-                    <div class="payout-icon"><i class="fas fa-wallet"></i></div>
-                    <div>
-                        <div class="payout-date">${ts.toLocaleDateString()}</div>
-                        <div class="payout-tasks">${labels[t.taskType] || t.taskType} · ${(t.videoTitle||'').substring(0,30)}</div>
-                    </div>
+    if (!el) return;
+    const tasks = window._serverTasks || [];
+    if (!tasks.length) { el.innerHTML = '<p class="text-muted" style="font-size:0.85rem">No payouts yet. Complete tasks to earn!</p>'; return; }
+    const labels = { watch: 'View task', like: 'Like task', comment: 'Comment task', subscribe: 'Subscribe task', follow: 'Follow task' };
+    el.innerHTML = tasks.map(t => {
+        const ts = t.timestamp ? new Date(t.timestamp) : new Date();
+        return `<div class="payout-row">
+            <div class="payout-info">
+                <div class="payout-icon"><i class="fas fa-wallet"></i></div>
+                <div>
+                    <div class="payout-date">${ts.toLocaleDateString()}</div>
+                    <div class="payout-tasks">${labels[t.taskType] || t.taskType} · ${(t.videoTitle||'').substring(0,30)}</div>
                 </div>
-                <span class="payout-amount">+$${(t.rewardUSD || t.reward || 0.01).toFixed(3)}</span>
-            </div>`;
-        }).join('');
-    } catch(e) { if (el) el.innerHTML = '<p class="text-muted" style="font-size:0.85rem">No payouts yet.</p>'; }
+            </div>
+            <span class="payout-amount">+$${(t.rewardUSD || 0.01).toFixed(3)}</span>
+        </div>`;
+    }).join('');
 }
 
-loadPayoutsHistory();
+// Delay to let server sync populate _serverTasks
+setTimeout(loadPayoutsHistory, 2500);
 
 // Populate earnings summary from Firebase stats
 async function loadEarningsSummary() {
