@@ -271,53 +271,70 @@ function switchTab(tabName) {
     if (tabName === 'analytics' && typeof loadCreatorAnalytics === 'function') loadCreatorAnalytics();
 }
 
-// Recent activity
-const ACTIVITIES = [
-    { type: 'yt', action: 'Watched YouTube video', detail: '"Top 10 Crypto Tips"', reward: '+0.001 SOL', time: '5 min ago' },
-    { type: 'ig', action: 'Liked Instagram post', detail: '@cryptotrader', reward: '+0.0005 SOL', time: '12 min ago' },
-    { type: 'sub', action: 'Subscribed to channel', detail: 'CoinDesk', reward: '+$0.05', time: '1 hr ago' },
-    { type: 'yt', action: 'Left a comment', detail: '"Great video, thanks!"', reward: '+0.002 SOL', time: '2 hrs ago' },
-    { type: 'payout', action: 'Daily payout received', detail: '14 tasks completed', reward: '+0.008 SOL', time: 'Yesterday' },
-    { type: 'ig', action: 'Followed account', detail: '@dailycrypto', reward: '+$0.05', time: 'Yesterday' },
-    { type: 'yt', action: 'Watched YouTube video', detail: '"Solana 2025 Guide"', reward: '+0.001 SOL', time: '2 days ago' },
-];
-
-const activityList = document.getElementById('activity-list');
-if (activityList) {
-    ACTIVITIES.forEach(a => {
-        activityList.innerHTML += `
-            <div class="activity-item">
-                <div class="activity-icon ${a.type}"><i class="${a.type === 'yt' ? 'fab fa-youtube' : a.type === 'ig' ? 'fab fa-instagram' : a.type === 'sub' ? 'fas fa-bell' : 'fas fa-wallet'}"></i></div>
-                <div class="activity-info">
-                    <span>${a.action}</span>
-                    <small>${a.detail} · ${a.time}</small>
-                </div>
-                <span class="activity-reward">${a.reward}</span>
-            </div>`;
-    });
+// Recent activity — from Firebase
+function timeAgo(date) {
+    const s = Math.floor((Date.now() - date.getTime()) / 1000);
+    if (s < 60) return 'just now';
+    if (s < 3600) return Math.floor(s / 60) + ' min ago';
+    if (s < 86400) return Math.floor(s / 3600) + 'h ago';
+    if (s < 604800) return Math.floor(s / 86400) + 'd ago';
+    return date.toLocaleDateString();
 }
 
-// Mini leaderboard
-const LEADERS = [
-    { name: 'Kwame G.', seed: 'Kwame', earned: '2.84 SOL' },
-    { name: 'Priya S.', seed: 'Priya', earned: '2.31 SOL' },
-    { name: 'Ahmed M.', seed: 'Ahmed', earned: '1.97 SOL' },
-    { name: 'Maria L.', seed: 'Maria', earned: '1.58 SOL' },
-    { name: 'Chen W.', seed: 'Chen', earned: '1.22 SOL' },
-];
-
-const miniLb = document.getElementById('mini-leaderboard');
-if (miniLb) {
-    LEADERS.forEach((l, i) => {
-        miniLb.innerHTML += `
-            <div class="mini-lb-row">
-                <span class="mini-lb-rank">${i + 1}</span>
-                <img src="https://api.dicebear.com/7.x/thumbs/svg?seed=${l.seed}" class="mini-lb-avatar" alt="">
-                <span class="mini-lb-name">${l.name}</span>
-                <span class="mini-lb-earned">${l.earned}</span>
+async function loadRecentActivity() {
+    const el = document.getElementById('activity-list');
+    if (!el) return;
+    if (typeof CoinDropDB === 'undefined' || !user || !user.id) {
+        el.innerHTML = '<p class="text-muted" style="font-size:0.85rem">Complete tasks to see your activity.</p>';
+        return;
+    }
+    try {
+        const tasks = await CoinDropDB.getTaskHistory(user.id, 10);
+        if (!tasks.length) { el.innerHTML = '<p class="text-muted" style="font-size:0.85rem">Complete tasks to see your activity.</p>'; return; }
+        const icons = { watch: 'yt', like: 'yt', comment: 'yt', subscribe: 'sub', follow: 'ig' };
+        const cls = { yt: 'fab fa-youtube', ig: 'fab fa-instagram', sub: 'fas fa-bell' };
+        const labels = { watch: 'Watched video', like: 'Liked video', comment: 'Left a comment', subscribe: 'Subscribed', follow: 'Followed' };
+        el.innerHTML = tasks.map(t => {
+            const type = icons[t.taskType] || 'yt';
+            const ts = t.timestamp?.toDate ? t.timestamp.toDate() : new Date();
+            return `<div class="activity-item">
+                <div class="activity-icon ${type}"><i class="${cls[type]}"></i></div>
+                <div class="activity-info"><span>${labels[t.taskType] || t.taskType}</span><small>${(t.videoTitle||'').substring(0,35)} · ${timeAgo(ts)}</small></div>
+                <span class="activity-reward">+$${(t.rewardUSD || t.reward || 0.01).toFixed(3)}</span>
             </div>`;
-    });
+        }).join('');
+    } catch(e) { el.innerHTML = '<p class="text-muted" style="font-size:0.85rem">Complete tasks to see your activity.</p>'; }
 }
+
+// Mini leaderboard — from Firebase (global top earners)
+async function loadMiniLeaderboard() {
+    const el = document.getElementById('mini-leaderboard');
+    if (!el) return;
+    if (typeof CoinDropDB === 'undefined') { el.innerHTML = '<p class="text-muted" style="font-size:0.85rem">No earners yet. Be the first!</p>'; return; }
+    try {
+        const leaders = await CoinDropDB.getLeaderboard(5);
+        if (!leaders.length) { el.innerHTML = '<p class="text-muted" style="font-size:0.85rem">No earners yet. Be the first!</p>'; return; }
+        const rows = [];
+        for (const [i, l] of leaders.entries()) {
+            let name = l.userId.substring(0, 8);
+            let avatar = `https://api.dicebear.com/7.x/thumbs/svg?seed=${l.userId}`;
+            try {
+                const p = await db.collection('users').doc(l.userId).get();
+                if (p.exists) { name = p.data().displayName || name; avatar = p.data().avatar || avatar; }
+            } catch(e) {}
+            rows.push(`<div class="mini-lb-row">
+                <span class="mini-lb-rank">${i+1}</span>
+                <img src="${avatar}" class="mini-lb-avatar" alt="">
+                <span class="mini-lb-name">${name}</span>
+                <span class="mini-lb-earned">$${(l.totalEarned||0).toFixed(3)}</span>
+            </div>`);
+        }
+        el.innerHTML = rows.join('');
+    } catch(e) { el.innerHTML = '<p class="text-muted" style="font-size:0.85rem">No earners yet. Be the first!</p>'; }
+}
+
+loadRecentActivity();
+loadMiniLeaderboard();
 
 // CREATORS array is loaded from creators-data.js (included before this file)
 
@@ -609,59 +626,86 @@ setTimeout(async () => {
     renderCreators('all');
 }, 1500);
 
-// Full leaderboard
-const FULL_LB = [
-    { rank: 1, name: 'Kwame G.', seed: 'Kwame', tasks: '1,847', earned: '2.84 SOL', prestige: 'gold' },
-    { rank: 2, name: 'Priya S.', seed: 'Priya', tasks: '1,520', earned: '2.31 SOL', prestige: 'gold' },
-    { rank: 3, name: 'Ahmed M.', seed: 'Ahmed', tasks: '1,312', earned: '1.97 SOL', prestige: 'silver' },
-    { rank: 4, name: 'Maria L.', seed: 'Maria', tasks: '1,045', earned: '1.58 SOL', prestige: 'silver' },
-    { rank: 5, name: 'Chen W.', seed: 'Chen', tasks: '814', earned: '1.22 SOL', prestige: 'silver' },
-    { rank: 6, name: 'Fatima B.', seed: 'Fatima', tasks: '692', earned: '0.98 SOL', prestige: 'bronze' },
-    { rank: 7, name: 'Carlos R.', seed: 'Carlos', tasks: '581', earned: '0.84 SOL', prestige: 'bronze' },
-    { rank: 8, name: 'Aisha K.', seed: 'Aisha', tasks: '443', earned: '0.61 SOL', prestige: 'bronze' },
-    { rank: 42, name: 'Demo User (You)', seed: 'Demo', tasks: '247', earned: '0.34 SOL', prestige: 'starter', you: true },
-];
-
-const fullLb = document.getElementById('full-leaderboard');
-if (fullLb) {
-    FULL_LB.forEach(l => {
-        const p = PRESTIGE[l.prestige];
-        fullLb.innerHTML += `
-            <div class="lb-full-row ${l.you ? 'you' : ''}">
-                <span class="mini-lb-rank">${l.rank}</span>
-                <span class="lb-member"><img src="https://api.dicebear.com/7.x/thumbs/svg?seed=${l.seed}" class="lb-avatar" alt=""> ${l.name}</span>
-                <span class="lb-tasks">${l.tasks}</span>
-                <span class="lb-earned">${l.earned}</span>
-                <span><span class="badge ${p.class}"><i class="${p.icon}"></i> ${p.label}</span></span>
-            </div>`;
-    });
+// Full leaderboard — from Firebase
+async function loadFullLeaderboard() {
+    const el = document.getElementById('full-leaderboard');
+    if (!el || typeof CoinDropDB === 'undefined') return;
+    try {
+        const leaders = await CoinDropDB.getLeaderboard(20);
+        if (!leaders.length) { el.innerHTML = '<p class="text-muted" style="padding:20px;text-align:center">No earners yet. Complete tasks to appear on the leaderboard!</p>'; return; }
+        const rows = [];
+        for (const [i, l] of leaders.entries()) {
+            let name = l.userId.substring(0, 8);
+            let avatar = `https://api.dicebear.com/7.x/thumbs/svg?seed=${l.userId}`;
+            let prestige = 'starter';
+            try {
+                const p = await db.collection('users').doc(l.userId).get();
+                if (p.exists) { name = p.data().displayName || name; avatar = p.data().avatar || avatar; prestige = p.data().prestige || 'starter'; }
+            } catch(e) {}
+            const tc = l.tasksCompleted || 0;
+            if (tc >= 500) prestige = 'diamond';
+            else if (tc >= 300) prestige = 'platinum';
+            else if (tc >= 150) prestige = 'gold';
+            else if (tc >= 50) prestige = 'silver';
+            else if (tc >= 10) prestige = 'bronze';
+            const pb = PRESTIGE[prestige];
+            const isYou = user && l.userId === user.id;
+            rows.push(`<div class="lb-full-row ${isYou ? 'you' : ''}">
+                <span class="mini-lb-rank">${i+1}</span>
+                <span class="lb-member"><img src="${avatar}" class="lb-avatar" alt=""> ${name}${isYou ? ' (You)' : ''}</span>
+                <span class="lb-tasks">${tc}</span>
+                <span class="lb-earned">$${(l.totalEarned||0).toFixed(3)}</span>
+                <span><span class="badge ${pb.class}"><i class="${pb.icon}"></i> ${pb.label}</span></span>
+            </div>`);
+        }
+        el.innerHTML = rows.join('');
+    } catch(e) { el.innerHTML = '<p class="text-muted" style="padding:20px;text-align:center">Leaderboard loading failed.</p>'; }
 }
 
-// Payouts history
-const PAYOUTS = [
-    { date: 'Jun 19, 2025', tasks: 14, amount: '0.008 SOL' },
-    { date: 'Jun 18, 2025', tasks: 11, amount: '0.006 SOL' },
-    { date: 'Jun 17, 2025', tasks: 18, amount: '0.012 SOL' },
-    { date: 'Jun 16, 2025', tasks: 9, amount: '0.005 SOL' },
-    { date: 'Jun 15, 2025', tasks: 22, amount: '0.014 SOL' },
-    { date: 'Jun 14, 2025', tasks: 16, amount: '0.009 SOL' },
-    { date: 'Jun 13, 2025', tasks: 13, amount: '0.007 SOL' },
-    { date: 'Jun 1, 2025', tasks: 0, amount: '$0.20', type: 'Residual payout' },
-];
+loadFullLeaderboard();
 
-const payoutsList = document.getElementById('payouts-list');
-if (payoutsList) {
-    PAYOUTS.forEach(p => {
-        payoutsList.innerHTML += `
-            <div class="payout-row">
+// Payouts history — from Firebase task history
+async function loadPayoutsHistory() {
+    const el = document.getElementById('payouts-list');
+    if (!el || typeof CoinDropDB === 'undefined' || !user || !user.id) {
+        if (el) el.innerHTML = '<p class="text-muted" style="font-size:0.85rem">No payouts yet.</p>';
+        return;
+    }
+    try {
+        const tasks = await CoinDropDB.getTaskHistory(user.id, 20);
+        if (!tasks.length) { el.innerHTML = '<p class="text-muted" style="font-size:0.85rem">No payouts yet. Complete tasks to earn!</p>'; return; }
+        el.innerHTML = tasks.map(t => {
+            const ts = t.timestamp?.toDate ? t.timestamp.toDate() : new Date();
+            const labels = { watch: 'View task', like: 'Like task', comment: 'Comment task', subscribe: 'Subscribe task', follow: 'Follow task' };
+            return `<div class="payout-row">
                 <div class="payout-info">
-                    <div class="payout-icon"><i class="fas fa-${p.type ? 'sync-alt' : 'wallet'}"></i></div>
+                    <div class="payout-icon"><i class="fas fa-wallet"></i></div>
                     <div>
-                        <div class="payout-date">${p.date}</div>
-                        <div class="payout-tasks">${p.type || p.tasks + ' tasks completed'}</div>
+                        <div class="payout-date">${ts.toLocaleDateString()}</div>
+                        <div class="payout-tasks">${labels[t.taskType] || t.taskType} · ${(t.videoTitle||'').substring(0,30)}</div>
                     </div>
                 </div>
-                <span class="payout-amount">+${p.amount}</span>
+                <span class="payout-amount">+$${(t.rewardUSD || t.reward || 0.01).toFixed(3)}</span>
             </div>`;
-    });
+        }).join('');
+    } catch(e) { if (el) el.innerHTML = '<p class="text-muted" style="font-size:0.85rem">No payouts yet.</p>'; }
 }
+
+loadPayoutsHistory();
+
+// Populate earnings summary from Firebase stats
+async function loadEarningsSummary() {
+    if (typeof CoinDropDB === 'undefined' || !user || !user.id) return;
+    try {
+        const stats = await CoinDropDB.getTaskBreakdown(user.id);
+        const tt = document.getElementById('earn-total-tasks');
+        const tu = document.getElementById('earn-total-usd');
+        const ev = document.getElementById('earn-views');
+        const eo = document.getElementById('earn-other');
+        if (tt) tt.textContent = stats.tasksCompleted || 0;
+        if (tu) tu.textContent = '$' + (stats.totalEarned || 0).toFixed(3);
+        if (ev) ev.textContent = stats.views || 0;
+        if (eo) eo.textContent = `${stats.likes||0} / ${stats.comments||0} / ${stats.subs||0}`;
+    } catch(e) {}
+}
+loadEarningsSummary();
