@@ -109,62 +109,45 @@ const CoinDropDB = {
 // ===== Google Sign-In =====
 async function signInWithGoogle() {
     const provider = new firebase.auth.GoogleAuthProvider();
+    const result = await auth.signInWithPopup(provider);
+    const gUser = result.user;
+
+    const userData = {
+        id: gUser.uid,
+        displayName: gUser.displayName,
+        username: gUser.email.split('@')[0],
+        email: gUser.email,
+        avatar: gUser.photoURL,
+        authProvider: 'google',
+        prestige: 'starter',
+        joinDate: new Date().toISOString().split('T')[0],
+        walletAddress: '',
+        tasksCompleted: 0,
+        totalEarned: 0,
+        activeSubscriptions: 0,
+        activeFollows: 0,
+        lastLogin: new Date().toISOString(),
+    };
+
+    // Try to load existing profile and stats from Firestore (non-blocking)
     try {
-        const result = await auth.signInWithPopup(provider);
-        const gUser = result.user;
-
-        const userData = {
-            id: gUser.uid,
-            displayName: gUser.displayName,
-            username: gUser.email.split('@')[0],
-            email: gUser.email,
-            avatar: gUser.photoURL,
-            authProvider: 'google',
-            lastLogin: new Date().toISOString(),
-        };
-
         const existing = await CoinDropDB.getUser(gUser.uid);
         if (existing) {
             userData.prestige = existing.prestige || 'starter';
-            userData.joinDate = existing.joinDate;
+            userData.joinDate = existing.joinDate || userData.joinDate;
             userData.walletAddress = existing.walletAddress || '';
-        } else {
-            userData.prestige = 'starter';
-            userData.joinDate = new Date().toISOString().split('T')[0];
-            userData.walletAddress = '';
         }
-
-        // Check if a Discord account is already linked to this email
-        const discordLink = await db.collection('account_links').where('email', '==', gUser.email).limit(1).get();
-        if (!discordLink.empty) {
-            const link = discordLink.docs[0].data();
-            if (link.discordId) {
-                userData.discordId = link.discordId;
-                userData.discordUsername = link.discordUsername || '';
-            }
-        }
-
-        // Store link from Google side
-        await db.collection('account_links').doc(`google_${gUser.uid}`).set({
-            canonicalId: gUser.uid,
-            email: gUser.email,
-            linkedAt: firebase.firestore.FieldValue.serverTimestamp()
-        }, { merge: true });
-
         await CoinDropDB.saveUser(gUser.uid, userData);
-
         const stats = await CoinDropDB.getTaskBreakdown(gUser.uid);
         userData.tasksCompleted = stats.tasksCompleted || 0;
         userData.totalEarned = stats.totalEarned || 0;
         userData.activeSubscriptions = stats.subs || 0;
-        userData.activeFollows = 0;
-
-        localStorage.setItem('coindrop_user', JSON.stringify(userData));
-        return userData;
-    } catch (err) {
-        console.error('Google sign-in error:', err);
-        throw err;
+    } catch (dbErr) {
+        console.warn('Firestore sync skipped (will retry on dashboard):', dbErr.message);
     }
+
+    localStorage.setItem('coindrop_user', JSON.stringify(userData));
+    return userData;
 }
 
 // Restore session on page load
