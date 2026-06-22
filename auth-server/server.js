@@ -5,8 +5,13 @@ const crypto = require('crypto');
 const querystring = require('querystring');
 const admin = require('firebase-admin');
 
-// Initialize Firebase Admin with project ID (uses Application Default Credentials or env var)
-admin.initializeApp({ projectId: 'coindrop-e39de' });
+// Initialize Firebase Admin
+if (process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON) {
+    const serviceAccount = JSON.parse(process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON);
+    admin.initializeApp({ credential: admin.credential.cert(serviceAccount), projectId: 'coindrop-e39de' });
+} else {
+    admin.initializeApp({ projectId: 'coindrop-e39de' });
+}
 const firestore = admin.firestore();
 
 const app = express();
