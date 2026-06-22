@@ -15,6 +15,7 @@ document.querySelectorAll('.sidebar-link[data-tab]').forEach(link => {
         document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
         document.getElementById(`tab-${tab}`).classList.add('active');
         document.getElementById('sidebar').classList.remove('open');
+        if (tab === 'analytics' && typeof loadCreatorAnalytics === 'function') loadCreatorAnalytics();
     });
 });
 
@@ -194,6 +195,7 @@ function switchTab(tabName) {
     if (link) link.classList.add('active');
     document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
     document.getElementById(`tab-${tabName}`)?.classList.add('active');
+    if (tabName === 'analytics' && typeof loadCreatorAnalytics === 'function') loadCreatorAnalytics();
 }
 
 // Recent activity
