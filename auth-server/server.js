@@ -37,7 +37,7 @@ app.get('/auth/discord', (req, res) => {
         client_id: CLIENT_ID,
         redirect_uri: REDIRECT_URI,
         response_type: 'code',
-        scope: 'identify guilds',
+        scope: 'identify guilds email',
     });
     res.redirect(`https://discord.com/api/oauth2/authorize?${params}`);
 });
@@ -73,6 +73,7 @@ app.get('/auth/discord/callback', async (req, res) => {
             accessToken: tokenData.access_token,
             refreshToken: tokenData.refresh_token,
             expiresAt: Date.now() + tokenData.expires_in * 1000,
+            email: user.email || null,
             guilds: guilds.map(g => ({ id: g.id, name: g.name })),
             joinDate: new Date().toISOString().split('T')[0],
             prestige: 'starter',

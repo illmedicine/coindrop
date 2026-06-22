@@ -134,6 +134,23 @@ async function signInWithGoogle() {
             userData.walletAddress = '';
         }
 
+        // Check if a Discord account is already linked to this email
+        const discordLink = await db.collection('account_links').where('email', '==', gUser.email).limit(1).get();
+        if (!discordLink.empty) {
+            const link = discordLink.docs[0].data();
+            if (link.discordId) {
+                userData.discordId = link.discordId;
+                userData.discordUsername = link.discordUsername || '';
+            }
+        }
+
+        // Store link from Google side
+        await db.collection('account_links').doc(`google_${gUser.uid}`).set({
+            canonicalId: gUser.uid,
+            email: gUser.email,
+            linkedAt: firebase.firestore.FieldValue.serverTimestamp()
+        }, { merge: true });
+
         await CoinDropDB.saveUser(gUser.uid, userData);
 
         const stats = await CoinDropDB.getTaskBreakdown(gUser.uid);

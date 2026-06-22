@@ -23,12 +23,78 @@ const urlParams = new URLSearchParams(window.location.search);
 const authData = urlParams.get('auth');
 if (authData) {
     try {
-        const userData = JSON.parse(decodeURIComponent(authData));
-        localStorage.setItem('coindrop_user', JSON.stringify(userData));
-        window.history.replaceState({}, '', 'dashboard.html');
+        const discordUser = JSON.parse(decodeURIComponent(authData));
+        // Link Discord account to existing Google account by email lookup
+        if (typeof CoinDropDB !== 'undefined') {
+            (async () => {
+                try {
+                    const canonicalId = await resolveLinkedAccount(discordUser);
+                    discordUser.id = canonicalId;
+                    await CoinDropDB.saveUser(canonicalId, {
+                        ...discordUser,
+                        discordId: discordUser.id,
+                        discordUsername: discordUser.username,
+                        discordAvatar: discordUser.avatar,
+                        lastLogin: new Date().toISOString(),
+                    });
+                    const stats = await CoinDropDB.getTaskBreakdown(canonicalId);
+                    discordUser.tasksCompleted = stats.tasksCompleted || 0;
+                    discordUser.totalEarned = stats.totalEarned || 0;
+                    discordUser.activeSubscriptions = stats.subs || 0;
+                } catch(e) { console.error('Account linking error:', e); }
+                localStorage.setItem('coindrop_user', JSON.stringify(discordUser));
+                window.history.replaceState({}, '', 'dashboard.html');
+                location.reload();
+            })();
+        } else {
+            localStorage.setItem('coindrop_user', JSON.stringify(discordUser));
+            window.history.replaceState({}, '', 'dashboard.html');
+        }
     } catch (e) {
         console.error('Failed to parse auth data:', e);
     }
+}
+
+// Resolve linked accounts — find canonical user ID across Discord/Google
+async function resolveLinkedAccount(discordUser) {
+    const email = discordUser.email;
+    const discordId = discordUser.id;
+
+    // Check if this Discord ID already has a linked account
+    const linkedDoc = await db.collection('account_links').doc(`discord_${discordId}`).get();
+    if (linkedDoc.exists) return linkedDoc.data().canonicalId;
+
+    // If Discord user has an email, check if a Google user with same email exists
+    if (email) {
+        const emailQuery = await db.collection('users').where('email', '==', email).limit(1).get();
+        if (!emailQuery.empty) {
+            const googleUser = emailQuery.docs[0];
+            const canonicalId = googleUser.id;
+            // Store the link both ways
+            await db.collection('account_links').doc(`discord_${discordId}`).set({ canonicalId, email, discordId, linkedAt: firebase.firestore.FieldValue.serverTimestamp() });
+            await db.collection('account_links').doc(`google_${canonicalId}`).set({ canonicalId, email, discordId, linkedAt: firebase.firestore.FieldValue.serverTimestamp() }, { merge: true });
+            // Merge Discord info into the existing Google profile
+            await CoinDropDB.saveUser(canonicalId, { discordId, discordUsername: discordUser.username, discordAvatar: discordUser.avatar });
+            return canonicalId;
+        }
+    }
+
+    // No match — check by username similarity (Discord username matches Google email prefix)
+    const username = discordUser.username;
+    if (username) {
+        const usernameQuery = await db.collection('users').where('username', '==', username).limit(1).get();
+        if (!usernameQuery.empty) {
+            const matchedUser = usernameQuery.docs[0];
+            const canonicalId = matchedUser.id;
+            await db.collection('account_links').doc(`discord_${discordId}`).set({ canonicalId, discordId, linkedAt: firebase.firestore.FieldValue.serverTimestamp() });
+            await CoinDropDB.saveUser(canonicalId, { discordId, discordUsername: discordUser.username, discordAvatar: discordUser.avatar });
+            return canonicalId;
+        }
+    }
+
+    // No existing account found — use Discord ID as canonical
+    await db.collection('account_links').doc(`discord_${discordId}`).set({ canonicalId: discordId, discordId, linkedAt: firebase.firestore.FieldValue.serverTimestamp() });
+    return discordId;
 }
 
 // Load user data
