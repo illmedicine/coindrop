@@ -386,7 +386,14 @@ function updateEarningsBanner() {
     if (ebResidual) ebResidual.textContent = `$${monthlyResidualUSD.toFixed(2)}/mo`;
     if (ebNetwork) ebNetwork.textContent = `${totalCreators} creators · ${totalVideos} videos`;
 }
-updateEarningsBanner();
+// Run after DOM ready
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', updateEarningsBanner);
+} else {
+    updateEarningsBanner();
+}
+// Also retry after 1s in case of race condition
+setTimeout(updateEarningsBanner, 1000);
 
 // ===== Subscriptions & Cooldowns (Firebase-powered) =====
 async function loadSubsAndCooldowns() {
