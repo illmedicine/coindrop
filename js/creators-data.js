@@ -331,3 +331,8 @@ const CREATORS = [
         ]
     },
 ];
+
+// Trigger earnings banner as soon as CREATORS is defined
+setTimeout(() => {
+    if (typeof updateEarningsBanner === 'function') updateEarningsBanner();
+}, 100);

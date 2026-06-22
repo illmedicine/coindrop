@@ -10,9 +10,14 @@ const firebaseConfig = {
     measurementId: "G-WT35ZRWJG0"
 };
 
-firebase.initializeApp(firebaseConfig);
-const db = firebase.firestore();
-const auth = firebase.auth();
+let db, auth;
+try {
+    firebase.initializeApp(firebaseConfig);
+    db = firebase.firestore();
+    auth = firebase.auth();
+} catch(e) {
+    console.warn('Firebase init error (non-fatal):', e.message);
+}
 
 // ===== CoinDrop Database API =====
 const CoinDropDB = {
@@ -151,7 +156,7 @@ async function signInWithGoogle() {
 }
 
 // Restore session on page load
-auth.onAuthStateChanged(async (gUser) => {
+if (auth) auth.onAuthStateChanged(async (gUser) => {
     if (gUser && !localStorage.getItem('coindrop_user')) {
         const existing = await CoinDropDB.getUser(gUser.uid);
         if (existing) {
