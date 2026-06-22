@@ -103,34 +103,52 @@ app.post('/api/verify-task', async (req, res) => {
         const base64Data = screenshot.replace(/^data:image\/\w+;base64,/, '');
         const mediaType = screenshot.match(/^data:(image\/\w+);base64,/)?.[1] || 'image/png';
 
-        const verificationPrompt = `You are a screenshot verification AI for CoinDrop, a platform that pays users to engage with YouTube/Instagram content.
+        const taskRules = {
+            watch: `WATCH VERIFICATION — ALL 3 conditions must be met:
+1. VIDEO TITLE MATCH: The video title "${videoTitle}" (or a recognizable portion of it) must be visible on screen. Partial matches are OK (e.g. "MINDS THROUGH TIME" matching "MINDS THROUGH TIME : EPISODE 4 : CARDI B...").
+2. CHANNEL NAME VISIBLE: The creator/channel name "${creatorName}" (or a close variant like their YouTube handle) must be visible somewhere on screen — below the video, in the header, or in the URL.
+3. ACTIVE PLAYBACK: Evidence the video was watched — look for ANY of: a red progress bar on the video timeline showing elapsed time, a pause button visible (meaning video is playing), visible timestamp showing elapsed time (e.g. "0:15 / 7:55"), or the video player in fullscreen/theater mode.
 
-Analyze this screenshot and determine if it shows LEGITIMATE proof that the user completed this specific task:
+PASS if all 3 conditions are met. FAIL if the title doesn't match, channel name isn't visible, or there's no evidence of playback.`,
 
-TASK DETAILS:
-- Action: ${taskType} (${taskType === 'watch' ? 'watching a video' : taskType === 'like' ? 'liking content' : taskType === 'comment' ? 'leaving a comment' : 'subscribing/following'})
-- Video/Content Title: "${videoTitle}"
-- Creator: ${creatorName}
-- Platform: ${platform}
-- Video ID: ${videoId}
+            like: `LIKE VERIFICATION — ALL 3 conditions must be met:
+1. VIDEO TITLE MATCH: The video title "${videoTitle}" (or a recognizable portion) must be visible.
+2. CHANNEL NAME VISIBLE: The creator "${creatorName}" must be visible.
+3. LIKE BUTTON ACTIVE: The thumbs-up/like button must appear FILLED/SHADED/HIGHLIGHTED (solid blue or solid white fill on YouTube, or a colored/filled heart on Instagram). An UNFILLED/OUTLINE-ONLY thumbs up means the user did NOT click like — this FAILS verification. On YouTube, a liked video shows a solid filled thumb icon, not an outline.
 
-VERIFICATION RULES:
-1. For WATCH tasks: Screenshot should show the video player, video title, or YouTube/Instagram interface with content that matches or relates to "${videoTitle}"
-2. For LIKE tasks: Screenshot should show a liked state (filled thumbs up, heart) on content matching "${videoTitle}" or from "${creatorName}"
-3. For COMMENT tasks: Screenshot should show a comment being written or posted on content from "${creatorName}"
-4. For SUBSCRIBE tasks: Screenshot should show a subscribed state on "${creatorName}" channel
+PASS only if the like button is clearly in its ACTIVE/FILLED state. FAIL if the thumb is just an outline (not clicked).`,
 
-Look for ANY of these matching signals:
-- Video title or partial title match
-- Creator/channel name visible
-- YouTube or Instagram UI elements
-- The URL bar showing youtube.com or instagram.com
-- Matching thumbnail imagery
+            comment: `COMMENT VERIFICATION — ALL 3 conditions must be met:
+1. VIDEO TITLE MATCH: The video title "${videoTitle}" (or a recognizable portion) must be visible.
+2. CHANNEL NAME VISIBLE: The creator "${creatorName}" must be visible.
+3. FRESH COMMENT VISIBLE: A comment must be visible that was posted very recently — look for timestamps like "0 seconds ago", "just now", "1 second ago", "30 seconds ago", "1 minute ago", "2 minutes ago", or "3 minutes ago". Comments older than 3 minutes FAIL. The comment text must be substantive (not empty or just an emoji).
 
-Be REASONABLY lenient - if the screenshot clearly shows YouTube/Instagram with content that could plausibly be from this creator, APPROVE it. Only reject obvious fakes, blank screenshots, or completely unrelated content.
+PASS only if a fresh comment (0-3 minutes old) is visible along with the matching title and channel. FAIL if no comment is visible, the comment is older than 3 minutes, or title/channel don't match.`,
 
-Respond with EXACTLY this JSON format (no other text):
-{"verified": true/false, "confidence": 0.0-1.0, "reason": "brief explanation"}`;
+            subscribe: `SUBSCRIBE VERIFICATION — ALL 2 conditions must be met:
+1. CHANNEL NAME VISIBLE: The creator "${creatorName}" must be visible.
+2. SUBSCRIBED STATE: The subscribe button must show "Subscribed" (gray button with bell icon on YouTube) rather than the red "Subscribe" button. If the button still says "Subscribe" in red, the user hasn't subscribed — FAIL.
+
+PASS if the channel shows a "Subscribed" state. FAIL if the Subscribe button is still red/unclicked.`,
+
+            follow: `FOLLOW VERIFICATION — ALL 2 conditions must be met:
+1. ACCOUNT NAME VISIBLE: The creator "${creatorName}" must be visible.
+2. FOLLOWING STATE: The follow button must show "Following" rather than "Follow". If it still says "Follow", the user hasn't followed — FAIL.`
+        };
+
+        const verificationPrompt = `You are a strict screenshot verification AI for CoinDrop. Analyze this screenshot for proof of task completion.
+
+TASK: ${taskType.toUpperCase()}
+VIDEO/CONTENT: "${videoTitle}"
+CREATOR: ${creatorName}
+PLATFORM: ${platform}
+
+${taskRules[taskType] || taskRules.watch}
+
+IMPORTANT: You must check EACH condition independently. Do not assume — look carefully at the actual screenshot. If you cannot clearly see a required element, FAIL the verification.
+
+Respond with EXACTLY this JSON (no other text):
+{"verified": true/false, "confidence": 0.0-1.0, "reason": "brief explanation of what you found/didn't find"}`;
 
         const claudeResponse = await anthropicRequest({
             model: 'claude-sonnet-4-6',
