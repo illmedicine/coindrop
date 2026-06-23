@@ -210,6 +210,17 @@ app.get('/auth/discord/callback', async (req, res) => {
             activeFollows: 0,
         };
 
+        // Save user profile to Firestore (avatar, displayName)
+        try {
+            await firestore.setDoc('users', user.id, {
+                displayName: userData.displayName,
+                username: userData.username,
+                avatar: userData.avatar,
+                authProvider: 'discord',
+                lastLogin: '__serverTimestamp__',
+            });
+        } catch(e) { console.warn('User profile save skipped:', e.message); }
+
         const encodedUser = encodeURIComponent(JSON.stringify(userData));
         res.redirect(`${FRONTEND_URL}/dashboard.html?auth=${encodedUser}`);
     } catch (err) {
@@ -388,6 +399,15 @@ Respond with EXACTLY this JSON (no other text):
 
         // Server-side Firestore writes (works for all auth types via REST API)
         try {
+            // Ensure user profile exists with displayName for leaderboard
+            const existingUser = await firestore.getDoc('users', userId);
+            if (!existingUser || !existingUser.displayName) {
+                await firestore.setDoc('users', userId, {
+                    displayName: username || userId.substring(0, 8),
+                    lastActivity: '__serverTimestamp__',
+                });
+            }
+
             const statField = { watch: 'views', like: 'likes', comment: 'comments', subscribe: 'subs', follow: 'subs' }[taskType] || 'views';
 
             // Log completed task
