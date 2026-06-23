@@ -269,10 +269,17 @@ PASS only if the like button is clearly in its ACTIVE/FILLED state. FAIL if the 
 PASS only if a fresh comment (0-3 minutes old) is visible along with the matching title and channel. FAIL if no comment is visible, the comment is older than 3 minutes, or title/channel don't match.`,
 
             subscribe: `SUBSCRIBE VERIFICATION — ALL 2 conditions must be met:
-1. CHANNEL NAME VISIBLE: The creator "${creatorName}" must be visible.
-2. SUBSCRIBED STATE: The subscribe button must show "Subscribed" (gray button with bell icon on YouTube) rather than the red "Subscribe" button. If the button still says "Subscribe" in red, the user hasn't subscribed — FAIL.
+1. CHANNEL NAME VISIBLE: The creator/channel name "${creatorName}" (or a recognizable variant like "Just Clips" for "@JustClipsone") must be visible on screen.
+2. SUBSCRIBED STATE: Look for ANY of these indicators that the user is already subscribed:
+   - A bell/notification icon next to the channel name (with or without a dropdown arrow) — this means "Subscribed" and the subscribe button has been replaced by the bell
+   - A gray "Subscribed" button
+   - The word "Join" visible instead of "Subscribe" (YouTube shows "Join" when already subscribed)
+   - The ABSENCE of a red/colored "Subscribe" button — if there is no subscribe button visible and instead there is a bell icon, the user IS subscribed
 
-PASS if the channel shows a "Subscribed" state. FAIL if the Subscribe button is still red/unclicked.`,
+   If a RED "Subscribe" button is still visible, the user has NOT subscribed — FAIL.
+   If the subscribe button is gone and replaced by a bell icon or notification icon, the user HAS subscribed — PASS.
+
+PASS if bell icon is present or subscribe button shows subscribed state. FAIL only if red Subscribe button is still visible.`,
 
             follow: `FOLLOW VERIFICATION — ALL 2 conditions must be met:
 1. ACCOUNT NAME VISIBLE: The creator "${creatorName}" must be visible.
