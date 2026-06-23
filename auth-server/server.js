@@ -3,16 +3,100 @@ const cors = require('cors');
 const https = require('https');
 const crypto = require('crypto');
 const querystring = require('querystring');
-const admin = require('firebase-admin');
+// Firestore REST API (no service account needed)
+const FIREBASE_PROJECT = 'coindrop-e39de';
+const FIRESTORE_URL = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT}/databases/(default)/documents`;
+const FIREBASE_API_KEY = 'AIzaSyCiDPW1rGWSbL1ozIFIVh3B_IaA8nReeI8';
 
-// Initialize Firebase Admin
-if (process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON) {
-    const serviceAccount = JSON.parse(process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON);
-    admin.initializeApp({ credential: admin.credential.cert(serviceAccount), projectId: 'coindrop-e39de' });
-} else {
-    admin.initializeApp({ projectId: 'coindrop-e39de' });
+const firestore = {
+    async getDoc(collection, docId) {
+        try {
+            const data = await httpGet(`${FIRESTORE_URL}/${collection}/${docId}?key=${FIREBASE_API_KEY}`);
+            const parsed = JSON.parse(data);
+            if (parsed.error) return null;
+            return parseFirestoreDoc(parsed.fields || {});
+        } catch { return null; }
+    },
+    async setDoc(collection, docId, fields) {
+        const body = JSON.stringify({ fields: toFirestoreFields(fields) });
+        return httpPatch(`${FIRESTORE_URL}/${collection}/${docId}?key=${FIREBASE_API_KEY}`, body);
+    },
+    async addDoc(collection, fields) {
+        const body = JSON.stringify({ fields: toFirestoreFields(fields) });
+        return httpPostJson(`${FIRESTORE_URL}/${collection}?key=${FIREBASE_API_KEY}`, body);
+    },
+    async query(collection, field, op, value, orderBy, limit) {
+        const body = JSON.stringify({
+            structuredQuery: {
+                from: [{ collectionId: collection }],
+                where: field ? { fieldFilter: { field: { fieldPath: field }, op, value: toFirestoreValue(value) } } : undefined,
+                orderBy: orderBy ? [{ field: { fieldPath: orderBy }, direction: 'DESCENDING' }] : undefined,
+                limit: limit || 20,
+            }
+        });
+        const data = await httpPostJson(`${FIRESTORE_URL.replace('/documents', '')}:runQuery?key=${FIREBASE_API_KEY}`, body);
+        const parsed = JSON.parse(data);
+        if (!Array.isArray(parsed)) return [];
+        return parsed.filter(r => r.document).map(r => ({
+            id: r.document.name.split('/').pop(),
+            ...parseFirestoreDoc(r.document.fields || {})
+        }));
+    }
+};
+
+function toFirestoreValue(v) {
+    if (v === null || v === undefined) return { nullValue: null };
+    if (typeof v === 'string') return { stringValue: v };
+    if (typeof v === 'number') return Number.isInteger(v) ? { integerValue: String(v) } : { doubleValue: v };
+    if (typeof v === 'boolean') return { booleanValue: v };
+    return { stringValue: String(v) };
 }
-const firestore = admin.firestore();
+
+function toFirestoreFields(obj) {
+    const fields = {};
+    for (const [k, v] of Object.entries(obj)) {
+        if (v === '__serverTimestamp__') {
+            fields[k] = { timestampValue: new Date().toISOString() };
+        } else {
+            fields[k] = toFirestoreValue(v);
+        }
+    }
+    return fields;
+}
+
+function parseFirestoreDoc(fields) {
+    const result = {};
+    for (const [k, v] of Object.entries(fields)) {
+        if (v.stringValue !== undefined) result[k] = v.stringValue;
+        else if (v.integerValue !== undefined) result[k] = parseInt(v.integerValue);
+        else if (v.doubleValue !== undefined) result[k] = v.doubleValue;
+        else if (v.booleanValue !== undefined) result[k] = v.booleanValue;
+        else if (v.timestampValue !== undefined) result[k] = v.timestampValue;
+        else if (v.nullValue !== undefined) result[k] = null;
+        else result[k] = null;
+    }
+    return result;
+}
+
+function httpPatch(url, body) {
+    return new Promise((resolve, reject) => {
+        const u = new URL(url);
+        const req = https.request({ hostname: u.hostname, path: u.pathname + u.search, method: 'PATCH',
+            headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) }
+        }, res => { let d = ''; res.on('data', c => d += c); res.on('end', () => resolve(d)); });
+        req.on('error', reject); req.write(body); req.end();
+    });
+}
+
+function httpPostJson(url, body) {
+    return new Promise((resolve, reject) => {
+        const u = new URL(url);
+        const req = https.request({ hostname: u.hostname, path: u.pathname + u.search, method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) }
+        }, res => { let d = ''; res.on('data', c => d += c); res.on('end', () => resolve(d)); });
+        req.on('error', reject); req.write(body); req.end();
+    });
+}
 
 const app = express();
 app.use(cors({ origin: ['https://coindrop.in', 'http://localhost:4200'], credentials: true }));
@@ -145,12 +229,12 @@ app.post('/api/verify-task', async (req, res) => {
 
         // Server-side cooldown check (24h per video per task type)
         try {
-            const cdDoc = await firestore.collection('cooldowns').doc(userId).get();
-            if (cdDoc.exists) {
+            const cdData = await firestore.getDoc('cooldowns', userId);
+            if (cdData) {
                 const cdKey = `${videoId}_${taskType}`;
-                const lastTime = cdDoc.data()[cdKey];
+                const lastTime = cdData[cdKey];
                 if (lastTime) {
-                    const lastMs = lastTime.toMillis ? lastTime.toMillis() : lastTime;
+                    const lastMs = typeof lastTime === 'string' ? new Date(lastTime).getTime() : lastTime;
                     if (Date.now() - lastMs < 24 * 60 * 60 * 1000) {
                         const remaining = Math.ceil((24 * 60 * 60 * 1000 - (Date.now() - lastMs)) / 3600000);
                         return res.json({ success: false, verified: false, reason: `You already completed this ${taskType} task. Cooldown resets in ~${remaining} hours.` });
@@ -292,29 +376,30 @@ Respond with EXACTLY this JSON (no other text):
             });
         }
 
-        // Server-side Firestore writes (works for all auth types)
+        // Server-side Firestore writes (works for all auth types via REST API)
         try {
             const statField = { watch: 'views', like: 'likes', comment: 'comments', subscribe: 'subs', follow: 'subs' }[taskType] || 'views';
 
             // Log completed task
-            await firestore.collection('tasks').add({
+            await firestore.addDoc('tasks', {
                 userId, videoId, videoTitle, creatorName, taskType, platform,
-                rewardUSD, rewardSOL, txSignature,
-                timestamp: admin.firestore.FieldValue.serverTimestamp()
+                rewardUSD, rewardSOL: rewardSOL || 0, txSignature: txSignature || '',
+                timestamp: '__serverTimestamp__'
             });
 
-            // Update user stats
-            await firestore.collection('stats').doc(userId).set({
-                [statField]: admin.firestore.FieldValue.increment(1),
-                tasksCompleted: admin.firestore.FieldValue.increment(1),
-                totalEarned: admin.firestore.FieldValue.increment(rewardUSD),
-                lastActivity: admin.firestore.FieldValue.serverTimestamp()
-            }, { merge: true });
+            // Update user stats (read-modify-write since REST doesn't support increment)
+            const existingStats = await firestore.getDoc('stats', userId) || {};
+            await firestore.setDoc('stats', userId, {
+                [statField]: (existingStats[statField] || 0) + 1,
+                tasksCompleted: (existingStats.tasksCompleted || 0) + 1,
+                totalEarned: (existingStats.totalEarned || 0) + rewardUSD,
+                lastActivity: '__serverTimestamp__'
+            });
 
             // Set cooldown
-            await firestore.collection('cooldowns').doc(userId).set({
-                [`${videoId}_${taskType}`]: admin.firestore.FieldValue.serverTimestamp()
-            }, { merge: true });
+            const existingCd = await firestore.getDoc('cooldowns', userId) || {};
+            existingCd[`${videoId}_${taskType}`] = new Date().toISOString();
+            await firestore.setDoc('cooldowns', userId, existingCd);
 
             console.log(`TASK LOGGED: ${username} (${userId}) — ${taskType} — ${videoTitle} — $${rewardUSD}`);
         } catch(dbErr) {
@@ -477,27 +562,16 @@ function postToDiscord(webhookUrl, payload) {
 app.get('/api/user-stats/:userId', async (req, res) => {
     try {
         const { userId } = req.params;
-        const statsDoc = await firestore.collection('stats').doc(userId).get();
-        const stats = statsDoc.exists ? statsDoc.data() : { views: 0, likes: 0, comments: 0, subs: 0, tasksCompleted: 0, totalEarned: 0 };
+        const stats = await firestore.getDoc('stats', userId) || { views: 0, likes: 0, comments: 0, subs: 0, tasksCompleted: 0, totalEarned: 0 };
 
-        const tasksSnap = await firestore.collection('tasks')
-            .where('userId', '==', userId)
-            .orderBy('timestamp', 'desc')
-            .limit(20)
-            .get();
-        const tasks = tasksSnap.docs.map(d => {
-            const data = d.data();
-            return { ...data, timestamp: data.timestamp?.toDate?.()?.toISOString() || null };
-        });
+        const tasks = await firestore.query('tasks', 'userId', 'EQUAL', userId, 'timestamp', 20);
 
-        const cdDoc = await firestore.collection('cooldowns').doc(userId).get();
+        const cdData = await firestore.getDoc('cooldowns', userId) || {};
         const cooldowns = {};
-        if (cdDoc.exists) {
-            for (const [key, val] of Object.entries(cdDoc.data())) {
-                const ms = val.toMillis ? val.toMillis() : val;
-                if (Date.now() - ms < 24 * 60 * 60 * 1000) {
-                    cooldowns[key] = ms;
-                }
+        for (const [key, val] of Object.entries(cdData)) {
+            const ms = typeof val === 'string' ? new Date(val).getTime() : val;
+            if (Date.now() - ms < 24 * 60 * 60 * 1000) {
+                cooldowns[key] = ms;
             }
         }
 
@@ -511,23 +585,12 @@ app.get('/api/user-stats/:userId', async (req, res) => {
 // API: Get global leaderboard
 app.get('/api/leaderboard', async (req, res) => {
     try {
-        const snap = await firestore.collection('stats')
-            .orderBy('totalEarned', 'desc')
-            .limit(20)
-            .get();
-        const leaders = [];
-        for (const doc of snap.docs) {
-            const data = doc.data();
-            let name = doc.id.substring(0, 8);
-            let avatar = null;
-            try {
-                const userDoc = await firestore.collection('users').doc(doc.id).get();
-                if (userDoc.exists) {
-                    name = userDoc.data().displayName || name;
-                    avatar = userDoc.data().avatar || null;
-                }
-            } catch(e) {}
-            leaders.push({ userId: doc.id, name, avatar, ...data });
+        const leaders = await firestore.query('stats', null, null, null, 'totalEarned', 20);
+        for (const l of leaders) {
+            const userDoc = await firestore.getDoc('users', l.id);
+            l.userId = l.id;
+            l.name = userDoc?.displayName || l.id.substring(0, 8);
+            l.avatar = userDoc?.avatar || null;
         }
         res.json({ leaders });
     } catch(e) {
