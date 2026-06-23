@@ -345,3 +345,56 @@ const CREATORS = [
 setTimeout(() => {
     if (typeof updateEarningsBanner === 'function') updateEarningsBanner();
 }, 100);
+
+// Auto-sync videos from YouTube RSS via server API
+async function syncCreatorVideos() {
+    try {
+        const resp = await fetch('https://coindrop-auth.up.railway.app/api/sync-videos');
+        const data = await resp.json();
+        if (!data.channels) return;
+
+        let updated = false;
+        for (const creator of CREATORS) {
+            const freshVideos = data.channels[creator.id];
+            if (!freshVideos || freshVideos.error || !Array.isArray(freshVideos)) continue;
+
+            // Build set of existing video IDs
+            const existingIds = new Set(creator.videos.map(v => v.id));
+            const freshIds = new Set(freshVideos.map(v => v.id));
+
+            // Update titles and view counts for existing videos
+            for (const v of creator.videos) {
+                const fresh = freshVideos.find(f => f.id === v.id);
+                if (fresh) {
+                    if (v.title !== fresh.title) { v.title = fresh.title; updated = true; }
+                    if (v.views !== fresh.views) { v.views = fresh.views; updated = true; }
+                }
+            }
+
+            // Remove videos no longer on YouTube
+            const before = creator.videos.length;
+            creator.videos = creator.videos.filter(v => freshIds.has(v.id));
+            if (creator.videos.length !== before) updated = true;
+
+            // Add new videos from YouTube
+            for (const fv of freshVideos) {
+                if (!existingIds.has(fv.id)) {
+                    creator.videos.push({ id: fv.id, title: fv.title, views: fv.views });
+                    updated = true;
+                }
+            }
+        }
+
+        if (updated) {
+            console.log('CoinDrop: Creator videos synced from YouTube');
+            if (typeof updateEarningsBanner === 'function') updateEarningsBanner();
+            if (typeof renderCreators === 'function') {
+                const activeFilter = document.querySelector('.filter-btn.active');
+                renderCreators(activeFilter ? activeFilter.dataset.filter : 'all');
+            }
+        }
+    } catch(e) { console.warn('Video sync skipped:', e.message); }
+}
+
+// Sync on page load after 3s delay
+setTimeout(syncCreatorVideos, 3000);

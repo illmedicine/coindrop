@@ -261,12 +261,14 @@ PASS if all 3 conditions are met. FAIL if the title doesn't match, channel name 
 
 PASS only if the like button is clearly in its ACTIVE/FILLED state. FAIL if the thumb is just an outline (not clicked).`,
 
-            comment: `COMMENT VERIFICATION — ALL 3 conditions must be met:
-1. VIDEO TITLE MATCH: The video title "${videoTitle}" (or a recognizable portion) must be visible.
-2. CHANNEL NAME VISIBLE: The creator "${creatorName}" must be visible.
-3. FRESH COMMENT VISIBLE: A comment must be visible that was posted very recently — look for timestamps like "0 seconds ago", "just now", "1 second ago", "30 seconds ago", "1 minute ago", "2 minutes ago", or "3 minutes ago". Comments older than 3 minutes FAIL. The comment text must be substantive (not empty or just an emoji).
+            comment: `COMMENT VERIFICATION — ALL 4 conditions must be met:
+1. VIDEO TITLE MATCH: The video title "${videoTitle}" (or a recognizable portion) must be visible on screen.
+2. CHANNEL NAME VISIBLE: The creator/channel "${creatorName}" must be visible on screen.
+3. FRESH COMMENT VISIBLE: The comments section must be visible and show a recently posted comment with a timestamp of "0 seconds ago", "just now", or "1 minute ago". Comments showing "2 minutes ago" or older FAIL. The comment must contain actual text (not empty).
+4. COMMENTER IDENTITY MATCH: The profile avatar/icon next to the most recent comment (the one showing "0 seconds ago") should match the profile avatar shown in the "Add a comment..." input row above the comments. This confirms the logged-in user is the one who left the comment. If the same profile picture appears in both the "Add a comment" prompt and the newest comment, this confirms the commenter is the logged-in user.
 
-PASS only if a fresh comment (0-3 minutes old) is visible along with the matching title and channel. FAIL if no comment is visible, the comment is older than 3 minutes, or title/channel don't match.`,
+PASS if all 4 conditions are met: matching title, visible channel name, a comment posted within the last minute (0 seconds to 1 minute ago), and the commenter's profile matches the "Add a comment" row.
+FAIL if: comment is 2+ minutes old, no comment visible, title/channel don't match, or the commenter profile doesn't match the "Add a comment" row.`,
 
             subscribe: `SUBSCRIBE VERIFICATION — ALL 2 conditions must be met:
 1. CHANNEL NAME VISIBLE: The creator/channel name "${creatorName}" (or a recognizable variant like "Just Clips" for "@JustClipsone") must be visible on screen.
@@ -602,6 +604,54 @@ app.get('/api/leaderboard', async (req, res) => {
         res.json({ leaders });
     } catch(e) {
         res.json({ leaders: [] });
+    }
+});
+
+// API: Sync videos from YouTube RSS for all channels
+const CHANNEL_IDS = {
+    illmedicine: 'UCQ2Ney0SvxUPoHoX02BceHQ',
+    illmedicineai: 'UCh34RFo87Gwv-EQVahAWOnQ',
+    minds_through_time: 'UC3FYd7y8djrVRT_zlqCOJGQ',
+    justclipsone: 'UCqVHfAvgtpn6B0qHERm1RrQ',
+    moralsovermoneytv: 'UCMBIDWq7efSB2LiFZL0XUhw',
+    bombogames: 'UCcMx_LVWwCybB4K5tbaDgSQ',
+    dreathevirgo: 'UC7GWIFunfT4kChX3iKt0M3A',
+    cheese2hii: 'UCbR4n4b9zb88HeIodeMgKuw',
+    pamelaward: 'UC0mcmm5yP4y-likQ8Mik5Rw',
+    adayinla: 'UCkx_vZFl8IOIWYydz2rDOcQ',
+    sage_elohi: 'UC678gv8uMqF3L6Mm-99KHvw',
+    errorbyhuman: 'UCJmtTy5DUZyiKog_7sAgJDw',
+    dykeasaurus420: 'UC8JLWD1lPpYNJWY2qMGQwAQ',
+    cameronrandall: 'UC3AVknoW_7nfuUGGAL5_r2Q',
+    nadiivlogs: 'UCjwgYp_qk8v_4FlNw1iESuA',
+};
+
+app.get('/api/sync-videos', async (req, res) => {
+    try {
+        const results = {};
+        for (const [creatorId, channelId] of Object.entries(CHANNEL_IDS)) {
+            try {
+                const xml = await httpGet(`https://www.youtube.com/feeds/videos.xml?channel_id=${channelId}`);
+                const videos = [];
+                const entries = xml.split('<entry>').slice(1);
+                for (const entry of entries) {
+                    const vidMatch = entry.match(/<yt:videoId>([^<]+)/);
+                    const titleMatch = entry.match(/<title>([^<]+)/);
+                    const viewsMatch = entry.match(/views="(\d+)"/);
+                    if (vidMatch && titleMatch) {
+                        videos.push({
+                            id: vidMatch[1],
+                            title: titleMatch[1].replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&#39;/g, "'").replace(/&quot;/g, '"'),
+                            views: viewsMatch ? viewsMatch[1] : '0',
+                        });
+                    }
+                }
+                results[creatorId] = videos;
+            } catch(e) { results[creatorId] = { error: e.message }; }
+        }
+        res.json({ synced: new Date().toISOString(), channels: results });
+    } catch(e) {
+        res.status(500).json({ error: e.message });
     }
 });
 
