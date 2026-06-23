@@ -344,6 +344,7 @@ Respond with EXACTLY this JSON (no other text):
         let payoutSuccess = false;
         let txSignature = null;
 
+        console.log(`PAYOUT CHECK: wallet="${walletAddress}", treasury=${!!TREASURY_PRIVATE_KEY_ENCRYPTED}, encKey=${!!TREASURY_ENCRYPTION_KEY}`);
         if (TREASURY_PRIVATE_KEY_ENCRYPTED && TREASURY_ENCRYPTION_KEY && walletAddress) {
             try {
                 const treasuryKey = decryptPrivateKey(TREASURY_PRIVATE_KEY_ENCRYPTED, TREASURY_ENCRYPTION_KEY);
@@ -573,7 +574,11 @@ app.get('/api/user-stats/:userId', async (req, res) => {
         const { userId } = req.params;
         const stats = await firestore.getDoc('stats', userId) || { views: 0, likes: 0, comments: 0, subs: 0, tasksCompleted: 0, totalEarned: 0 };
 
-        const tasks = await firestore.query('tasks', 'userId', 'EQUAL', userId, 'timestamp', 20);
+        // Get tasks via structured query
+        let tasks = [];
+        try {
+            tasks = await firestore.query('tasks', 'userId', 'EQUAL', userId, 'timestamp', 20);
+        } catch(e) { console.warn('Task query error:', e.message); }
 
         const cdData = await firestore.getDoc('cooldowns', userId) || {};
         const cooldowns = {};
@@ -591,18 +596,31 @@ app.get('/api/user-stats/:userId', async (req, res) => {
     }
 });
 
-// API: Get global leaderboard
+// API: Get global leaderboard (list all stats docs, sort server-side)
 app.get('/api/leaderboard', async (req, res) => {
     try {
-        const leaders = await firestore.query('stats', null, null, null, 'totalEarned', 20);
-        for (const l of leaders) {
-            const userDoc = await firestore.getDoc('users', l.id);
-            l.userId = l.id;
-            l.name = userDoc?.displayName || l.id.substring(0, 8);
-            l.avatar = userDoc?.avatar || null;
+        const listData = await httpGet(`${FIRESTORE_URL}/stats?key=${FIREBASE_API_KEY}&pageSize=50`);
+        const parsed = JSON.parse(listData);
+        if (!parsed.documents || !Array.isArray(parsed.documents)) {
+            return res.json({ leaders: [] });
         }
-        res.json({ leaders });
+        const leaders = [];
+        for (const doc of parsed.documents) {
+            const userId = doc.name.split('/').pop();
+            const data = parseFirestoreDoc(doc.fields || {});
+            let name = userId.substring(0, 8);
+            let avatar = null;
+            const userDoc = await firestore.getDoc('users', userId);
+            if (userDoc) {
+                name = userDoc.displayName || name;
+                avatar = userDoc.avatar || null;
+            }
+            leaders.push({ userId, name, avatar, ...data });
+        }
+        leaders.sort((a, b) => (b.totalEarned || 0) - (a.totalEarned || 0));
+        res.json({ leaders: leaders.slice(0, 20) });
     } catch(e) {
+        console.error('Leaderboard error:', e.message);
         res.json({ leaders: [] });
     }
 });
