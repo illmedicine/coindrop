@@ -12,17 +12,18 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 });
 
-// Countdown timer to next daily drop (midnight UTC)
+// Countdown timer to next hourly content drop
 function updateDropTimer() {
     const el = document.getElementById('next-drop-timer');
     if (!el) return;
     const now = new Date();
-    const utcMidnight = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1));
-    const diff = utcMidnight - now;
-    const h = String(Math.floor(diff / 3600000)).padStart(2, '0');
-    const m = String(Math.floor((diff % 3600000) / 60000)).padStart(2, '0');
+    const nextHour = new Date(now);
+    nextHour.setMinutes(0, 0, 0);
+    nextHour.setHours(nextHour.getHours() + 1);
+    const diff = nextHour - now;
+    const m = String(Math.floor(diff / 60000)).padStart(2, '0');
     const s = String(Math.floor((diff % 60000) / 1000)).padStart(2, '0');
-    el.textContent = `${h}:${m}:${s}`;
+    el.textContent = `${m}:${s}`;
 }
 setInterval(updateDropTimer, 1000);
 updateDropTimer();

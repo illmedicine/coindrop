@@ -61,8 +61,8 @@
             </button>
             <div class="topbar-right">
                 <div class="drop-timer">
-                    <i class="fas fa-clock text-orange"></i>
-                    Next drop: <strong id="next-drop-timer">--:--:--</strong>
+                    <i class="fas fa-bolt text-orange"></i>
+                    Next content drop: <strong id="next-drop-timer">--:--</strong>
                 </div>
                 <div class="user-menu" id="user-menu-toggle" onclick="toggleProfileDropdown(event)">
                     <img src="https://api.dicebear.com/7.x/thumbs/svg?seed=Demo" alt="" class="user-avatar" id="user-avatar">
@@ -180,28 +180,28 @@
                 <div class="stat-card">
                     <div class="stat-card-icon"><i class="fas fa-coins"></i></div>
                     <div class="stat-card-info">
-                        <span class="stat-card-value" id="total-earned">1.84 SOL</span>
+                        <span class="stat-card-value" id="total-earned">$0.00</span>
                         <span class="stat-card-label">Total Earned</span>
                     </div>
                 </div>
                 <div class="stat-card">
                     <div class="stat-card-icon green"><i class="fas fa-check-double"></i></div>
                     <div class="stat-card-info">
-                        <span class="stat-card-value" id="tasks-done">247</span>
+                        <span class="stat-card-value" id="tasks-done">0</span>
                         <span class="stat-card-label">Tasks Completed</span>
                     </div>
                 </div>
                 <div class="stat-card">
                     <div class="stat-card-icon purple"><i class="fas fa-bell"></i></div>
                     <div class="stat-card-info">
-                        <span class="stat-card-value" id="active-subs">12</span>
+                        <span class="stat-card-value" id="active-subs">0</span>
                         <span class="stat-card-label">Active Subscriptions</span>
                     </div>
                 </div>
                 <div class="stat-card">
                     <div class="stat-card-icon blue"><i class="fas fa-user-plus"></i></div>
                     <div class="stat-card-info">
-                        <span class="stat-card-value" id="active-follows">8</span>
+                        <span class="stat-card-value" id="active-follows">0</span>
                         <span class="stat-card-label">Active Follows</span>
                     </div>
                 </div>
@@ -211,26 +211,20 @@
             <div class="residual-card">
                 <div class="residual-header">
                     <h3><i class="fas fa-sync-alt"></i> Monthly Residual Income</h3>
-                    <span class="residual-next">Next payout: <strong>July 1, 2025</strong></span>
+                    <span class="residual-next">Next payout: <strong id="next-residual-date">1st of next month</strong></span>
                 </div>
                 <div class="residual-body">
                     <div class="residual-stat">
-                        <span class="residual-amount">$0.20</span>
+                        <span class="residual-amount" id="residual-total">$0.00</span>
                         <span class="residual-label">Estimated Monthly Residual</span>
-                        <small>12 subscriptions + 8 follows × $0.01/mo</small>
+                        <small id="residual-breakdown-text">0 subscriptions × $0.01/mo</small>
                     </div>
                     <div class="residual-breakdown">
                         <div class="rb-item">
                             <i class="fab fa-youtube" style="color:#FF0000"></i>
                             <span>YouTube Subs</span>
-                            <strong>12 active</strong>
-                            <span class="text-success">$0.12/mo</span>
-                        </div>
-                        <div class="rb-item">
-                            <i class="fab fa-instagram" style="color:#E1306C"></i>
-                            <span>Instagram Follows</span>
-                            <strong>8 active</strong>
-                            <span class="text-success">$0.08/mo</span>
+                            <strong id="residual-subs-count">0 active</strong>
+                            <span class="text-success" id="residual-subs-amount">$0.00/mo</span>
                         </div>
                     </div>
                 </div>

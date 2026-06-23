@@ -318,19 +318,14 @@ async function loadMiniLeaderboard() {
     } catch(e) { el.innerHTML = '<p class="text-muted" style="font-size:0.85rem">No earners yet. Be the first!</p>'; }
 }
 
-// Delay activity/leaderboard load to let server sync finish
-setTimeout(() => { loadRecentActivity(); loadMiniLeaderboard(); }, 2000);
+// Activity and leaderboard loaded after syncFromServer completes
 
 // CREATORS array is loaded from creators-data.js (included before this file)
 
 // 24h cooldown tracking — uses cached cooldowns from Firebase
 // _cooldownCache declared at top of file
 
-async function loadCooldowns() {
-    if (typeof CoinDropDB !== 'undefined' && user && user.id) {
-        _cooldownCache = await CoinDropDB.getCooldowns(user.id);
-    }
-}
+// Cooldowns loaded from server in syncFromServer()
 
 function isOnCooldown(videoId, taskType) {
     const key = `${videoId}_${taskType}`;
@@ -362,21 +357,39 @@ async function syncFromServer() {
         const data = await resp.json();
         const stats = data.stats || {};
 
-        if (stats.tasksCompleted > 0 || stats.totalEarned > 0) {
-            user.tasksCompleted = stats.tasksCompleted || 0;
-            user.totalEarned = stats.totalEarned || 0;
-            user.activeSubscriptions = stats.subs || 0;
-            document.getElementById('total-earned').textContent = `$${user.totalEarned.toFixed(3)}`;
-            document.getElementById('tasks-done').textContent = user.tasksCompleted;
-            document.getElementById('active-subs').textContent = user.activeSubscriptions;
-            if (document.getElementById('pd-earned')) document.getElementById('pd-earned').textContent = `$${user.totalEarned.toFixed(3)}`;
-            if (document.getElementById('pd-tasks')) document.getElementById('pd-tasks').textContent = user.tasksCompleted;
-            if (document.getElementById('pd-views')) document.getElementById('pd-views').textContent = stats.views || 0;
-            if (document.getElementById('pd-likes')) document.getElementById('pd-likes').textContent = stats.likes || 0;
-            if (document.getElementById('pd-comments')) document.getElementById('pd-comments').textContent = stats.comments || 0;
-            if (document.getElementById('pd-subs')) document.getElementById('pd-subs').textContent = stats.subs || 0;
-            localStorage.setItem('coindrop_user', JSON.stringify(user));
+        user.tasksCompleted = stats.tasksCompleted || 0;
+        user.totalEarned = stats.totalEarned || 0;
+        user.activeSubscriptions = stats.subs || 0;
+        user.activeFollows = 0;
+
+        // Update overview cards
+        document.getElementById('total-earned').textContent = `$${user.totalEarned.toFixed(3)}`;
+        document.getElementById('tasks-done').textContent = user.tasksCompleted;
+        document.getElementById('active-subs').textContent = user.activeSubscriptions;
+        document.getElementById('active-follows').textContent = '0';
+
+        // Update profile dropdown
+        if (document.getElementById('pd-earned')) document.getElementById('pd-earned').textContent = `$${user.totalEarned.toFixed(3)}`;
+        if (document.getElementById('pd-tasks')) document.getElementById('pd-tasks').textContent = user.tasksCompleted;
+        if (document.getElementById('pd-views')) document.getElementById('pd-views').textContent = stats.views || 0;
+        if (document.getElementById('pd-likes')) document.getElementById('pd-likes').textContent = stats.likes || 0;
+        if (document.getElementById('pd-comments')) document.getElementById('pd-comments').textContent = stats.comments || 0;
+        if (document.getElementById('pd-subs')) document.getElementById('pd-subs').textContent = stats.subs || 0;
+
+        // Update residual income card
+        const subs = stats.subs || 0;
+        const residualAmt = (subs * 0.01).toFixed(2);
+        if (document.getElementById('residual-total')) document.getElementById('residual-total').textContent = `$${residualAmt}`;
+        if (document.getElementById('residual-breakdown-text')) document.getElementById('residual-breakdown-text').textContent = `${subs} subscription${subs !== 1 ? 's' : ''} × $0.01/mo`;
+        if (document.getElementById('residual-subs-count')) document.getElementById('residual-subs-count').textContent = `${subs} active`;
+        if (document.getElementById('residual-subs-amount')) document.getElementById('residual-subs-amount').textContent = `$${residualAmt}/mo`;
+        if (document.getElementById('next-residual-date')) {
+            const now = new Date();
+            const nextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+            document.getElementById('next-residual-date').textContent = nextMonth.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
         }
+
+        localStorage.setItem('coindrop_user', JSON.stringify(user));
 
         // Load cooldowns from server
         _cooldownCache = {};
@@ -388,6 +401,12 @@ async function syncFromServer() {
 
         // Cache server tasks for activity/payouts
         window._serverTasks = data.tasks || [];
+
+        // Refresh activity and leaderboard with fresh data
+        loadRecentActivity();
+        loadMiniLeaderboard();
+        loadPayoutsHistory();
+        if (typeof loadEarningsSummary === 'function') loadEarningsSummary();
     } catch (e) { console.error('Server sync error:', e); }
 }
 
@@ -680,22 +699,18 @@ function loadPayoutsHistory() {
     }).join('');
 }
 
-// Delay to let server sync populate _serverTasks
-setTimeout(loadPayoutsHistory, 2500);
+// Payouts loaded after syncFromServer completes
 
-// Populate earnings summary from Firebase stats
-async function loadEarningsSummary() {
-    if (typeof CoinDropDB === 'undefined' || !user || !user.id) return;
-    try {
-        const stats = await CoinDropDB.getTaskBreakdown(user.id);
-        const tt = document.getElementById('earn-total-tasks');
-        const tu = document.getElementById('earn-total-usd');
-        const ev = document.getElementById('earn-views');
-        const eo = document.getElementById('earn-other');
-        if (tt) tt.textContent = stats.tasksCompleted || 0;
-        if (tu) tu.textContent = '$' + (stats.totalEarned || 0).toFixed(3);
-        if (ev) ev.textContent = stats.views || 0;
-        if (eo) eo.textContent = `${stats.likes||0} / ${stats.comments||0} / ${stats.subs||0}`;
-    } catch(e) {}
+// Populate earnings summary from synced user data
+function loadEarningsSummary() {
+    if (!user) return;
+    const tt = document.getElementById('earn-total-tasks');
+    const tu = document.getElementById('earn-total-usd');
+    if (tt) tt.textContent = user.tasksCompleted || 0;
+    if (tu) tu.textContent = '$' + (user.totalEarned || 0).toFixed(3);
+    // Views/likes/comments/subs come from pd- elements already set by syncFromServer
+    const ev = document.getElementById('earn-views');
+    const eo = document.getElementById('earn-other');
+    if (ev) ev.textContent = document.getElementById('pd-views')?.textContent || '0';
+    if (eo) eo.textContent = `${document.getElementById('pd-likes')?.textContent || 0} / ${document.getElementById('pd-comments')?.textContent || 0} / ${document.getElementById('pd-subs')?.textContent || 0}`;
 }
-loadEarningsSummary();
