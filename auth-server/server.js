@@ -670,19 +670,52 @@ app.get('/api/sync-videos', async (req, res) => {
         const results = {};
         for (const [creatorId, channelId] of Object.entries(CHANNEL_IDS)) {
             try {
+                // Get videos from RSS (has titles + view counts for recent 15)
                 const xml = await httpGet(`https://www.youtube.com/feeds/videos.xml?channel_id=${channelId}`);
-                const videos = [];
+                const rssVideos = {};
                 const entries = xml.split('<entry>').slice(1);
                 for (const entry of entries) {
                     const vidMatch = entry.match(/<yt:videoId>([^<]+)/);
                     const titleMatch = entry.match(/<title>([^<]+)/);
                     const viewsMatch = entry.match(/views="(\d+)"/);
                     if (vidMatch && titleMatch) {
-                        videos.push({
+                        rssVideos[vidMatch[1]] = {
                             id: vidMatch[1],
                             title: titleMatch[1].replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&#39;/g, "'").replace(/&quot;/g, '"'),
                             views: viewsMatch ? viewsMatch[1] : '0',
-                        });
+                        };
+                    }
+                }
+
+                // Get ALL video IDs from videos tab
+                const handle = Object.keys(CHANNEL_IDS).find(k => CHANNEL_IDS[k] === channelId);
+                let allVideoIds = new Set(Object.keys(rssVideos));
+                try {
+                    const channelHandles = { illmedicine: 'illmedicine', illmedicineai: 'illmedicineai', minds_through_time: 'MINDS_THROUGH_TIME', justclipsone: 'JustClipsone', moralsovermoneytv: 'MoralsOverMoneyTV', bombogames: 'BomboGames', dreathevirgo: 'Dreathevirgo', cheese2hii: 'Cheese2hii', pamelaward: 'pamelaward7657', adayinla: 'adayinlapodcast', sage_elohi: 'Sage_elohi', errorbyhuman: 'errorbyhuman', dykeasaurus420: 'Dykeasaurus420', nadiivlogs: 'Nadiivlogs', jreycash: 'JreyCash', cameronrandall: null };
+                    const ytHandle = channelHandles[creatorId];
+                    if (ytHandle) {
+                        const vidPage = await httpGet(`https://www.youtube.com/@${ytHandle}/videos`);
+                        const vidIds = vidPage.match(/"videoId":"([^"]+)"/g) || [];
+                        vidIds.forEach(m => { const id = m.match(/"videoId":"([^"]+)"/)[1]; allVideoIds.add(id); });
+                        const shortPage = await httpGet(`https://www.youtube.com/@${ytHandle}/shorts`);
+                        const shortMatches = shortPage.match(/"reelWatchEndpoint":\{"videoId":"([^"]+)"/g) || [];
+                        shortMatches.forEach(m => { const id = m.match(/"videoId":"([^"]+)"/)[1]; allVideoIds.add(id); });
+                    }
+                } catch(e) {}
+
+                // For IDs not in RSS, fetch title via oEmbed
+                const videos = [];
+                for (const id of allVideoIds) {
+                    if (rssVideos[id]) {
+                        videos.push(rssVideos[id]);
+                    } else {
+                        try {
+                            const oembed = await httpGet(`https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${id}&format=json`);
+                            const parsed = JSON.parse(oembed);
+                            if (parsed.title) {
+                                videos.push({ id, title: parsed.title, views: '0' });
+                            }
+                        } catch(e) { videos.push({ id, title: id, views: '0' }); }
                     }
                 }
                 results[creatorId] = videos;
