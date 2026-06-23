@@ -339,6 +339,34 @@ const CREATORS = [
             { id: 'DBtAYfkXAs8', title: 'A Second Chance - Speak up, Save a Life Video Contest', views: '111' },
         ]
     },
+    {
+        id: 'jreycash',
+        handle: '@jreycash',
+        name: 'Jrey Cash',
+        platform: 'youtube',
+        avatar: 'https://yt3.googleusercontent.com/ytc/AIdro_m5lBwQv_SPcL6tEAWvUFWJhi5pFfm88eV0MtOjTXVZZek=s176-c-k-c0x00ffffff-no-rj',
+        channelUrl: 'https://youtube.com/@jreycash',
+        about: 'Buffalo NY rapper and recording artist. Jrey Cash brings raw, authentic hip-hop with tracks like "Your Best," "Been Through The Fire," and "Close My Soda." Part of JVM and The Biggest Member series.',
+        category: 'Music & Hip-Hop',
+        subscribers: '1.5K',
+        videos: [
+            { id: '5-F1gl45XNk', title: 'lol who ya think won?', views: '8,036', short: true },
+            { id: 'BsulyWSazkQ', title: 'Close My Soda #TheBiggestMember5 #JVM', views: '1,209', short: true },
+            { id: 'PtqFnk34KmI', title: 'Give Me Your All #TheBiggestMember6 #jvm', views: '1,106', short: true },
+            { id: 'lPUZVuZVgcA', title: 'My Everything Snippet', views: '1,064', short: true },
+            { id: 'Fq7M0Jn9eN0', title: '5 on it remix', views: '1,046', short: true },
+            { id: 'tOtVeOKBUqw', title: 'Vulnerable Side #TheBiggestMember6 #JVM', views: '1,030', short: true },
+            { id: 'I02KmiixKxY', title: "Let's Clear The Air #TheBiggestMember6 #jvm", views: '1,025', short: true },
+            { id: 'lLu6mMz4L2A', title: 'I could be #TheBiggestMember6 #JVM', views: '1,011', short: true },
+            { id: 'cR3TgM7I0Cs', title: 'Been through the fire!', views: '884', short: true },
+            { id: 'S4zKhtzDzTw', title: 'Your Best ft Castro Cash!', views: '854', short: true },
+            { id: 'hQhJV_FeCLo', title: 'Health is wealth!', views: '870', short: true },
+            { id: 'ibGEVtv2U5g', title: 'Watch how you make your bed', views: '561', short: true },
+            { id: 'Jcau9h5kYN0', title: 'Fantasy Remix OUT NOW', views: '209', short: true },
+            { id: 'YZddStS4nxk', title: 'June 11, 2026', views: '196', short: true },
+            { id: 'cOHfgFvyGFY', title: 'June 11, 2026', views: '46', short: true },
+        ]
+    },
 ];
 
 // Trigger earnings banner as soon as CREATORS is defined

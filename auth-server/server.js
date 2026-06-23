@@ -662,6 +662,7 @@ const CHANNEL_IDS = {
     dykeasaurus420: 'UC8JLWD1lPpYNJWY2qMGQwAQ',
     cameronrandall: 'UC3AVknoW_7nfuUGGAL5_r2Q',
     nadiivlogs: 'UCjwgYp_qk8v_4FlNw1iESuA',
+    jreycash: 'UCpu4oacM0CPZW4H-BgZPkKA',
 };
 
 app.get('/api/sync-videos', async (req, res) => {
