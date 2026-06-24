@@ -157,7 +157,7 @@ h3 { font-size: 1.25rem; }
     text-decoration: none;
 }
 
-.logo-img { height: 72px; width: auto; mix-blend-mode: screen; border-radius: 6px; }
+.logo-img { height: 72px; width: auto; border-radius: 6px; }
 
 .logo-text {
     font-family: 'Space Grotesk', sans-serif;
