@@ -353,6 +353,21 @@ const API_URL = 'https://coindrop-auth.up.railway.app';
 async function syncFromServer() {
     if (!user || !user.id) return;
     try {
+        // Restore wallet from server profile if not in localStorage
+        if (!user.walletAddress) {
+            try {
+                const profileResp = await fetch(`${API_URL}/api/user-profile/${user.id}`);
+                const profileData = await profileResp.json();
+                if (profileData.profile && profileData.profile.walletAddress) {
+                    user.walletAddress = profileData.profile.walletAddress;
+                    localStorage.setItem('coindrop_user', JSON.stringify(user));
+                    updateWalletUI(user.walletAddress);
+                    const banner = document.getElementById('wallet-required-banner');
+                    if (banner) banner.classList.add('hidden');
+                }
+            } catch(e) {}
+        }
+
         const resp = await fetch(`${API_URL}/api/user-stats/${user.id}`);
         const data = await resp.json();
         const stats = data.stats || {};
@@ -402,11 +417,15 @@ async function syncFromServer() {
         // Cache server tasks for activity/payouts
         window._serverTasks = data.tasks || [];
 
-        // Refresh activity and leaderboard with fresh data
+        // Refresh all sections with fresh data
         loadRecentActivity();
         loadMiniLeaderboard();
         loadPayoutsHistory();
+        loadSubsAndCooldowns();
         if (typeof loadEarningsSummary === 'function') loadEarningsSummary();
+        // Re-render creators to reflect cooldowns/subscribed state
+        const activeFilter = document.querySelector('.filter-btn.active');
+        renderCreators(activeFilter ? activeFilter.dataset.filter : 'all');
     } catch (e) { console.error('Server sync error:', e); }
 }
 
@@ -561,89 +580,77 @@ if (document.readyState === 'loading') {
 // Also retry after 1s in case of race condition
 setTimeout(updateEarningsBanner, 1000);
 
-// ===== Subscriptions & Cooldowns (Firebase-powered) =====
-async function loadSubsAndCooldowns() {
+// ===== Subscriptions & Cooldowns (server-driven) =====
+function loadSubsAndCooldowns() {
     const subsList = document.getElementById('subs-list');
     const cooldownsList = document.getElementById('cooldowns-list');
-    if (!subsList || typeof CoinDropDB === 'undefined' || !user || !user.id) return;
 
-    // Load real subscriptions from Firebase
-    try {
-        const subs = await CoinDropDB.getSubscriptions(user.id);
+    // Show subscriptions from completed subscribe tasks in _serverTasks
+    if (subsList) {
+        const subTasks = (window._serverTasks || []).filter(t => t.taskType === 'subscribe');
         const noSubsMsg = document.getElementById('no-subs-msg');
-        if (subs.length > 0) {
+        if (subTasks.length > 0) {
             if (noSubsMsg) noSubsMsg.style.display = 'none';
-            subsList.innerHTML = subs.map(s => {
-                const startDate = s.startDate?.toDate ? s.startDate.toDate() : new Date(s.startDate);
-                const months = Math.max(1, Math.floor((Date.now() - startDate.getTime()) / (30 * 24 * 60 * 60 * 1000)));
-                const totalEarned = (0.05 + months * 0.01).toFixed(2);
+            subsList.innerHTML = subTasks.map(s => {
+                const startDate = s.timestamp ? new Date(s.timestamp) : new Date();
+                const daysSince = Math.floor((Date.now() - startDate.getTime()) / (24*60*60*1000));
+                const daysUntilResidual = Math.max(0, 30 - daysSince);
+                const totalEarned = (s.rewardUSD || 0.05).toFixed(2);
+                // Track subscribed creators for greying out
+                if (s.creatorName) {
+                    CREATORS.forEach(c => { if (c.name === s.creatorName) _subscribedCreators.add(c.id); });
+                }
                 return `<div class="sub-card">
                     <div class="sub-platform yt"><i class="fab fa-youtube"></i></div>
                     <div class="sub-info">
-                        <strong>${s.creatorName || 'Unknown'}</strong>
+                        <strong>${s.creatorName || s.videoTitle || 'Channel'}</strong>
                         <small>Subscribed · Since ${startDate.toLocaleDateString()}</small>
                     </div>
                     <div class="sub-meta">
                         <span class="sub-earning">$${totalEarned} earned</span>
-                        <span class="sub-duration">${months} month${months > 1 ? 's' : ''} active</span>
-                        <span class="sub-next-payout">$0.01/mo residual</span>
+                        <span class="sub-next-payout">${daysUntilResidual > 0 ? `<i class="fas fa-clock"></i> Residual in ${daysUntilResidual}d` : '<i class="fas fa-check"></i> Residual active'}</span>
                     </div>
                 </div>`;
             }).join('');
         }
-    } catch(e) { console.error('Load subs error:', e); }
+    }
 
-    // Load cooldowns and show active ones
+    // Show active cooldowns from _cooldownCache
     if (cooldownsList) {
-        try {
-            const cd = _cooldownCache;
-            const activeItems = [];
-            for (const [key, val] of Object.entries(cd)) {
-                const lastTime = val.toMillis ? val.toMillis() : (val.seconds ? val.seconds * 1000 : val);
-                const remaining = (24 * 60 * 60 * 1000) - (Date.now() - lastTime);
-                if (remaining > 0) {
-                    const [videoId, taskType] = key.split('_');
-                    const h = Math.floor(remaining / 3600000);
-                    const m = Math.floor((remaining % 3600000) / 60000);
-                    let videoTitle = videoId;
-                    CREATORS.forEach(c => c.videos.forEach(v => { if (v.id === videoId) videoTitle = v.title; }));
-                    activeItems.push(`<div class="sub-card">
-                        <div class="sub-platform yt"><i class="fas fa-${taskType === 'watch' ? 'play' : taskType === 'like' ? 'thumbs-up' : taskType === 'comment' ? 'comment' : 'bell'}"></i></div>
-                        <div class="sub-info">
-                            <strong>${videoTitle.substring(0, 50)}${videoTitle.length > 50 ? '...' : ''}</strong>
-                            <small>${taskType} · Completed today</small>
-                        </div>
-                        <div class="sub-meta">
-                            <span class="sub-next-payout"><i class="fas fa-clock"></i> Resets in ${h}h ${m}m</span>
-                        </div>
-                    </div>`);
-                }
+        const cd = _cooldownCache;
+        const activeItems = [];
+        for (const [key, val] of Object.entries(cd)) {
+            const lastTime = typeof val === 'number' ? val : new Date(val).getTime();
+            const remaining = (24 * 60 * 60 * 1000) - (Date.now() - lastTime);
+            if (remaining > 0) {
+                const parts = key.split('_');
+                const taskType = parts.pop();
+                const creatorOrVideoId = parts.join('_');
+                const h = Math.floor(remaining / 3600000);
+                const m = Math.floor((remaining % 3600000) / 60000);
+                let label = creatorOrVideoId;
+                CREATORS.forEach(c => { if (c.id === creatorOrVideoId) label = c.name; c.videos.forEach(v => { if (v.id === creatorOrVideoId) label = v.title; }); });
+                activeItems.push(`<div class="sub-card">
+                    <div class="sub-platform yt"><i class="fas fa-${taskType === 'watch' ? 'play' : taskType === 'like' ? 'thumbs-up' : taskType === 'comment' ? 'comment' : 'bell'}"></i></div>
+                    <div class="sub-info">
+                        <strong>${label.substring(0, 50)}</strong>
+                        <small>${taskType} · Completed</small>
+                    </div>
+                    <div class="sub-meta">
+                        <span class="sub-next-payout"><i class="fas fa-clock"></i> Resets in ${h}h ${m}m</span>
+                    </div>
+                </div>`);
             }
-            const nocdMsg = document.getElementById('no-cooldowns-msg');
-            if (activeItems.length > 0) {
-                if (nocdMsg) nocdMsg.style.display = 'none';
-                cooldownsList.innerHTML = activeItems.join('');
-            }
-        } catch(e) { console.error('Load cooldowns error:', e); }
+        }
+        const nocdMsg = document.getElementById('no-cooldowns-msg');
+        if (activeItems.length > 0) {
+            if (nocdMsg) nocdMsg.style.display = 'none';
+            cooldownsList.innerHTML = activeItems.join('');
+        }
     }
 }
 
-// Track which creators user has subscribed to (for greying out)
-// _subscribedCreators declared at top of file
-async function loadSubscribedCreators() {
-    if (typeof CoinDropDB === 'undefined' || !user || !user.id) return;
-    try {
-        const subs = await CoinDropDB.getSubscriptions(user.id);
-        subs.forEach(s => { if (s.creatorId) _subscribedCreators.add(s.creatorId); });
-    } catch(e) {}
-}
-
-// Run after Firebase sync
-setTimeout(async () => {
-    await loadSubscribedCreators();
-    await loadSubsAndCooldowns();
-    renderCreators('all');
-}, 1500);
+// Subs/cooldowns loaded after syncFromServer via the sync chain
 
 // Full leaderboard — from Firebase
 async function loadFullLeaderboard() {

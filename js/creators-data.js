@@ -367,6 +367,34 @@ const CREATORS = [
             { id: 'cOHfgFvyGFY', title: 'June 11, 2026', views: '46', short: true },
         ]
     },
+    {
+        id: 'shanshanuptopar',
+        handle: '@ShanShanUptopar',
+        name: 'UpToPar',
+        platform: 'youtube',
+        avatar: 'https://yt3.googleusercontent.com/guJHHzAD66wYr2LuNQCUh1CCCtBB_-TTvgvWDRqsrXk-iMHxYsMH2PXyDIdQ69s3n7EhD6Z_Rg=s176-c-k-c0x00ffffff-no-rj',
+        channelUrl: 'https://youtube.com/@ShanShanUptopar',
+        about: 'Live streaming, gaming, and lifestyle content. UpToPar brings fun live streams, smash or pass challenges, motivational content, and real talk.',
+        category: 'Streaming & Lifestyle',
+        subscribers: '500',
+        videos: [
+            { id: '1HoUKbeUF50', title: '#news #streamer #fyp #viral #shorts #live', views: '1,097', short: true },
+            { id: 'iwwpgMIVE5s', title: '#music #fyp #live #streamer #viral #shorts #question', views: '676', short: true },
+            { id: 'jESamrP6VVE', title: '#gameplay #games #livestream #fun', views: '481', short: true },
+            { id: '58JvnWWAqsU', title: 'January 27, 2026', views: '355', short: true },
+            { id: 'RHWcMsqrjdI', title: 'February 3, 2026', views: '284', short: true },
+            { id: 'JmrlKMHedzI', title: '2026 #newyear #streamer #livestream #fun', views: '157', short: true },
+            { id: 'dpMndU5qGoY', title: 'It was her man first #love #cheating #live', views: '123', short: true },
+            { id: 'j1SI_WAjTEQ', title: 'Smash or pass', views: '119', short: true },
+            { id: 'woh4HRmkXik', title: 'Ugh so fake', views: '89', short: true },
+            { id: 'Ra9ECAs3soM', title: 'February 2, 2026', views: '85', short: true },
+            { id: 'cqYwTAeFVt8', title: '#wordoftheday #modivation #letsdothistogether #live #streamer', views: '64', short: true },
+            { id: 'tmROXhhZ17c', title: 'New bae new mattress?', views: '38', short: true },
+            { id: 'MwMcsYRcQ4k', title: 'Synthetic Egg Project #egg #fake #cleaning #live', views: '22', short: true },
+            { id: 'wNYUi22PWcg', title: '#streamer #live #livestream', views: '18', short: true },
+            { id: '8s6aXTeUSPM', title: 'Rob a bank on the first date?', views: '4', short: true },
+        ]
+    },
 ];
 
 // Trigger earnings banner as soon as CREATORS is defined

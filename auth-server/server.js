@@ -588,6 +588,14 @@ function postToDiscord(webhookUrl, payload) {
     });
 }
 
+// API: Get user profile (wallet, displayName, avatar)
+app.get('/api/user-profile/:userId', async (req, res) => {
+    try {
+        const profile = await firestore.getDoc('users', req.params.userId);
+        res.json({ profile: profile || {} });
+    } catch(e) { res.json({ profile: {} }); }
+});
+
 // API: Get user stats and task history
 app.get('/api/user-stats/:userId', async (req, res) => {
     try {
@@ -663,6 +671,7 @@ const CHANNEL_IDS = {
     cameronrandall: 'UC3AVknoW_7nfuUGGAL5_r2Q',
     nadiivlogs: 'UCjwgYp_qk8v_4FlNw1iESuA',
     jreycash: 'UCpu4oacM0CPZW4H-BgZPkKA',
+    shanshanuptopar: 'UChPtNXx4_6RW-4O4hZWJN7w',
 };
 
 app.get('/api/sync-videos', async (req, res) => {
@@ -691,7 +700,7 @@ app.get('/api/sync-videos', async (req, res) => {
                 const handle = Object.keys(CHANNEL_IDS).find(k => CHANNEL_IDS[k] === channelId);
                 let allVideoIds = new Set(Object.keys(rssVideos));
                 try {
-                    const channelHandles = { illmedicine: 'illmedicine', illmedicineai: 'illmedicineai', minds_through_time: 'MINDS_THROUGH_TIME', justclipsone: 'JustClipsone', moralsovermoneytv: 'MoralsOverMoneyTV', bombogames: 'BomboGames', dreathevirgo: 'Dreathevirgo', cheese2hii: 'Cheese2hii', pamelaward: 'pamelaward7657', adayinla: 'adayinlapodcast', sage_elohi: 'Sage_elohi', errorbyhuman: 'errorbyhuman', dykeasaurus420: 'Dykeasaurus420', nadiivlogs: 'Nadiivlogs', jreycash: 'JreyCash', cameronrandall: null };
+                    const channelHandles = { illmedicine: 'illmedicine', illmedicineai: 'illmedicineai', minds_through_time: 'MINDS_THROUGH_TIME', justclipsone: 'JustClipsone', moralsovermoneytv: 'MoralsOverMoneyTV', bombogames: 'BomboGames', dreathevirgo: 'Dreathevirgo', cheese2hii: 'Cheese2hii', pamelaward: 'pamelaward7657', adayinla: 'adayinlapodcast', sage_elohi: 'Sage_elohi', errorbyhuman: 'errorbyhuman', dykeasaurus420: 'Dykeasaurus420', nadiivlogs: 'Nadiivlogs', jreycash: 'JreyCash', cameronrandall: null, shanshanuptopar: 'ShanShanUptopar' };
                     const ytHandle = channelHandles[creatorId];
                     if (ytHandle) {
                         const vidPage = await httpGet(`https://www.youtube.com/@${ytHandle}/videos`);
