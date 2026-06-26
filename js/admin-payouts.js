@@ -5,13 +5,21 @@ const API_BASE = 'https://coindrop-auth.up.railway.app';
 
 function isPayoutAdmin() {
     const user = JSON.parse(localStorage.getItem('coindrop_user') || '{}');
-    return ADMIN_PAYOUT_EMAILS.includes(user.email);
+    const email = (user.email || '').toLowerCase().trim();
+    return ADMIN_PAYOUT_EMAILS.some(e => e.toLowerCase() === email);
+}
+
+function getAdminEmail() {
+    const user = JSON.parse(localStorage.getItem('coindrop_user') || '{}');
+    return (user.email || '').toLowerCase().trim();
 }
 
 function showAdminPayoutsNav() {
+    const email = getAdminEmail();
+    console.log('Admin payouts check — email:', email, 'isAdmin:', ADMIN_PAYOUT_EMAILS.some(e => e.toLowerCase() === email));
     if (isPayoutAdmin()) {
         const nav = document.getElementById('admin-payouts-nav');
-        if (nav) nav.style.display = '';
+        if (nav) { nav.style.display = ''; console.log('Admin payouts nav shown'); }
     }
 }
 
@@ -118,8 +126,16 @@ async function retryAllPayouts() {
     }
 }
 
-// Show nav on page load — retry multiple times since user data may load late
-document.addEventListener('DOMContentLoaded', showAdminPayoutsNav);
+// Show nav on page load — poll until user data available
+function pollAdminNav() {
+    const user = JSON.parse(localStorage.getItem('coindrop_user') || '{}');
+    if (user.email) {
+        showAdminPayoutsNav();
+    } else {
+        setTimeout(pollAdminNav, 500);
+    }
+}
+document.addEventListener('DOMContentLoaded', pollAdminNav);
 setTimeout(showAdminPayoutsNav, 1000);
-setTimeout(showAdminPayoutsNav, 2000);
-setTimeout(showAdminPayoutsNav, 4000);
+setTimeout(showAdminPayoutsNav, 3000);
+setTimeout(showAdminPayoutsNav, 5000);

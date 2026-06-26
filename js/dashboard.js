@@ -551,6 +551,22 @@ document.querySelectorAll('.filter-btn').forEach(btn => {
 });
 
 // ===== Earnings Potential Banner (live calculated from CREATORS) =====
+// Restore cached values immediately so banner never shows "--"
+(function restoreEbCache() {
+    try {
+        const cached = JSON.parse(localStorage.getItem('coindrop_eb_cache') || 'null');
+        if (cached) {
+            const d = document.getElementById('eb-daily');
+            const s = document.getElementById('eb-sub-onetime');
+            const r = document.getElementById('eb-residual');
+            const n = document.getElementById('eb-network');
+            if (d && d.textContent === '--') d.textContent = `$${cached.daily} USD`;
+            if (s && s.textContent === '--') s.textContent = `$${cached.sub}`;
+            if (r && r.textContent === '--') r.textContent = `$${cached.residual}/mo`;
+            if (n && n.textContent === '--') n.textContent = cached.network;
+        }
+    } catch(e) {}
+})();
 function updateEarningsBanner() {
     let totalVideos = 0;
     let totalCreators = CREATORS.length;
@@ -573,6 +589,14 @@ function updateEarningsBanner() {
     if (ebSub) ebSub.textContent = `$${subOnetimeUSD.toFixed(2)}`;
     if (ebResidual) ebResidual.textContent = `$${monthlyResidualUSD.toFixed(2)}/mo`;
     if (ebNetwork) ebNetwork.textContent = `${totalCreators} creators · ${totalVideos} videos`;
+
+    // Cache for instant display on next load
+    localStorage.setItem('coindrop_eb_cache', JSON.stringify({
+        daily: dailyTotalUSD.toFixed(2),
+        sub: subOnetimeUSD.toFixed(2),
+        residual: monthlyResidualUSD.toFixed(2),
+        network: `${totalCreators} creators · ${totalVideos} videos`,
+    }));
 }
 // Run after DOM ready
 if (document.readyState === 'loading') {
