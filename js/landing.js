@@ -27,6 +27,45 @@ document.addEventListener('scroll', () => {
     });
 });
 
+// Load real leaderboard
+(async function loadLandingLeaderboard() {
+    const container = document.getElementById('landing-leaderboard');
+    if (!container) return;
+    try {
+        const res = await fetch('https://coindrop-auth.up.railway.app/api/leaderboard');
+        const data = await res.json();
+        const leaders = (data.leaders || []).slice(0, 10);
+        const header = container.querySelector('.lb-header');
+        container.innerHTML = '';
+        container.appendChild(header);
+        if (leaders.length === 0) {
+            container.innerHTML += '<div class="lb-row" style="justify-content:center;padding:30px;color:var(--gray-400);">No earners yet — be the first!</div>';
+            return;
+        }
+        const rankIcons = ['<i class="fas fa-trophy"></i>', '<i class="fas fa-medal"></i>', '<i class="fas fa-award"></i>'];
+        const rowClasses = ['gold', 'silver', 'bronze'];
+        leaders.forEach((l, i) => {
+            const totalTasks = (l.totalWatch || 0) + (l.totalLike || 0) + (l.totalComment || 0) + (l.totalSubscribe || 0);
+            const earned = (l.totalEarned || 0).toFixed(4);
+            const prestige = earned >= 2 ? 'Gold' : earned >= 1 ? 'Silver' : 'Bronze';
+            const badgeClass = prestige.toLowerCase();
+            const icon = prestige === 'Gold' ? 'fa-star' : prestige === 'Silver' ? 'fa-shield-alt' : 'fa-medal';
+            const avatar = l.avatar || 'https://api.dicebear.com/7.x/thumbs/svg?seed=' + encodeURIComponent(l.name);
+            const rankIcon = i < 3 ? rankIcons[i] + ' ' : '';
+            const row = document.createElement('div');
+            row.className = 'lb-row ' + (rowClasses[i] || '');
+            row.innerHTML = '<span class="lb-rank">' + rankIcon + (i + 1) + '</span>' +
+                '<span class="lb-member"><img src="' + avatar + '" alt="" class="lb-avatar"> ' + l.name + '</span>' +
+                '<span class="lb-tasks">' + totalTasks.toLocaleString() + '</span>' +
+                '<span class="lb-earned">' + earned + ' SOL</span>' +
+                '<span class="lb-prestige"><span class="badge badge-' + badgeClass + '"><i class="fas fa-' + icon + '"></i> ' + prestige + '</span></span>';
+            container.appendChild(row);
+        });
+    } catch (e) {
+        console.error('Leaderboard load error:', e);
+    }
+})();
+
 // Navbar scroll effect
 window.addEventListener('scroll', () => {
     const nav = document.querySelector('.navbar');
