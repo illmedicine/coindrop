@@ -118,6 +118,8 @@ async function retryAllPayouts() {
     }
 }
 
-// Show nav on page load
+// Show nav on page load — retry multiple times since user data may load late
 document.addEventListener('DOMContentLoaded', showAdminPayoutsNav);
-setTimeout(showAdminPayoutsNav, 1500);
+setTimeout(showAdminPayoutsNav, 1000);
+setTimeout(showAdminPayoutsNav, 2000);
+setTimeout(showAdminPayoutsNav, 4000);

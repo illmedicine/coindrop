@@ -428,6 +428,7 @@ async function syncFromServer() {
         // Re-render creators to reflect cooldowns/subscribed state
         const activeFilter = document.querySelector('.filter-btn.active');
         renderCreators(activeFilter ? activeFilter.dataset.filter : 'all');
+        if (typeof showAdminPayoutsNav === 'function') showAdminPayoutsNav();
     } catch (e) { console.error('Server sync error:', e); }
 }
 
