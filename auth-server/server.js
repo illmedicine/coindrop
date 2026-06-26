@@ -268,9 +268,9 @@ PASS if all 3 conditions are met. FAIL if the title doesn't match, channel name 
             like: `LIKE VERIFICATION — ALL 3 conditions must be met:
 1. VIDEO TITLE MATCH: The video title "${videoTitle}" (or a recognizable portion) must be visible.
 2. CHANNEL NAME VISIBLE: The creator "${creatorName}" must be visible.
-3. LIKE BUTTON ACTIVE: The thumbs-up/like button must appear FILLED/SHADED/HIGHLIGHTED (solid blue or solid white fill on YouTube, or a colored/filled heart on Instagram). An UNFILLED/OUTLINE-ONLY thumbs up means the user did NOT click like — this FAILS verification. On YouTube, a liked video shows a solid filled thumb icon, not an outline.
+3. LIKE BUTTON ACTIVE: The thumbs-up/like button must appear FILLED or SOLID. On YouTube dark mode, a LIKED video shows a SOLID WHITE filled thumb — this IS the active/liked state and PASSES. On YouTube light mode, it shows solid blue or black. On Instagram, a red filled heart. The ONLY state that FAILS is a clearly HOLLOW/OUTLINE-ONLY thumb with no fill (just a thin border with empty/transparent interior). If the thumb is solid white, solid blue, solid black, or any solid fill — that means LIKED and PASSES. A white filled thumb on a dark background is NOT an outline — it is the active liked state.
 
-PASS only if the like button is clearly in its ACTIVE/FILLED state. FAIL if the thumb is just an outline (not clicked).`,
+PASS if the like button has ANY solid fill (white, blue, black, colored). FAIL ONLY if the thumb is a thin hollow outline with clearly empty interior.`,
 
             comment: `COMMENT VERIFICATION — ALL 4 conditions must be met:
 1. VIDEO TITLE MATCH: The video title "${videoTitle}" (or a recognizable portion) must be visible on screen.
