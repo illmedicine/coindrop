@@ -510,8 +510,77 @@ async function sendSolPayment(privateKeyBase58, recipientAddress, amountSOL) {
     return signature;
 }
 
-// ===== Admin: Unpaid Tasks =====
+// ===== Admin Check =====
 const ADMIN_EMAILS = ['demarkuswilsone@gmail.com', 'dwilson@illyrobotic-ai.com'];
+
+app.get('/api/admin/check', (req, res) => {
+    const email = (req.query.email || '').toLowerCase().trim();
+    res.json({ isAdmin: ADMIN_EMAILS.includes(email) });
+});
+
+// ===== Earnings Potential (server-cached, highest value persists) =====
+let cachedEarningsPotential = null;
+
+app.get('/api/earnings-potential', async (req, res) => {
+    try {
+        // Count all videos across all channels from Firestore or use channel data
+        const channelIds = Object.keys(CHANNEL_IDS);
+        let totalVideos = 0;
+        let totalCreators = channelIds.length;
+
+        // Try to get video counts from Firestore cache
+        for (const name of channelIds) {
+            try {
+                const cached = await firestore.getDoc('channel_cache', name);
+                if (cached && cached.videos) {
+                    totalVideos += (typeof cached.videos === 'number') ? cached.videos : (Array.isArray(cached.videos) ? cached.videos.length : 0);
+                }
+            } catch(e) {}
+        }
+
+        // Fallback: if no cache data, use a reasonable estimate
+        if (totalVideos === 0) totalVideos = 173;
+        if (totalCreators === 0) totalCreators = 17;
+
+        const dailyUSD = (totalVideos * 0.01) + (totalVideos * 0.005) + (totalVideos * 0.02);
+        const subOnetime = totalCreators * 0.05;
+        const monthlyResidual = totalCreators * 0.01;
+
+        const newData = {
+            daily: parseFloat(dailyUSD.toFixed(2)),
+            sub: parseFloat(subOnetime.toFixed(2)),
+            residual: parseFloat(monthlyResidual.toFixed(2)),
+            network: `${totalCreators} creators · ${totalVideos} videos`,
+            totalCreators,
+            totalVideos,
+            updatedAt: new Date().toISOString(),
+        };
+
+        // Keep the highest daily value ever seen
+        if (cachedEarningsPotential && cachedEarningsPotential.daily > newData.daily) {
+            newData.daily = cachedEarningsPotential.daily;
+        }
+
+        cachedEarningsPotential = newData;
+
+        // Also persist to Firestore so it survives server restarts
+        try {
+            const existing = await firestore.getDoc('config', 'earningsPotential');
+            if (existing && existing.daily > newData.daily) {
+                newData.daily = existing.daily;
+            }
+            await firestore.setDoc('config', 'earningsPotential', newData);
+        } catch(e) { console.warn('EP cache write skipped:', e.message); }
+
+        res.json(newData);
+    } catch (err) {
+        // Return cached if available
+        if (cachedEarningsPotential) return res.json(cachedEarningsPotential);
+        res.json({ daily: 6.05, sub: 0.85, residual: 0.17, network: '17 creators · 173 videos' });
+    }
+});
+
+// ===== Admin: Unpaid Tasks =====
 
 app.get('/api/admin/unpaid-tasks', async (req, res) => {
     const email = req.query.email;

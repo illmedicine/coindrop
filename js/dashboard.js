@@ -428,7 +428,6 @@ async function syncFromServer() {
         // Re-render creators to reflect cooldowns/subscribed state
         const activeFilter = document.querySelector('.filter-btn.active');
         renderCreators(activeFilter ? activeFilter.dataset.filter : 'all');
-        if (typeof showAdminPayoutsNav === 'function') showAdminPayoutsNav();
     } catch (e) { console.error('Server sync error:', e); }
 }
 
@@ -550,62 +549,35 @@ document.querySelectorAll('.filter-btn').forEach(btn => {
     });
 });
 
-// ===== Earnings Potential Banner (live calculated from CREATORS) =====
-// Restore cached values immediately so banner never shows "--"
-(function restoreEbCache() {
-    try {
-        const cached = JSON.parse(localStorage.getItem('coindrop_eb_cache') || 'null');
-        if (cached) {
-            const d = document.getElementById('eb-daily');
-            const s = document.getElementById('eb-sub-onetime');
-            const r = document.getElementById('eb-residual');
-            const n = document.getElementById('eb-network');
-            if (d && d.textContent === '--') d.textContent = `$${cached.daily} USD`;
-            if (s && s.textContent === '--') s.textContent = `$${cached.sub}`;
-            if (r && r.textContent === '--') r.textContent = `$${cached.residual}/mo`;
-            if (n && n.textContent === '--') n.textContent = cached.network;
-        }
-    } catch(e) {}
-})();
-function updateEarningsBanner() {
-    let totalVideos = 0;
-    let totalCreators = CREATORS.length;
-    CREATORS.forEach(c => totalVideos += c.videos.length);
-
-    // All rewards in USD: watch=$0.01, like=$0.005, comment=$0.02 per video per day
-    const dailyWatchUSD = totalVideos * 0.01;
-    const dailyLikeUSD = totalVideos * 0.005;
-    const dailyCommentUSD = totalVideos * 0.02;
-    const dailyTotalUSD = dailyWatchUSD + dailyLikeUSD + dailyCommentUSD;
-    const subOnetimeUSD = totalCreators * 0.05;
-    const monthlyResidualUSD = totalCreators * 0.01;
-
+// ===== Earnings Potential Banner (server-side, highest value persists) =====
+async function updateEarningsBanner() {
     const ebDaily = document.getElementById('eb-daily');
     const ebSub = document.getElementById('eb-sub-onetime');
     const ebResidual = document.getElementById('eb-residual');
     const ebNetwork = document.getElementById('eb-network');
 
-    if (ebDaily) ebDaily.textContent = `$${dailyTotalUSD.toFixed(2)} USD`;
-    if (ebSub) ebSub.textContent = `$${subOnetimeUSD.toFixed(2)}`;
-    if (ebResidual) ebResidual.textContent = `$${monthlyResidualUSD.toFixed(2)}/mo`;
-    if (ebNetwork) ebNetwork.textContent = `${totalCreators} creators · ${totalVideos} videos`;
-
-    // Cache for instant display on next load
-    localStorage.setItem('coindrop_eb_cache', JSON.stringify({
-        daily: dailyTotalUSD.toFixed(2),
-        sub: subOnetimeUSD.toFixed(2),
-        residual: monthlyResidualUSD.toFixed(2),
-        network: `${totalCreators} creators · ${totalVideos} videos`,
-    }));
+    try {
+        const res = await fetch('https://coindrop-auth.up.railway.app/api/earnings-potential');
+        const data = await res.json();
+        if (ebDaily) ebDaily.textContent = `$${data.daily.toFixed(2)} USD`;
+        if (ebSub) ebSub.textContent = `$${data.sub.toFixed(2)}`;
+        if (ebResidual) ebResidual.textContent = `$${data.residual.toFixed(2)}/mo`;
+        if (ebNetwork) ebNetwork.textContent = data.network;
+    } catch (e) {
+        // Fallback: calculate locally from CREATORS if server unavailable
+        if (typeof CREATORS !== 'undefined' && CREATORS.length > 0) {
+            let totalVideos = 0;
+            CREATORS.forEach(c => totalVideos += c.videos.length);
+            const daily = (totalVideos * 0.01) + (totalVideos * 0.005) + (totalVideos * 0.02);
+            if (ebDaily) ebDaily.textContent = `$${daily.toFixed(2)} USD`;
+            if (ebSub) ebSub.textContent = `$${(CREATORS.length * 0.05).toFixed(2)}`;
+            if (ebResidual) ebResidual.textContent = `$${(CREATORS.length * 0.01).toFixed(2)}/mo`;
+            if (ebNetwork) ebNetwork.textContent = `${CREATORS.length} creators · ${totalVideos} videos`;
+        }
+    }
 }
-// Run after DOM ready
-if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', updateEarningsBanner);
-} else {
-    updateEarningsBanner();
-}
-// Also retry after 1s in case of race condition
-setTimeout(updateEarningsBanner, 1000);
+updateEarningsBanner();
+setTimeout(updateEarningsBanner, 3000);
 
 // ===== Subscriptions & Cooldowns (server-driven) =====
 function loadSubsAndCooldowns() {

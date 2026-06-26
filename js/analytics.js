@@ -1,6 +1,5 @@
 // ===== Creator Analytics & Invoice System =====
 
-const ADMIN_EMAILS = ['dwilson@illyrobotic-ai.com', 'demarkuswilsone@gmail.com'];
 const PLATFORM_MARKUP = 0.10; // 10%
 
 const TASK_RATES = {
@@ -10,21 +9,21 @@ const TASK_RATES = {
     subscribe: { sol: null, usd: 0.05, label: 'Subscribes' },
 };
 
-function isAdmin() {
-    const user = JSON.parse(localStorage.getItem('coindrop_user') || '{}');
-    return ADMIN_EMAILS.includes(user.email);
-}
-
+// Admin check now handled by admin-payouts.js via server-side /api/admin/check
 function showAnalyticsNav() {
-    if (isAdmin()) {
-        const nav = document.getElementById('analytics-nav');
-        if (nav) nav.style.display = '';
-    }
+    // Handled by showAdminPayoutsNav in admin-payouts.js
 }
 
 async function loadCreatorAnalytics() {
     const grid = document.getElementById('analytics-grid');
-    if (!grid || typeof db === 'undefined') return;
+    if (!grid) return;
+
+    if (typeof guardAdminTab === 'function') {
+        const allowed = await guardAdminTab('analytics-grid');
+        if (!allowed) return;
+    }
+
+    if (typeof db === 'undefined') return;
 
     grid.innerHTML = '<p class="text-muted"><i class="fas fa-spinner fa-spin"></i> Loading analytics...</p>';
 

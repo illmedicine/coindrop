@@ -1,38 +1,62 @@
-// ===== Admin Unpaid Payouts =====
+// ===== Admin Unpaid Payouts (server-verified) =====
 
-const ADMIN_PAYOUT_EMAILS = ['demarkuswilsone@gmail.com', 'dwilson@illyrobotic-ai.com'];
-const API_BASE = 'https://coindrop-auth.up.railway.app';
+const PAYOUT_API = 'https://coindrop-auth.up.railway.app';
+const ADMIN_RESTRICTED_MSG = '<div style="text-align:center;padding:60px 20px;"><i class="fas fa-lock" style="font-size:3rem;color:var(--gray-300);margin-bottom:16px;display:block;"></i><h3 style="color:var(--navy);">Administrator Only</h3><p style="color:var(--gray-400);max-width:400px;margin:12px auto;">This section is restricted to CoinDrop administrators. If you need help, please reach out in our <a href="https://discord.gg/847XjyVa3C" target="_blank" style="color:var(--orange);">Discord community</a>.</p></div>';
 
-function isPayoutAdmin() {
+function getUserEmail() {
     const user = JSON.parse(localStorage.getItem('coindrop_user') || '{}');
-    const email = (user.email || '').toLowerCase().trim();
-    return ADMIN_PAYOUT_EMAILS.some(e => e.toLowerCase() === email);
+    return (user.email || '').trim();
 }
 
-function getAdminEmail() {
-    const user = JSON.parse(localStorage.getItem('coindrop_user') || '{}');
-    return (user.email || '').toLowerCase().trim();
-}
-
-function showAdminPayoutsNav() {
-    const email = getAdminEmail();
-    console.log('Admin payouts check — email:', email, 'isAdmin:', ADMIN_PAYOUT_EMAILS.some(e => e.toLowerCase() === email));
-    if (isPayoutAdmin()) {
-        const nav = document.getElementById('admin-payouts-nav');
-        if (nav) { nav.style.display = ''; console.log('Admin payouts nav shown'); }
+async function checkIsAdmin() {
+    const email = getUserEmail();
+    if (!email) return false;
+    try {
+        const res = await fetch(`${PAYOUT_API}/api/admin/check?email=${encodeURIComponent(email)}`);
+        const data = await res.json();
+        return data.isAdmin === true;
+    } catch (e) {
+        return false;
     }
+}
+
+async function showAdminPayoutsNav() {
+    const isAdmin = await checkIsAdmin();
+    if (isAdmin) {
+        const nav = document.getElementById('admin-payouts-nav');
+        if (nav) nav.style.display = '';
+        const analyticsNav = document.getElementById('analytics-nav');
+        if (analyticsNav) analyticsNav.style.display = '';
+    }
+}
+
+async function guardAdminTab(containerId) {
+    const isAdmin = await checkIsAdmin();
+    if (!isAdmin) {
+        const container = document.getElementById(containerId);
+        if (container) container.innerHTML = ADMIN_RESTRICTED_MSG;
+        return false;
+    }
+    return true;
 }
 
 async function loadUnpaidTasks() {
     const container = document.getElementById('unpaid-tasks-list');
     const countEl = document.getElementById('unpaid-count');
     if (!container) return;
-    const user = JSON.parse(localStorage.getItem('coindrop_user') || '{}');
+
+    if (!(await guardAdminTab('unpaid-tasks-list'))) return;
+
+    const email = getUserEmail();
     container.innerHTML = '<p class="text-muted"><i class="fas fa-spinner fa-spin"></i> Loading unpaid tasks...</p>';
 
     try {
-        const res = await fetch(`${API_BASE}/api/admin/unpaid-tasks?email=${encodeURIComponent(user.email)}`);
+        const res = await fetch(`${PAYOUT_API}/api/admin/unpaid-tasks?email=${encodeURIComponent(email)}`);
         const data = await res.json();
+        if (data.error) {
+            container.innerHTML = ADMIN_RESTRICTED_MSG;
+            return;
+        }
         const unpaid = data.unpaid || [];
 
         if (countEl) countEl.textContent = unpaid.length + ' unpaid task' + (unpaid.length !== 1 ? 's' : '');
@@ -72,15 +96,15 @@ async function loadUnpaidTasks() {
 }
 
 async function retrySinglePayout(docId, walletAddress, rewardSOL) {
-    const user = JSON.parse(localStorage.getItem('coindrop_user') || '{}');
+    const email = getUserEmail();
     const btn = document.querySelector(`#row-${docId} button`);
     if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>'; }
 
     try {
-        const res = await fetch(`${API_BASE}/api/admin/retry-payout`, {
+        const res = await fetch(`${PAYOUT_API}/api/admin/retry-payout`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ email: user.email, docId, walletAddress, rewardSOL }),
+            body: JSON.stringify({ email, docId, walletAddress, rewardSOL }),
         });
         const data = await res.json();
         if (data.success) {
@@ -100,15 +124,15 @@ async function retrySinglePayout(docId, walletAddress, rewardSOL) {
 }
 
 async function retryAllPayouts() {
-    const user = JSON.parse(localStorage.getItem('coindrop_user') || '{}');
+    const email = getUserEmail();
     const btn = document.getElementById('retry-all-btn');
     if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processing...'; }
 
     try {
-        const res = await fetch(`${API_BASE}/api/admin/retry-all`, {
+        const res = await fetch(`${PAYOUT_API}/api/admin/retry-all`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ email: user.email }),
+            body: JSON.stringify({ email }),
         });
         const data = await res.json();
         const results = data.results || [];
@@ -126,16 +150,13 @@ async function retryAllPayouts() {
     }
 }
 
-// Show nav on page load — poll until user data available
+// Poll for user email then check admin status server-side
 function pollAdminNav() {
-    const user = JSON.parse(localStorage.getItem('coindrop_user') || '{}');
-    if (user.email) {
+    const email = getUserEmail();
+    if (email) {
         showAdminPayoutsNav();
     } else {
         setTimeout(pollAdminNav, 500);
     }
 }
 document.addEventListener('DOMContentLoaded', pollAdminNav);
-setTimeout(showAdminPayoutsNav, 1000);
-setTimeout(showAdminPayoutsNav, 3000);
-setTimeout(showAdminPayoutsNav, 5000);
