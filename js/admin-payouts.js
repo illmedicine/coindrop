@@ -129,32 +129,51 @@ async function retrySinglePayout(docId, walletAddress, rewardSOL) {
 async function retryAllPayouts() {
     const email = getUserEmail();
     const btn = document.getElementById('retry-all-btn');
-    if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processing...'; }
+    const countEl = document.getElementById('unpaid-count');
+    let totalPaid = 0, totalFailed = 0, totalSkipped = 0;
+    let firstError = null;
+    let keepGoing = true;
 
-    try {
-        const res = await fetch(`${PAYOUT_API}/api/admin/retry-all`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ email }),
-        });
-        const data = await res.json();
-        const results = data.results || [];
-        const paid = results.filter(r => r.status === 'paid').length;
-        const failed = results.filter(r => r.status === 'failed').length;
-        const skipped = results.filter(r => r.status === 'skipped').length;
+    if (btn) { btn.disabled = true; }
 
-        const firstError = results.find(r => r.status === 'failed');
-        let msg = `Batch payout complete:\n${paid} paid\n${failed} failed\n${skipped} skipped (no wallet)`;
-        if (firstError) msg += `\n\nFirst error: ${firstError.reason}`;
-        alert(msg);
-        loadTreasuryBalance();
-
-        if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-paper-plane"></i> Pay All Unpaid'; }
-        loadUnpaidTasks();
-    } catch (err) {
-        alert('Batch payout error: ' + err.message);
-        if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-paper-plane"></i> Pay All Unpaid'; }
+    while (keepGoing) {
+        if (btn) btn.innerHTML = `<i class="fas fa-spinner fa-spin"></i> Paying batch... (${totalPaid} paid so far)`;
+        try {
+            const res = await fetch(`${PAYOUT_API}/api/admin/retry-all`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email, batchSize: 10 }),
+            });
+            const data = await res.json();
+            if (data.error) { firstError = data.error; keepGoing = false; break; }
+            const results = data.results || [];
+            totalPaid += results.filter(r => r.status === 'paid').length;
+            totalFailed += results.filter(r => r.status === 'failed').length;
+            totalSkipped += results.filter(r => r.status === 'skipped').length;
+            if (!firstError) {
+                const fe = results.find(r => r.status === 'failed');
+                if (fe) firstError = fe.reason;
+            }
+            if (countEl) countEl.innerHTML = `<strong>${totalPaid}</strong> paid, <strong>${totalFailed}</strong> failed — <strong>${data.remaining || 0}</strong> remaining`;
+            if (!data.remaining || data.remaining <= 0 || results.length === 0) {
+                keepGoing = false;
+            }
+            // If entire batch failed, stop to avoid infinite loop
+            if (results.length > 0 && results.every(r => r.status === 'failed')) {
+                keepGoing = false;
+            }
+        } catch (err) {
+            firstError = err.message;
+            keepGoing = false;
+        }
     }
+
+    let msg = `Batch payout complete:\n${totalPaid} paid\n${totalFailed} failed\n${totalSkipped} skipped (no wallet)`;
+    if (firstError) msg += `\n\nFirst error: ${firstError}`;
+    alert(msg);
+    loadTreasuryBalance();
+    if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-paper-plane"></i> Pay All Unpaid'; }
+    loadUnpaidTasks();
 }
 
 async function loadTreasuryBalance() {

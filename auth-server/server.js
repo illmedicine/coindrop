@@ -757,53 +757,67 @@ app.post('/api/admin/retry-payout', async (req, res) => {
 });
 
 app.post('/api/admin/retry-all', async (req, res) => {
-    const { email } = req.body;
+    const { email, batchSize } = req.body;
     if (!ADMIN_EMAILS.includes(email)) {
         return res.status(403).json({ error: 'Unauthorized' });
     }
+    const limit = Math.min(batchSize || 10, 20);
     try {
-        const listData = await httpGet(`${FIRESTORE_URL}/tasks?key=${FIREBASE_API_KEY}&pageSize=300`);
+        const listData = await httpGet(`${FIRESTORE_URL}/tasks?key=${FIREBASE_API_KEY}&pageSize=500`);
         const parsed = JSON.parse(listData);
-        if (!parsed.documents) return res.json({ results: [], total: 0 });
+        if (!parsed.documents) return res.json({ results: [], total: 0, remaining: 0 });
+        // Deduplicate subscribes
+        const allTasks = parsed.documents.map(doc => ({ ...parseFirestoreDoc(doc.fields || {}), docId: doc.name.split('/').pop() }));
+        allTasks.sort((a, b) => (a.timestamp || '') < (b.timestamp || '') ? -1 : 1);
+        const seenSubs = new Set();
+        const eligible = [];
+        for (const t of allTasks) {
+            if (t.txSignature || t.payoutSuccess) continue;
+            if (t.taskType === 'subscribe') {
+                const key = `${t.userId}:${t.creatorName}`;
+                if (seenSubs.has(key)) continue;
+                seenSubs.add(key);
+            }
+            eligible.push(t);
+        }
+        const batch = eligible.slice(0, limit);
         const results = [];
-        for (const doc of parsed.documents) {
-            const data = parseFirestoreDoc(doc.fields || {});
-            const docId = doc.name.split('/').pop();
-            if (!data.txSignature && !data.payoutSuccess) {
-                const userDoc = await firestore.getDoc('users', data.userId);
-                const wallet = userDoc ? userDoc.walletAddress : data.walletAddress;
-                if (!wallet) {
-                    results.push({ docId, status: 'skipped', reason: 'No wallet address' });
-                    continue;
-                }
-                try {
-                    const treasuryKey = decryptPrivateKey(TREASURY_PRIVATE_KEY_ENCRYPTED, TREASURY_ENCRYPTION_KEY);
-                    const txSig = await sendSolPayment(treasuryKey, wallet, parseFloat(data.rewardSOL || 0));
-                    const TASKS_URL = `${FIRESTORE_URL}/tasks/${docId}?key=${FIREBASE_API_KEY}&updateMask.fieldPaths=txSignature&updateMask.fieldPaths=payoutSuccess&updateMask.fieldPaths=retryTimestamp`;
-                    const patchData = JSON.stringify({
-                        fields: {
-                            txSignature: { stringValue: txSig },
-                            payoutSuccess: { booleanValue: true },
-                            retryTimestamp: { stringValue: new Date().toISOString() },
-                        }
-                    });
-                    await new Promise((resolve, reject) => {
-                        const url = new URL(TASKS_URL);
-                        const patchReq = https.request({
-                            hostname: url.hostname, path: url.pathname + url.search, method: 'PATCH',
-                            headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(patchData) },
-                        }, (patchRes) => { let b = ''; patchRes.on('data', c => b += c); patchRes.on('end', () => resolve(b)); });
-                        patchReq.on('error', reject);
-                        patchReq.write(patchData);
-                        patchReq.end();
-                    });
-                    results.push({ docId, status: 'paid', txSignature: txSig });
-                } catch (payErr) {
-                    results.push({ docId, status: 'failed', reason: payErr.message });
-                }
+        const treasuryKey = decryptPrivateKey(TREASURY_PRIVATE_KEY_ENCRYPTED, TREASURY_ENCRYPTION_KEY);
+        for (const data of batch) {
+            const userDoc = await firestore.getDoc('users', data.userId);
+            const wallet = userDoc ? userDoc.walletAddress : data.walletAddress;
+            if (!wallet) {
+                results.push({ docId: data.docId, status: 'skipped', reason: 'No wallet address' });
+                continue;
+            }
+            try {
+                const txSig = await sendSolPayment(treasuryKey, wallet, parseFloat(data.rewardSOL || 0));
+                const TASKS_URL = `${FIRESTORE_URL}/tasks/${data.docId}?key=${FIREBASE_API_KEY}&updateMask.fieldPaths=txSignature&updateMask.fieldPaths=payoutSuccess&updateMask.fieldPaths=retryTimestamp`;
+                const patchData = JSON.stringify({
+                    fields: {
+                        txSignature: { stringValue: txSig },
+                        payoutSuccess: { booleanValue: true },
+                        retryTimestamp: { stringValue: new Date().toISOString() },
+                    }
+                });
+                await new Promise((resolve, reject) => {
+                    const url = new URL(TASKS_URL);
+                    const patchReq = https.request({
+                        hostname: url.hostname, path: url.pathname + url.search, method: 'PATCH',
+                        headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(patchData) },
+                    }, (patchRes) => { let b = ''; patchRes.on('data', c => b += c); patchRes.on('end', () => resolve(b)); });
+                    patchReq.on('error', reject);
+                    patchReq.write(patchData);
+                    patchReq.end();
+                });
+                results.push({ docId: data.docId, status: 'paid', txSignature: txSig });
+            } catch (payErr) {
+                results.push({ docId: data.docId, status: 'failed', reason: payErr.message });
+            }
             }
         }
-        res.json({ results, total: results.length });
+        const remaining = eligible.length - batch.length;
+        res.json({ results, total: results.length, remaining });
     } catch (err) {
         console.error('Retry-all error:', err.message);
         res.status(500).json({ error: err.message });
