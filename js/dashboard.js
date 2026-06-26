@@ -448,7 +448,7 @@ function renderCreators(filter) {
                 ? `https://www.youtube.com/shorts/${v.id}`
                 : `https://www.youtube.com/watch?v=${v.id}`;
             const thumbUrl = v.short
-                ? `https://img.youtube.com/vi/${v.id}/oar2.jpg`
+                ? `https://img.youtube.com/vi/${v.id}/mqdefault.jpg`
                 : `https://img.youtube.com/vi/${v.id}/mqdefault.jpg`;
             const badge = v.short ? '<span class="short-badge">SHORT</span>' : '';
             const safeTitle = v.title.replace(/'/g, "\\'").replace(/`/g, '');

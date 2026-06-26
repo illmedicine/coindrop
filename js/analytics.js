@@ -1,5 +1,10 @@
 // ===== Creator Analytics & Invoice System =====
 
+function isAdmin() {
+    return typeof _isAdminVerified !== 'undefined' && _isAdminVerified === true;
+}
+var _isAdminVerified = false;
+
 const PLATFORM_MARKUP = 0.10; // 10%
 
 const TASK_RATES = {
@@ -21,6 +26,7 @@ async function loadCreatorAnalytics() {
     if (typeof guardAdminTab === 'function') {
         const allowed = await guardAdminTab('analytics-grid');
         if (!allowed) return;
+        _isAdminVerified = true;
     }
 
     if (typeof db === 'undefined') return;
