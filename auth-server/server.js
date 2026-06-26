@@ -515,7 +515,16 @@ async function sendSolPayment(privateKeyBase58, recipientAddress, amountSOL) {
     const secretKey = bs58.decode(privateKeyBase58);
     const payer = Keypair.fromSecretKey(secretKey);
     const recipient = new PublicKey(recipientAddress);
-    const lamports = Math.round(amountSOL * LAMPORTS_PER_SOL);
+    let lamports = Math.round(amountSOL * LAMPORTS_PER_SOL);
+
+    // Check if recipient account exists — if not, must send enough for rent exemption
+    const recipientInfo = await connection.getAccountInfo(recipient);
+    if (!recipientInfo) {
+        const rentExempt = await connection.getMinimumBalanceForRentExemption(0);
+        if (lamports < rentExempt) {
+            lamports = rentExempt;
+        }
+    }
 
     const transaction = new Transaction().add(
         SystemProgram.transfer({ fromPubkey: payer.publicKey, toPubkey: recipient, lamports })
@@ -523,7 +532,8 @@ async function sendSolPayment(privateKeyBase58, recipientAddress, amountSOL) {
 
     const signature = await connection.sendTransaction(transaction, [payer]);
     await connection.confirmTransaction(signature, 'confirmed');
-    console.log(`PAYOUT: ${amountSOL} SOL to ${recipientAddress} — tx: ${signature}`);
+    const actualSOL = lamports / LAMPORTS_PER_SOL;
+    console.log(`PAYOUT: ${actualSOL} SOL to ${recipientAddress} — tx: ${signature}`);
     return signature;
 }
 
