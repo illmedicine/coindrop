@@ -1,6 +1,6 @@
 // ===== Creator Analytics & Invoice System =====
 
-const ADMIN_EMAILS = ['dwilson@illyrobotic-ai.com', 'demrkuswilsone@gmail.com'];
+const ADMIN_EMAILS = ['dwilson@illyrobotic-ai.com', 'demarkuswilsone@gmail.com'];
 const PLATFORM_MARKUP = 0.10; // 10%
 
 const TASK_RATES = {

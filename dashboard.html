@@ -41,6 +41,9 @@
             <a href="#" class="sidebar-link" data-tab="analytics" id="analytics-nav" style="display:none">
                 <i class="fas fa-chart-bar"></i> Creator Analytics
             </a>
+            <a href="#" class="sidebar-link" data-tab="admin-payouts" id="admin-payouts-nav" style="display:none">
+                <i class="fas fa-hand-holding-usd"></i> Unpaid Payouts
+            </a>
         </nav>
         <div class="sidebar-footer">
             <div class="discord-status">
@@ -331,6 +334,21 @@
                 <!-- Populated by JS -->
             </div>
         </div>
+
+        <div class="tab-content" id="tab-admin-payouts">
+            <div class="tab-header">
+                <h2><i class="fas fa-hand-holding-usd text-orange"></i> Unpaid Payouts</h2>
+                <p class="text-muted">Tasks completed but not paid due to empty treasury. Retry payouts when funded.</p>
+            </div>
+            <div style="margin-bottom:16px; display:flex; gap:12px; align-items:center;">
+                <button class="btn btn-primary" onclick="loadUnpaidTasks()"><i class="fas fa-sync"></i> Refresh</button>
+                <button class="btn btn-primary" id="retry-all-btn" onclick="retryAllPayouts()" style="background:#22c55e;"><i class="fas fa-paper-plane"></i> Pay All Unpaid</button>
+                <span id="unpaid-count" class="text-muted"></span>
+            </div>
+            <div id="unpaid-tasks-list">
+                <p class="text-muted"><i class="fas fa-spinner fa-spin"></i> Loading unpaid tasks...</p>
+            </div>
+        </div>
     </main>
 
     <!-- Wallet Setup Modal -->
@@ -405,6 +423,7 @@
     <script src="js/verify.js"></script>
     <script src="js/creators-data.js"></script>
     <script src="js/analytics.js"></script>
+    <script src="js/admin-payouts.js"></script>
     <script src="js/dashboard.js"></script>
 </body>
 </html>

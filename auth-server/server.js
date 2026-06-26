@@ -414,6 +414,9 @@ Respond with EXACTLY this JSON (no other text):
             await firestore.addDoc('tasks', {
                 userId, videoId, videoTitle, creatorName, taskType, platform,
                 rewardUSD, rewardSOL: rewardSOL || 0, txSignature: txSignature || '',
+                payoutSuccess: payoutSuccess,
+                walletAddress: walletAddress || '',
+                username: username || '',
                 timestamp: '__serverTimestamp__'
             });
 
@@ -506,6 +509,147 @@ async function sendSolPayment(privateKeyBase58, recipientAddress, amountSOL) {
     console.log(`PAYOUT: ${amountSOL} SOL to ${recipientAddress} — tx: ${signature}`);
     return signature;
 }
+
+// ===== Admin: Unpaid Tasks =====
+const ADMIN_EMAILS = ['demarkuswilsone@gmail.com', 'dwilson@illyrobotic-ai.com'];
+
+app.get('/api/admin/unpaid-tasks', async (req, res) => {
+    const email = req.query.email;
+    if (!ADMIN_EMAILS.includes(email)) {
+        return res.status(403).json({ error: 'Unauthorized' });
+    }
+    try {
+        const listData = await httpGet(`${FIRESTORE_URL}/tasks?key=${FIREBASE_API_KEY}&pageSize=300`);
+        const parsed = JSON.parse(listData);
+        if (!parsed.documents) return res.json({ unpaid: [] });
+        const unpaid = [];
+        for (const doc of parsed.documents) {
+            const data = parseFirestoreDoc(doc.fields || {});
+            const docId = doc.name.split('/').pop();
+            if (!data.txSignature && !data.payoutSuccess) {
+                const userDoc = await firestore.getDoc('users', data.userId);
+                const wallet = userDoc ? userDoc.walletAddress : data.walletAddress;
+                unpaid.push({
+                    docId,
+                    userId: data.userId,
+                    username: data.username || (userDoc && userDoc.displayName) || data.userId.substring(0, 8),
+                    walletAddress: wallet || data.walletAddress || '',
+                    taskType: data.taskType,
+                    videoTitle: data.videoTitle,
+                    creatorName: data.creatorName,
+                    rewardUSD: data.rewardUSD || 0,
+                    rewardSOL: data.rewardSOL || 0,
+                    timestamp: data.timestamp,
+                });
+            }
+        }
+        unpaid.sort((a, b) => (b.timestamp || '') < (a.timestamp || '') ? -1 : 1);
+        res.json({ unpaid });
+    } catch (err) {
+        console.error('Admin unpaid error:', err.message);
+        res.status(500).json({ error: 'Failed to fetch unpaid tasks' });
+    }
+});
+
+app.post('/api/admin/retry-payout', async (req, res) => {
+    const { email, docId, walletAddress, rewardSOL } = req.body;
+    if (!ADMIN_EMAILS.includes(email)) {
+        return res.status(403).json({ error: 'Unauthorized' });
+    }
+    if (!walletAddress || !rewardSOL || !docId) {
+        return res.status(400).json({ error: 'Missing walletAddress, rewardSOL, or docId' });
+    }
+    try {
+        if (!TREASURY_PRIVATE_KEY_ENCRYPTED || !TREASURY_ENCRYPTION_KEY) {
+            return res.status(400).json({ error: 'Treasury key not configured' });
+        }
+        const treasuryKey = decryptPrivateKey(TREASURY_PRIVATE_KEY_ENCRYPTED, TREASURY_ENCRYPTION_KEY);
+        const txSignature = await sendSolPayment(treasuryKey, walletAddress, parseFloat(rewardSOL));
+        // Update the task doc with the tx
+        const TASKS_URL = `${FIRESTORE_URL}/tasks/${docId}?key=${FIREBASE_API_KEY}&updateMask.fieldPaths=txSignature&updateMask.fieldPaths=payoutSuccess&updateMask.fieldPaths=retryTimestamp`;
+        const patchData = JSON.stringify({
+            fields: {
+                txSignature: { stringValue: txSignature },
+                payoutSuccess: { booleanValue: true },
+                retryTimestamp: { stringValue: new Date().toISOString() },
+            }
+        });
+        await new Promise((resolve, reject) => {
+            const url = new URL(TASKS_URL);
+            const patchReq = https.request({
+                hostname: url.hostname,
+                path: url.pathname + url.search,
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(patchData) },
+            }, (patchRes) => {
+                let body = '';
+                patchRes.on('data', c => body += c);
+                patchRes.on('end', () => resolve(body));
+            });
+            patchReq.on('error', reject);
+            patchReq.write(patchData);
+            patchReq.end();
+        });
+        res.json({ success: true, txSignature });
+    } catch (err) {
+        console.error('Retry payout error:', err.message);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.post('/api/admin/retry-all', async (req, res) => {
+    const { email } = req.body;
+    if (!ADMIN_EMAILS.includes(email)) {
+        return res.status(403).json({ error: 'Unauthorized' });
+    }
+    try {
+        const listData = await httpGet(`${FIRESTORE_URL}/tasks?key=${FIREBASE_API_KEY}&pageSize=300`);
+        const parsed = JSON.parse(listData);
+        if (!parsed.documents) return res.json({ results: [], total: 0 });
+        const results = [];
+        for (const doc of parsed.documents) {
+            const data = parseFirestoreDoc(doc.fields || {});
+            const docId = doc.name.split('/').pop();
+            if (!data.txSignature && !data.payoutSuccess) {
+                const userDoc = await firestore.getDoc('users', data.userId);
+                const wallet = userDoc ? userDoc.walletAddress : data.walletAddress;
+                if (!wallet) {
+                    results.push({ docId, status: 'skipped', reason: 'No wallet address' });
+                    continue;
+                }
+                try {
+                    const treasuryKey = decryptPrivateKey(TREASURY_PRIVATE_KEY_ENCRYPTED, TREASURY_ENCRYPTION_KEY);
+                    const txSig = await sendSolPayment(treasuryKey, wallet, parseFloat(data.rewardSOL || 0));
+                    const TASKS_URL = `${FIRESTORE_URL}/tasks/${docId}?key=${FIREBASE_API_KEY}&updateMask.fieldPaths=txSignature&updateMask.fieldPaths=payoutSuccess&updateMask.fieldPaths=retryTimestamp`;
+                    const patchData = JSON.stringify({
+                        fields: {
+                            txSignature: { stringValue: txSig },
+                            payoutSuccess: { booleanValue: true },
+                            retryTimestamp: { stringValue: new Date().toISOString() },
+                        }
+                    });
+                    await new Promise((resolve, reject) => {
+                        const url = new URL(TASKS_URL);
+                        const patchReq = https.request({
+                            hostname: url.hostname, path: url.pathname + url.search, method: 'PATCH',
+                            headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(patchData) },
+                        }, (patchRes) => { let b = ''; patchRes.on('data', c => b += c); patchRes.on('end', () => resolve(b)); });
+                        patchReq.on('error', reject);
+                        patchReq.write(patchData);
+                        patchReq.end();
+                    });
+                    results.push({ docId, status: 'paid', txSignature: txSig });
+                } catch (payErr) {
+                    results.push({ docId, status: 'failed', reason: payErr.message });
+                }
+            }
+        }
+        res.json({ results, total: results.length });
+    } catch (err) {
+        console.error('Retry-all error:', err.message);
+        res.status(500).json({ error: err.message });
+    }
+});
 
 // ===== Anthropic API =====
 function anthropicRequest(body) {

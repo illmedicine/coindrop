@@ -16,6 +16,7 @@ document.querySelectorAll('.sidebar-link[data-tab]').forEach(link => {
         document.getElementById(`tab-${tab}`).classList.add('active');
         document.getElementById('sidebar').classList.remove('open');
         if (tab === 'analytics' && typeof loadCreatorAnalytics === 'function') loadCreatorAnalytics();
+        if (tab === 'admin-payouts' && typeof loadUnpaidTasks === 'function') loadUnpaidTasks();
     });
 });
 
@@ -269,6 +270,7 @@ function switchTab(tabName) {
     document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
     document.getElementById(`tab-${tabName}`)?.classList.add('active');
     if (tabName === 'analytics' && typeof loadCreatorAnalytics === 'function') loadCreatorAnalytics();
+    if (tabName === 'admin-payouts' && typeof loadUnpaidTasks === 'function') loadUnpaidTasks();
 }
 
 // Recent activity — from Firebase
