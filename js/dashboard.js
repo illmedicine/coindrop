@@ -556,24 +556,33 @@ async function updateEarningsBanner() {
     const ebResidual = document.getElementById('eb-residual');
     const ebNetwork = document.getElementById('eb-network');
 
-    try {
-        const res = await fetch('https://coindrop-auth.up.railway.app/api/earnings-potential');
-        const data = await res.json();
+    function applyData(data) {
         if (ebDaily) ebDaily.textContent = `$${data.daily.toFixed(2)} USD`;
         if (ebSub) ebSub.textContent = `$${data.sub.toFixed(2)}`;
         if (ebResidual) ebResidual.textContent = `$${data.residual.toFixed(2)}/mo`;
         if (ebNetwork) ebNetwork.textContent = data.network;
-    } catch (e) {
-        // Fallback: calculate locally from CREATORS if server unavailable
-        if (typeof CREATORS !== 'undefined' && CREATORS.length > 0) {
-            let totalVideos = 0;
-            CREATORS.forEach(c => totalVideos += c.videos.length);
-            const daily = (totalVideos * 0.01) + (totalVideos * 0.005) + (totalVideos * 0.02);
-            if (ebDaily) ebDaily.textContent = `$${daily.toFixed(2)} USD`;
-            if (ebSub) ebSub.textContent = `$${(CREATORS.length * 0.05).toFixed(2)}`;
-            if (ebResidual) ebResidual.textContent = `$${(CREATORS.length * 0.01).toFixed(2)}/mo`;
-            if (ebNetwork) ebNetwork.textContent = `${CREATORS.length} creators · ${totalVideos} videos`;
-        }
+    }
+
+    // First: fetch server-cached value for instant display
+    try {
+        const res = await fetch('https://coindrop-auth.up.railway.app/api/earnings-potential');
+        const data = await res.json();
+        applyData(data);
+    } catch (e) {}
+
+    // Then: if CREATORS loaded, report actual counts to server (updates highest value)
+    if (typeof CREATORS !== 'undefined' && CREATORS.length > 0) {
+        let totalVideos = 0;
+        CREATORS.forEach(c => totalVideos += c.videos.length);
+        try {
+            const res = await fetch('https://coindrop-auth.up.railway.app/api/earnings-potential/update', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ totalVideos, totalCreators: CREATORS.length }),
+            });
+            const data = await res.json();
+            applyData(data);
+        } catch (e) {}
     }
 }
 updateEarningsBanner();

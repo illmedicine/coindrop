@@ -523,60 +523,78 @@ let cachedEarningsPotential = null;
 
 app.get('/api/earnings-potential', async (req, res) => {
     try {
-        // Count all videos across all channels from Firestore or use channel data
-        const channelIds = Object.keys(CHANNEL_IDS);
-        let totalVideos = 0;
-        let totalCreators = channelIds.length;
+        // Load persisted value from Firestore first
+        let existing = null;
+        try { existing = await firestore.getDoc('config', 'earningsPotential'); } catch(e) {}
 
-        // Try to get video counts from Firestore cache
-        for (const name of channelIds) {
-            try {
-                const cached = await firestore.getDoc('channel_cache', name);
-                if (cached && cached.videos) {
-                    totalVideos += (typeof cached.videos === 'number') ? cached.videos : (Array.isArray(cached.videos) ? cached.videos.length : 0);
-                }
-            } catch(e) {}
+        if (existing && existing.daily) {
+            cachedEarningsPotential = existing;
+            return res.json(existing);
         }
 
-        // Fallback: if no cache data, use a reasonable estimate
-        if (totalVideos === 0) totalVideos = 173;
-        if (totalCreators === 0) totalCreators = 17;
-
-        const dailyUSD = (totalVideos * 0.01) + (totalVideos * 0.005) + (totalVideos * 0.02);
-        const subOnetime = totalCreators * 0.05;
-        const monthlyResidual = totalCreators * 0.01;
-
-        const newData = {
-            daily: parseFloat(dailyUSD.toFixed(2)),
-            sub: parseFloat(subOnetime.toFixed(2)),
-            residual: parseFloat(monthlyResidual.toFixed(2)),
-            network: `${totalCreators} creators · ${totalVideos} videos`,
-            totalCreators,
-            totalVideos,
-            updatedAt: new Date().toISOString(),
-        };
-
-        // Keep the highest daily value ever seen
-        if (cachedEarningsPotential && cachedEarningsPotential.daily > newData.daily) {
-            newData.daily = cachedEarningsPotential.daily;
-        }
-
-        cachedEarningsPotential = newData;
-
-        // Also persist to Firestore so it survives server restarts
-        try {
-            const existing = await firestore.getDoc('config', 'earningsPotential');
-            if (existing && existing.daily > newData.daily) {
-                newData.daily = existing.daily;
-            }
-            await firestore.setDoc('config', 'earningsPotential', newData);
-        } catch(e) { console.warn('EP cache write skipped:', e.message); }
-
-        res.json(newData);
+        // Fallback
+        const fallback = { daily: 6.05, sub: 0.85, residual: 0.17, network: '17 creators · 173 videos' };
+        res.json(cachedEarningsPotential || fallback);
     } catch (err) {
-        // Return cached if available
-        if (cachedEarningsPotential) return res.json(cachedEarningsPotential);
-        res.json({ daily: 6.05, sub: 0.85, residual: 0.17, network: '17 creators · 173 videos' });
+        res.json(cachedEarningsPotential || { daily: 6.05, sub: 0.85, residual: 0.17, network: '17 creators · 173 videos' });
+    }
+});
+
+// Client reports actual video/creator counts so server can persist the highest earning potential
+app.post('/api/earnings-potential/update', async (req, res) => {
+    const { totalVideos, totalCreators } = req.body;
+    if (!totalVideos || !totalCreators) return res.status(400).json({ error: 'Missing counts' });
+
+    const dailyUSD = (totalVideos * 0.01) + (totalVideos * 0.005) + (totalVideos * 0.02);
+    const subOnetime = totalCreators * 0.05;
+    const monthlyResidual = totalCreators * 0.01;
+
+    const newData = {
+        daily: parseFloat(dailyUSD.toFixed(2)),
+        sub: parseFloat(subOnetime.toFixed(2)),
+        residual: parseFloat(monthlyResidual.toFixed(2)),
+        network: `${totalCreators} creators · ${totalVideos} videos`,
+        totalCreators,
+        totalVideos,
+        updatedAt: new Date().toISOString(),
+    };
+
+    // Keep the highest daily value ever seen
+    try {
+        const existing = await firestore.getDoc('config', 'earningsPotential');
+        if (existing && existing.daily > newData.daily) {
+            newData.daily = existing.daily;
+            newData.sub = Math.max(newData.sub, existing.sub || 0);
+            newData.residual = Math.max(newData.residual, existing.residual || 0);
+        }
+    } catch(e) {}
+
+    cachedEarningsPotential = newData;
+    try { await firestore.setDoc('config', 'earningsPotential', newData); } catch(e) {}
+
+    res.json(newData);
+});
+
+// ===== Treasury Balance Check =====
+app.get('/api/admin/treasury-balance', async (req, res) => {
+    const email = (req.query.email || '').toLowerCase().trim();
+    if (!ADMIN_EMAILS.includes(email)) return res.status(403).json({ error: 'Unauthorized' });
+
+    try {
+        if (!TREASURY_PRIVATE_KEY_ENCRYPTED || !TREASURY_ENCRYPTION_KEY) {
+            return res.json({ balance: 0, error: 'Treasury key not configured' });
+        }
+        const { Connection, Keypair, LAMPORTS_PER_SOL } = require('@solana/web3.js');
+        const bs58 = require('bs58');
+        const treasuryKey = decryptPrivateKey(TREASURY_PRIVATE_KEY_ENCRYPTED, TREASURY_ENCRYPTION_KEY);
+        const secretKey = bs58.decode(treasuryKey);
+        const payer = Keypair.fromSecretKey(secretKey);
+        const connection = new Connection('https://api.mainnet-beta.solana.com', 'confirmed');
+        const balance = await connection.getBalance(payer.publicKey);
+        const solBalance = balance / LAMPORTS_PER_SOL;
+        res.json({ balance: solBalance, address: payer.publicKey.toBase58() });
+    } catch (err) {
+        res.json({ balance: 0, error: err.message });
     }
 });
 

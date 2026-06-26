@@ -47,6 +47,7 @@ async function loadUnpaidTasks() {
 
     if (!(await guardAdminTab('unpaid-tasks-list'))) return;
 
+    loadTreasuryBalance();
     const email = getUserEmail();
     container.innerHTML = '<p class="text-muted"><i class="fas fa-spinner fa-spin"></i> Loading unpaid tasks...</p>';
 
@@ -140,13 +141,39 @@ async function retryAllPayouts() {
         const failed = results.filter(r => r.status === 'failed').length;
         const skipped = results.filter(r => r.status === 'skipped').length;
 
-        alert(`Batch payout complete:\n${paid} paid\n${failed} failed\n${skipped} skipped (no wallet)`);
+        const firstError = results.find(r => r.status === 'failed');
+        let msg = `Batch payout complete:\n${paid} paid\n${failed} failed\n${skipped} skipped (no wallet)`;
+        if (firstError) msg += `\n\nFirst error: ${firstError.reason}`;
+        alert(msg);
+        loadTreasuryBalance();
 
         if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-paper-plane"></i> Pay All Unpaid'; }
         loadUnpaidTasks();
     } catch (err) {
         alert('Batch payout error: ' + err.message);
         if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-paper-plane"></i> Pay All Unpaid'; }
+    }
+}
+
+async function loadTreasuryBalance() {
+    const solEl = document.getElementById('treasury-sol');
+    const addrEl = document.getElementById('treasury-addr');
+    if (!solEl) return;
+    const email = getUserEmail();
+    try {
+        const res = await fetch(`${PAYOUT_API}/api/admin/treasury-balance?email=${encodeURIComponent(email)}`);
+        const data = await res.json();
+        if (data.error && !data.address) {
+            solEl.textContent = 'Not configured';
+            solEl.style.color = 'var(--danger)';
+        } else {
+            solEl.textContent = `${data.balance.toFixed(6)} SOL`;
+            solEl.style.color = data.balance > 0 ? '#22c55e' : 'var(--danger)';
+            if (addrEl && data.address) addrEl.textContent = data.address;
+        }
+    } catch (e) {
+        solEl.textContent = 'Error loading balance';
+        solEl.style.color = 'var(--danger)';
     }
 }
 
