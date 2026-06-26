@@ -254,6 +254,23 @@ app.post('/api/verify-task', async (req, res) => {
             }
         } catch(cdErr) { console.warn('Cooldown check skipped:', cdErr.message); }
 
+        // Subscribe tasks: only allowed once per creator per user (permanent, no repeat)
+        if (taskType === 'subscribe') {
+            try {
+                const listData = await httpGet(`${FIRESTORE_URL}/tasks?key=${FIREBASE_API_KEY}&pageSize=500`);
+                const parsed = JSON.parse(listData);
+                if (parsed.documents) {
+                    const alreadySubscribed = parsed.documents.some(doc => {
+                        const d = parseFirestoreDoc(doc.fields || {});
+                        return d.userId === userId && d.taskType === 'subscribe' && d.creatorName === creatorName;
+                    });
+                    if (alreadySubscribed) {
+                        return res.json({ success: false, verified: false, reason: `You have already subscribed to ${creatorName}. Subscribe tasks can only be completed once per creator.` });
+                    }
+                }
+            } catch(e) { console.warn('Subscribe dup check skipped:', e.message); }
+        }
+
         const base64Data = screenshot.replace(/^data:image\/\w+;base64,/, '');
         const mediaType = screenshot.match(/^data:(image\/\w+);base64,/)?.[1] || 'image/png';
 
@@ -606,27 +623,72 @@ app.get('/api/admin/unpaid-tasks', async (req, res) => {
         return res.status(403).json({ error: 'Unauthorized' });
     }
     try {
-        const listData = await httpGet(`${FIRESTORE_URL}/tasks?key=${FIREBASE_API_KEY}&pageSize=300`);
+        const listData = await httpGet(`${FIRESTORE_URL}/tasks?key=${FIREBASE_API_KEY}&pageSize=500`);
         const parsed = JSON.parse(listData);
-        if (!parsed.documents) return res.json({ unpaid: [] });
+        if (!parsed.documents) return res.json({ unpaid: [], duplicatesMarked: 0 });
         const unpaid = [];
+        // Track subscribes: only first per user+creator is eligible
+        const seenSubscribes = new Set(); // "userId:creatorName"
+        // First pass: collect ALL tasks (paid + unpaid) to find which subscribes are first
+        const allTasks = [];
         for (const doc of parsed.documents) {
             const data = parseFirestoreDoc(doc.fields || {});
             const docId = doc.name.split('/').pop();
-            if (!data.txSignature && !data.payoutSuccess) {
-                const userDoc = await firestore.getDoc('users', data.userId);
-                const wallet = userDoc ? userDoc.walletAddress : data.walletAddress;
+            allTasks.push({ ...data, docId });
+        }
+        // Sort by timestamp ascending so first subscribe wins
+        allTasks.sort((a, b) => (a.timestamp || '') < (b.timestamp || '') ? -1 : 1);
+        // Build set of first subscribes (paid or unpaid)
+        for (const t of allTasks) {
+            if (t.taskType === 'subscribe') {
+                const key = `${t.userId}:${t.creatorName}`;
+                if (!seenSubscribes.has(key)) {
+                    seenSubscribes.add(key);
+                    t._isFirstSubscribe = true;
+                } else {
+                    t._isFirstSubscribe = false;
+                    // Mark duplicate subscribes as ineligible in Firestore (set payoutSuccess to 'duplicate')
+                    if (!t.txSignature && !t.payoutSuccess) {
+                        try {
+                            const TASKS_URL = `${FIRESTORE_URL}/tasks/${t.docId}?key=${FIREBASE_API_KEY}&updateMask.fieldPaths=payoutSuccess&updateMask.fieldPaths=duplicateOf`;
+                            const patchData = JSON.stringify({
+                                fields: {
+                                    payoutSuccess: { stringValue: 'duplicate' },
+                                    duplicateOf: { stringValue: 'subscribe_duplicate' },
+                                }
+                            });
+                            await new Promise((resolve, reject) => {
+                                const url = new URL(TASKS_URL);
+                                const patchReq = https.request({
+                                    hostname: url.hostname, path: url.pathname + url.search, method: 'PATCH',
+                                    headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(patchData) },
+                                }, (patchRes) => { let b = ''; patchRes.on('data', c => b += c); patchRes.on('end', () => resolve(b)); });
+                                patchReq.on('error', reject);
+                                patchReq.write(patchData);
+                                patchReq.end();
+                            });
+                        } catch(e) { console.warn('Failed to mark duplicate:', e.message); }
+                    }
+                }
+            }
+        }
+        // Second pass: collect unpaid non-duplicate tasks
+        for (const t of allTasks) {
+            if (!t.txSignature && !t.payoutSuccess) {
+                if (t.taskType === 'subscribe' && !t._isFirstSubscribe) continue;
+                const userDoc = await firestore.getDoc('users', t.userId);
+                const wallet = userDoc ? userDoc.walletAddress : t.walletAddress;
                 unpaid.push({
-                    docId,
-                    userId: data.userId,
-                    username: data.username || (userDoc && userDoc.displayName) || data.userId.substring(0, 8),
-                    walletAddress: wallet || data.walletAddress || '',
-                    taskType: data.taskType,
-                    videoTitle: data.videoTitle,
-                    creatorName: data.creatorName,
-                    rewardUSD: data.rewardUSD || 0,
-                    rewardSOL: data.rewardSOL || 0,
-                    timestamp: data.timestamp,
+                    docId: t.docId,
+                    userId: t.userId,
+                    username: t.username || (userDoc && userDoc.displayName) || t.userId.substring(0, 8),
+                    walletAddress: wallet || t.walletAddress || '',
+                    taskType: t.taskType,
+                    videoTitle: t.videoTitle,
+                    creatorName: t.creatorName,
+                    rewardUSD: t.rewardUSD || 0,
+                    rewardSOL: t.rewardSOL || 0,
+                    timestamp: t.timestamp,
                 });
             }
         }
@@ -735,6 +797,50 @@ app.post('/api/admin/retry-all', async (req, res) => {
     } catch (err) {
         console.error('Retry-all error:', err.message);
         res.status(500).json({ error: err.message });
+    }
+});
+
+// ===== Subscriptions with 30-day residual =====
+app.get('/api/user-subscriptions/:userId', async (req, res) => {
+    try {
+        const userId = req.params.userId;
+        const listData = await httpGet(`${FIRESTORE_URL}/tasks?key=${FIREBASE_API_KEY}&pageSize=500`);
+        const parsed = JSON.parse(listData);
+        if (!parsed.documents) return res.json({ subscriptions: [] });
+
+        const subsByCreator = {};
+        for (const doc of parsed.documents) {
+            const data = parseFirestoreDoc(doc.fields || {});
+            if (data.userId === userId && data.taskType === 'subscribe') {
+                const key = data.creatorName;
+                if (!subsByCreator[key] || (data.timestamp < subsByCreator[key].timestamp)) {
+                    subsByCreator[key] = { ...data, docId: doc.name.split('/').pop() };
+                }
+            }
+        }
+
+        const subscriptions = [];
+        const now = Date.now();
+        for (const [creator, sub] of Object.entries(subsByCreator)) {
+            const subDate = new Date(sub.timestamp);
+            const daysSince = Math.floor((now - subDate.getTime()) / (24 * 60 * 60 * 1000));
+            const daysRemaining = Math.max(0, 30 - daysSince);
+            const residualDue = daysRemaining === 0;
+            subscriptions.push({
+                creatorName: creator,
+                subscribedAt: sub.timestamp,
+                rewardUSD: 0.05,
+                paid: !!sub.txSignature || sub.payoutSuccess === true,
+                daysSinceSubscribe: daysSince,
+                daysUntilResidual: daysRemaining,
+                residualDue,
+                residualAmount: 0.01,
+            });
+        }
+        res.json({ subscriptions });
+    } catch (err) {
+        console.error('Subscriptions error:', err.message);
+        res.json({ subscriptions: [] });
     }
 });
 

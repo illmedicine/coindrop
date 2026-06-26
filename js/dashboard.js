@@ -589,38 +589,47 @@ updateEarningsBanner();
 setTimeout(updateEarningsBanner, 3000);
 
 // ===== Subscriptions & Cooldowns (server-driven) =====
-function loadSubsAndCooldowns() {
+async function loadSubsAndCooldowns() {
     const subsList = document.getElementById('subs-list');
     const cooldownsList = document.getElementById('cooldowns-list');
 
-    // Show subscriptions from completed subscribe tasks in _serverTasks
-    if (subsList) {
-        const subTasks = (window._serverTasks || []).filter(t => t.taskType === 'subscribe');
-        const noSubsMsg = document.getElementById('no-subs-msg');
-        if (subTasks.length > 0) {
-            if (noSubsMsg) noSubsMsg.style.display = 'none';
-            subsList.innerHTML = subTasks.map(s => {
-                const startDate = s.timestamp ? new Date(s.timestamp) : new Date();
-                const daysSince = Math.floor((Date.now() - startDate.getTime()) / (24*60*60*1000));
-                const daysUntilResidual = Math.max(0, 30 - daysSince);
-                const totalEarned = (s.rewardUSD || 0.05).toFixed(2);
-                // Track subscribed creators for greying out
-                if (s.creatorName) {
+    // Fetch subscriptions from server (deduplicated, with 30-day countdown)
+    if (subsList && user) {
+        try {
+            const resp = await fetch(`${API_URL}/api/user-subscriptions/${user.id}`);
+            const data = await resp.json();
+            const subs = data.subscriptions || [];
+            const noSubsMsg = document.getElementById('no-subs-msg');
+            if (subs.length > 0) {
+                if (noSubsMsg) noSubsMsg.style.display = 'none';
+                subs.forEach(s => {
                     CREATORS.forEach(c => { if (c.name === s.creatorName) _subscribedCreators.add(c.id); });
-                }
-                return `<div class="sub-card">
-                    <div class="sub-platform yt"><i class="fab fa-youtube"></i></div>
-                    <div class="sub-info">
-                        <strong>${s.creatorName || s.videoTitle || 'Channel'}</strong>
-                        <small>Subscribed · Since ${startDate.toLocaleDateString()}</small>
-                    </div>
-                    <div class="sub-meta">
-                        <span class="sub-earning">$${totalEarned} earned</span>
-                        <span class="sub-next-payout">${daysUntilResidual > 0 ? `<i class="fas fa-clock"></i> Residual in ${daysUntilResidual}d` : '<i class="fas fa-check"></i> Residual active'}</span>
-                    </div>
-                </div>`;
-            }).join('');
-        }
+                });
+                subsList.innerHTML = subs.map(s => {
+                    const subDate = new Date(s.subscribedAt);
+                    const paidLabel = s.paid ? '<i class="fas fa-check-circle" style="color:#22c55e"></i> $0.05 paid' : '<i class="fas fa-clock" style="color:var(--orange)"></i> $0.05 pending';
+                    let residualLabel;
+                    if (s.residualDue) {
+                        residualLabel = '<span style="color:#22c55e;"><i class="fas fa-coins"></i> Residual due ($0.01)</span>';
+                    } else {
+                        const d = s.daysUntilResidual;
+                        const h = Math.floor((d % 1) * 24);
+                        residualLabel = `<i class="fas fa-hourglass-half"></i> Residual in ${d}d`;
+                    }
+                    return `<div class="sub-card">
+                        <div class="sub-platform yt"><i class="fab fa-youtube"></i></div>
+                        <div class="sub-info">
+                            <strong>${s.creatorName}</strong>
+                            <small>Subscribed ${subDate.toLocaleDateString()}</small>
+                        </div>
+                        <div class="sub-meta">
+                            <span class="sub-earning">${paidLabel}</span>
+                            <span class="sub-next-payout">${residualLabel}</span>
+                        </div>
+                    </div>`;
+                }).join('');
+            }
+        } catch(e) { console.warn('Subs fetch error:', e.message); }
     }
 
     // Show active cooldowns from _cooldownCache

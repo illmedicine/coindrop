@@ -60,7 +60,9 @@ async function loadUnpaidTasks() {
         }
         const unpaid = data.unpaid || [];
 
-        if (countEl) countEl.textContent = unpaid.length + ' unpaid task' + (unpaid.length !== 1 ? 's' : '');
+        const totalOwedUSD = unpaid.reduce((sum, t) => sum + (t.rewardUSD || 0), 0);
+        const totalOwedSOL = unpaid.reduce((sum, t) => sum + (t.rewardSOL || 0), 0);
+        if (countEl) countEl.innerHTML = `<strong>${unpaid.length}</strong> unpaid task${unpaid.length !== 1 ? 's' : ''} &mdash; Total owed: <strong style="color:var(--orange);">$${totalOwedUSD.toFixed(2)} USD</strong> (<strong>${totalOwedSOL.toFixed(6)} SOL</strong>)`;
 
         if (unpaid.length === 0) {
             container.innerHTML = '<div style="text-align:center;padding:40px;color:var(--gray-400);"><i class="fas fa-check-circle" style="font-size:3rem;color:#22c55e;margin-bottom:12px;display:block;"></i><h3 style="color:var(--navy);">All Caught Up!</h3><p>No unpaid tasks found. All earners have been paid.</p></div>';
