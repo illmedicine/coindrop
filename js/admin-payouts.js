@@ -8,15 +8,19 @@ function getUserEmail() {
     return (user.email || '').trim();
 }
 
+const LOCAL_ADMIN_EMAILS = ['demarkuswilsone@gmail.com', 'dwilson@illyrobotic-ai.com'];
+
 async function checkIsAdmin() {
-    const email = getUserEmail();
+    const email = getUserEmail().toLowerCase();
     if (!email) return false;
+    // Immediate client-side check as fallback
+    if (LOCAL_ADMIN_EMAILS.includes(email)) return true;
     try {
         const res = await fetch(`${PAYOUT_API}/api/admin/check?email=${encodeURIComponent(email)}`);
         const data = await res.json();
         return data.isAdmin === true;
     } catch (e) {
-        return false;
+        return LOCAL_ADMIN_EMAILS.includes(email);
     }
 }
 

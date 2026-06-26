@@ -814,7 +814,6 @@ app.post('/api/admin/retry-all', async (req, res) => {
             } catch (payErr) {
                 results.push({ docId: data.docId, status: 'failed', reason: payErr.message });
             }
-            }
         }
         const remaining = eligible.length - batch.length;
         res.json({ results, total: results.length, remaining });
