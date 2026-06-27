@@ -452,6 +452,9 @@ Respond with EXACTLY this JSON (no other text):
             await firestore.setDoc('cooldowns', userId, existingCd);
 
             console.log(`TASK LOGGED: ${username} (${userId}) — ${taskType} — ${videoTitle} — $${rewardUSD}`);
+
+            // Add to in-memory cache so it's immediately visible
+            cache.tasks.push({ userId, videoId, videoTitle, creatorName, taskType, platform, rewardUSD, rewardSOL: rewardSOL || 0, txSignature: txSignature || '', payoutSuccess, walletAddress: walletAddress || '', username: username || '', timestamp: new Date().toISOString() });
         } catch(dbErr) {
             console.error('Firestore write error:', dbErr.message);
         }
@@ -1128,22 +1131,47 @@ app.get('/api/user-profile/:userId', async (req, res) => {
 app.get('/api/user-stats/:userId', async (req, res) => {
     try {
         const { userId } = req.params;
-        const stats = await firestore.getDoc('stats', userId) || { views: 0, likes: 0, comments: 0, subs: 0, tasksCompleted: 0, totalEarned: 0 };
-
-        // Get tasks via structured query
-        let tasks = [];
+        let stats = { views: 0, likes: 0, comments: 0, subs: 0, tasksCompleted: 0, totalEarned: 0 };
         try {
-            tasks = await firestore.query('tasks', 'userId', 'EQUAL', userId, 'timestamp', 20);
-        } catch(e) { console.warn('Task query error:', e.message); }
+            const s = await firestore.getDoc('stats', userId);
+            if (s) stats = s;
+        } catch(e) {}
 
-        const cdData = await firestore.getDoc('cooldowns', userId) || {};
-        const cooldowns = {};
-        for (const [key, val] of Object.entries(cdData)) {
-            const ms = typeof val === 'string' ? new Date(val).getTime() : val;
-            if (Date.now() - ms < 24 * 60 * 60 * 1000) {
-                cooldowns[key] = ms;
+        // Try cache first, fall back to Firestore query
+        let tasks = [];
+        if (cache.tasks && cache.tasks.length > 0) {
+            tasks = cache.tasks.filter(t => t.userId === userId)
+                .sort((a, b) => (b.timestamp || '') > (a.timestamp || '') ? 1 : -1)
+                .slice(0, 30);
+        } else {
+            try {
+                tasks = await firestore.query('tasks', 'userId', 'EQUAL', userId, 'timestamp', 30);
+            } catch(e) { console.warn('Task query error:', e.message); }
+        }
+
+        // Recompute stats from tasks if stats doc was empty/stale
+        if (tasks.length > 0 && stats.tasksCompleted === 0) {
+            stats = { views: 0, likes: 0, comments: 0, subs: 0, tasksCompleted: 0, totalEarned: 0 };
+            for (const t of tasks) {
+                stats.tasksCompleted++;
+                stats.totalEarned += t.rewardUSD || 0;
+                if (t.taskType === 'watch') stats.views++;
+                else if (t.taskType === 'like') stats.likes++;
+                else if (t.taskType === 'comment') stats.comments++;
+                else if (t.taskType === 'subscribe') stats.subs++;
             }
         }
+
+        let cooldowns = {};
+        try {
+            const cdData = await firestore.getDoc('cooldowns', userId) || {};
+            for (const [key, val] of Object.entries(cdData)) {
+                const ms = typeof val === 'string' ? new Date(val).getTime() : val;
+                if (Date.now() - ms < 24 * 60 * 60 * 1000) {
+                    cooldowns[key] = ms;
+                }
+            }
+        } catch(e) {}
 
         res.json({ stats, tasks, cooldowns });
     } catch(e) {

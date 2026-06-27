@@ -471,7 +471,7 @@ function renderCreators(filter) {
                 <div class="video-task-actions">
                     <div class="vta-row">
                         <span class="vta-label"><i class="fas fa-play"></i> Watch</span>
-                        <span class="vta-reward">0.001 SOL</span>
+                        <span class="vta-reward">$0.01</span>
                         ${watchCd
                             ? `<span class="task-cooldown"><i class="fas fa-clock"></i> ${watchCdText}</span>`
                             : `<button class="task-action-sm" onclick="openTaskModal('${v.id}','${safeTitle}','${safeCreatorName}','watch','${creator.platform}',${!!v.short})">Go</button>`
@@ -479,7 +479,7 @@ function renderCreators(filter) {
                     </div>
                     <div class="vta-row">
                         <span class="vta-label"><i class="fas fa-thumbs-up"></i> Like</span>
-                        <span class="vta-reward">0.0005 SOL</span>
+                        <span class="vta-reward">$0.005</span>
                         ${likeCd
                             ? `<span class="task-cooldown"><i class="fas fa-clock"></i> ${likeCdText}</span>`
                             : `<button class="task-action-sm" onclick="openTaskModal('${v.id}','${safeTitle}','${safeCreatorName}','like','${creator.platform}',${!!v.short})">Go</button>`
