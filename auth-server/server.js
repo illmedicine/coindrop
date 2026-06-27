@@ -546,24 +546,31 @@ app.get('/api/admin/check', (req, res) => {
 });
 
 // ===== Earnings Potential (server-cached, highest value persists) =====
-let cachedEarningsPotential = null;
+const EP_DEFAULT = { daily: 22.40, sub: 0.85, residual: 0.17, network: '17 creators · 640 videos' };
+let cachedEarningsPotential = EP_DEFAULT;
+let _epCacheTime = 0;
 
 app.get('/api/earnings-potential', async (req, res) => {
+    // Return cached immediately (2 min cache)
+    if (cachedEarningsPotential && Date.now() - _epCacheTime < 120000) {
+        return res.json(cachedEarningsPotential);
+    }
     try {
-        // Load persisted value from Firestore first
         let existing = null;
         try { existing = await firestore.getDoc('config', 'earningsPotential'); } catch(e) {}
 
         if (existing && existing.daily) {
-            cachedEarningsPotential = existing;
-            return res.json(existing);
+            // Always keep the highest
+            if (existing.daily >= EP_DEFAULT.daily) {
+                cachedEarningsPotential = existing;
+            } else {
+                cachedEarningsPotential = EP_DEFAULT;
+            }
         }
-
-        // Fallback
-        const fallback = { daily: 6.05, sub: 0.85, residual: 0.17, network: '17 creators · 173 videos' };
-        res.json(cachedEarningsPotential || fallback);
+        _epCacheTime = Date.now();
+        res.json(cachedEarningsPotential);
     } catch (err) {
-        res.json(cachedEarningsPotential || { daily: 6.05, sub: 0.85, residual: 0.17, network: '17 creators · 173 videos' });
+        res.json(cachedEarningsPotential || EP_DEFAULT);
     }
 });
 
@@ -871,27 +878,37 @@ app.get('/api/user-subscriptions/:userId', async (req, res) => {
 let _platformStatsCache = null;
 let _platformStatsCacheTime = 0;
 
+// Shared task cache — used by platform-stats AND leaderboard to avoid duplicate Firestore reads
+let _allTasksCache = null;
+let _allTasksCacheTime = 0;
+
+async function getAllTasks() {
+    if (_allTasksCache && Date.now() - _allTasksCacheTime < 120000) return _allTasksCache;
+    let allTasks = [];
+    let nextPageToken = null;
+    do {
+        let url = `${FIRESTORE_URL}/tasks?key=${FIREBASE_API_KEY}&pageSize=300`;
+        if (nextPageToken) url += `&pageToken=${nextPageToken}`;
+        const listData = await httpGet(url);
+        const parsed = JSON.parse(listData);
+        if (parsed.documents && Array.isArray(parsed.documents)) {
+            for (const doc of parsed.documents) {
+                allTasks.push({ ...parseFirestoreDoc(doc.fields || {}), _docId: doc.name.split('/').pop() });
+            }
+        }
+        nextPageToken = parsed.nextPageToken || null;
+    } while (nextPageToken);
+    _allTasksCache = allTasks;
+    _allTasksCacheTime = Date.now();
+    return allTasks;
+}
+
 app.get('/api/platform-stats', async (req, res) => {
-    // Cache for 30 seconds to avoid hammering Firestore
-    if (_platformStatsCache && Date.now() - _platformStatsCacheTime < 30000) {
+    if (_platformStatsCache && Date.now() - _platformStatsCacheTime < 120000) {
         return res.json(_platformStatsCache);
     }
     try {
-        // Paginate through all tasks
-        let allTasks = [];
-        let nextPageToken = null;
-        do {
-            let url = `${FIRESTORE_URL}/tasks?key=${FIREBASE_API_KEY}&pageSize=300`;
-            if (nextPageToken) url += `&pageToken=${nextPageToken}`;
-            const listData = await httpGet(url);
-            const parsed = JSON.parse(listData);
-            if (parsed.documents && Array.isArray(parsed.documents)) {
-                for (const doc of parsed.documents) {
-                    allTasks.push(parseFirestoreDoc(doc.fields || {}));
-                }
-            }
-            nextPageToken = parsed.nextPageToken || null;
-        } while (nextPageToken);
+        const allTasks = await getAllTasks();
 
         const now = Date.now();
         const oneHourAgo = now - 3600000;
@@ -1057,16 +1074,18 @@ app.get('/api/user-stats/:userId', async (req, res) => {
 });
 
 // API: Get global leaderboard (list all stats docs, sort server-side)
+let _leaderboardCache = null;
+let _leaderboardCacheTime = 0;
+
 app.get('/api/leaderboard', async (req, res) => {
+    if (_leaderboardCache && Date.now() - _leaderboardCacheTime < 120000) {
+        return res.json(_leaderboardCache);
+    }
     try {
-        // Count tasks directly from the tasks collection for accurate data
-        const taskData = await httpGet(`${FIRESTORE_URL}/tasks?key=${FIREBASE_API_KEY}&pageSize=500`);
-        const tasksParsed = JSON.parse(taskData);
+        const allTasks = await getAllTasks();
         const userMap = {};
 
-        if (tasksParsed.documents && Array.isArray(tasksParsed.documents)) {
-            for (const doc of tasksParsed.documents) {
-                const t = parseFirestoreDoc(doc.fields || {});
+        for (const t of allTasks) {
                 if (!t.userId) continue;
                 if (!userMap[t.userId]) {
                     userMap[t.userId] = { tasksCompleted: 0, totalEarnedUSD: 0, views: 0, likes: 0, comments: 0, subs: 0 };
@@ -1077,22 +1096,36 @@ app.get('/api/leaderboard', async (req, res) => {
                 else if (t.taskType === 'like') userMap[t.userId].likes++;
                 else if (t.taskType === 'comment') userMap[t.userId].comments++;
                 else if (t.taskType === 'subscribe') userMap[t.userId].subs++;
-            }
         }
 
+        // Extract names from task data to avoid extra Firestore calls
+        const userNames = {};
+        for (const t of allTasks) {
+            if (t.userId && t.username && !userNames[t.userId]) {
+                userNames[t.userId] = t.username;
+            }
+        }
         const leaders = [];
         for (const [userId, data] of Object.entries(userMap)) {
-            let name = userId.substring(0, 8);
+            let name = userNames[userId] || userId.substring(0, 8);
             let avatar = null;
-            const userDoc = await firestore.getDoc('users', userId);
-            if (userDoc) {
-                name = userDoc.displayName || name;
-                avatar = userDoc.avatar || null;
+            // Only fetch user doc for top 20 to minimize calls
+            if (Object.keys(userMap).length <= 20 || leaders.length < 20) {
+                try {
+                    const userDoc = await firestore.getDoc('users', userId);
+                    if (userDoc) {
+                        name = userDoc.displayName || name;
+                        avatar = userDoc.avatar || null;
+                    }
+                } catch(e) {}
             }
             leaders.push({ userId, name, avatar, ...data });
         }
         leaders.sort((a, b) => (b.totalEarnedUSD || 0) - (a.totalEarnedUSD || 0));
-        res.json({ leaders: leaders.slice(0, 20) });
+        const result = { leaders: leaders.slice(0, 20) };
+        _leaderboardCache = result;
+        _leaderboardCacheTime = Date.now();
+        res.json(result);
     } catch(e) {
         console.error('Leaderboard error:', e.message);
         res.json({ leaders: [] });
