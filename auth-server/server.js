@@ -965,12 +965,25 @@ async function refreshAllData() {
     cache.refreshing = false;
 }
 
-// Load persisted cache on startup, then refresh in background
+// Load persisted cache on startup, then refresh in background with retries
 loadCacheFromFirestore().then(() => {
-    setTimeout(refreshAllData, 10000);
+    // Stagger initial refresh to avoid rate limits after deploy
+    setTimeout(refreshAllData, 30000);
+    // Retry if first refresh fails (rate limited)
+    setTimeout(() => { if (cache.tasks.length === 0) refreshAllData(); }, 90000);
+    setTimeout(() => { if (cache.tasks.length === 0) refreshAllData(); }, 180000);
 });
 // Refresh every 5 minutes
 setInterval(refreshAllData, 300000);
+
+// Admin can trigger manual refresh
+app.get('/api/admin/refresh-cache', async (req, res) => {
+    const email = (req.query.email || '').toLowerCase().trim();
+    if (!ADMIN_EMAILS.includes(email)) return res.status(403).json({ error: 'Unauthorized' });
+    cache.refreshing = false;
+    await refreshAllData();
+    res.json({ tasks: cache.tasks.length, leaders: cache.leaderboard.leaders.length, stats: cache.platformStats });
+});
 
 app.get('/api/platform-stats', (req, res) => {
     res.json(cache.platformStats);
