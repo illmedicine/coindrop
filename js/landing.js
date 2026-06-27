@@ -45,9 +45,9 @@ document.addEventListener('scroll', () => {
         const rankIcons = ['<i class="fas fa-trophy"></i>', '<i class="fas fa-medal"></i>', '<i class="fas fa-award"></i>'];
         const rowClasses = ['gold', 'silver', 'bronze'];
         leaders.forEach((l, i) => {
-            const totalTasks = (l.totalWatch || 0) + (l.totalLike || 0) + (l.totalComment || 0) + (l.totalSubscribe || 0);
-            const earned = (l.totalEarned || 0).toFixed(4);
-            const prestige = earned >= 2 ? 'Gold' : earned >= 1 ? 'Silver' : 'Bronze';
+            const totalTasks = l.tasksCompleted || 0;
+            const earnedUSD = (l.totalEarnedUSD || l.totalEarned || 0);
+            const prestige = earnedUSD >= 2 ? 'Gold' : earnedUSD >= 1 ? 'Silver' : 'Bronze';
             const badgeClass = prestige.toLowerCase();
             const icon = prestige === 'Gold' ? 'fa-star' : prestige === 'Silver' ? 'fa-shield-alt' : 'fa-medal';
             const avatar = l.avatar || 'https://api.dicebear.com/7.x/thumbs/svg?seed=' + encodeURIComponent(l.name);
@@ -57,7 +57,7 @@ document.addEventListener('scroll', () => {
             row.innerHTML = '<span class="lb-rank">' + rankIcon + (i + 1) + '</span>' +
                 '<span class="lb-member"><img src="' + avatar + '" alt="" class="lb-avatar"> ' + l.name + '</span>' +
                 '<span class="lb-tasks">' + totalTasks.toLocaleString() + '</span>' +
-                '<span class="lb-earned">' + earned + ' SOL</span>' +
+                '<span class="lb-earned">$' + earnedUSD.toFixed(2) + '</span>' +
                 '<span class="lb-prestige"><span class="badge badge-' + badgeClass + '"><i class="fas fa-' + icon + '"></i> ' + prestige + '</span></span>';
             container.appendChild(row);
         });

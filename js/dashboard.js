@@ -315,7 +315,7 @@ async function loadMiniLeaderboard() {
             <span class="mini-lb-rank">${i+1}</span>
             <img src="${l.avatar || 'https://api.dicebear.com/7.x/thumbs/svg?seed=' + l.userId}" class="mini-lb-avatar" alt="">
             <span class="mini-lb-name">${l.name}</span>
-            <span class="mini-lb-earned">$${(l.totalEarned||0).toFixed(3)}</span>
+            <span class="mini-lb-earned">$${(l.totalEarnedUSD||l.totalEarned||0).toFixed(2)}</span>
         </div>`).join('');
     } catch(e) { el.innerHTML = '<p class="text-muted" style="font-size:0.85rem">No earners yet. Be the first!</p>'; }
 }
@@ -692,7 +692,7 @@ async function loadFullLeaderboard() {
                 <span class="mini-lb-rank">${i+1}</span>
                 <span class="lb-member"><img src="${l.avatar || 'https://api.dicebear.com/7.x/thumbs/svg?seed=' + l.userId}" class="lb-avatar" alt=""> ${l.name}${isYou ? ' (You)' : ''}</span>
                 <span class="lb-tasks">${tc}</span>
-                <span class="lb-earned">$${(l.totalEarned||0).toFixed(3)}</span>
+                <span class="lb-earned">$${(l.totalEarnedUSD||l.totalEarned||0).toFixed(2)}</span>
                 <span><span class="badge ${pb.class}"><i class="${pb.icon}"></i> ${pb.label}</span></span>
             </div>`;
         }).join('');

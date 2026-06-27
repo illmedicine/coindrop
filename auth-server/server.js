@@ -1024,15 +1024,29 @@ app.get('/api/user-stats/:userId', async (req, res) => {
 // API: Get global leaderboard (list all stats docs, sort server-side)
 app.get('/api/leaderboard', async (req, res) => {
     try {
-        const listData = await httpGet(`${FIRESTORE_URL}/stats?key=${FIREBASE_API_KEY}&pageSize=50`);
-        const parsed = JSON.parse(listData);
-        if (!parsed.documents || !Array.isArray(parsed.documents)) {
-            return res.json({ leaders: [] });
+        // Count tasks directly from the tasks collection for accurate data
+        const taskData = await httpGet(`${FIRESTORE_URL}/tasks?key=${FIREBASE_API_KEY}&pageSize=500`);
+        const tasksParsed = JSON.parse(taskData);
+        const userMap = {};
+
+        if (tasksParsed.documents && Array.isArray(tasksParsed.documents)) {
+            for (const doc of tasksParsed.documents) {
+                const t = parseFirestoreDoc(doc.fields || {});
+                if (!t.userId) continue;
+                if (!userMap[t.userId]) {
+                    userMap[t.userId] = { tasksCompleted: 0, totalEarnedUSD: 0, views: 0, likes: 0, comments: 0, subs: 0 };
+                }
+                userMap[t.userId].tasksCompleted++;
+                userMap[t.userId].totalEarnedUSD += t.rewardUSD || 0;
+                if (t.taskType === 'watch') userMap[t.userId].views++;
+                else if (t.taskType === 'like') userMap[t.userId].likes++;
+                else if (t.taskType === 'comment') userMap[t.userId].comments++;
+                else if (t.taskType === 'subscribe') userMap[t.userId].subs++;
+            }
         }
+
         const leaders = [];
-        for (const doc of parsed.documents) {
-            const userId = doc.name.split('/').pop();
-            const data = parseFirestoreDoc(doc.fields || {});
+        for (const [userId, data] of Object.entries(userMap)) {
             let name = userId.substring(0, 8);
             let avatar = null;
             const userDoc = await firestore.getDoc('users', userId);
@@ -1042,7 +1056,7 @@ app.get('/api/leaderboard', async (req, res) => {
             }
             leaders.push({ userId, name, avatar, ...data });
         }
-        leaders.sort((a, b) => (b.totalEarned || 0) - (a.totalEarned || 0));
+        leaders.sort((a, b) => (b.totalEarnedUSD || 0) - (a.totalEarnedUSD || 0));
         res.json({ leaders: leaders.slice(0, 20) });
     } catch(e) {
         console.error('Leaderboard error:', e.message);
