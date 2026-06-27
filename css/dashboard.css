@@ -1123,8 +1123,8 @@
 .notif-item .notif-dismiss { background: none; border: none; color: var(--gray-300); cursor: pointer; font-size: 0.8rem; }
 
 /* Stats Ticker */
-.stats-ticker { background: var(--navy); color: var(--white); padding: 8px 0; overflow: hidden; white-space: nowrap; margin-bottom: 16px; border-radius: 8px; }
-.ticker-track { display: inline-flex; animation: tickerScroll 30s linear infinite; }
+.stats-ticker { background: var(--navy); color: var(--white); padding: 8px 0; overflow: hidden; white-space: nowrap; margin-bottom: 16px; border-radius: 8px; max-width: 100%; width: 100%; position: relative; }
+.ticker-track { display: inline-flex; animation: tickerScroll 30s linear infinite; will-change: transform; }
 .ticker-item { padding: 0 40px; font-size: 0.8rem; font-weight: 500; }
 .ticker-item i { color: var(--orange); margin-right: 6px; }
 @keyframes tickerScroll { 0% { transform: translateX(0); } 100% { transform: translateX(-50%); } }

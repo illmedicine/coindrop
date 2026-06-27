@@ -868,38 +868,73 @@ app.get('/api/user-subscriptions/:userId', async (req, res) => {
 });
 
 // ===== Platform Stats =====
+let _platformStatsCache = null;
+let _platformStatsCacheTime = 0;
+
 app.get('/api/platform-stats', async (req, res) => {
+    // Cache for 30 seconds to avoid hammering Firestore
+    if (_platformStatsCache && Date.now() - _platformStatsCacheTime < 30000) {
+        return res.json(_platformStatsCache);
+    }
     try {
-        const listData = await httpGet(`${FIRESTORE_URL}/tasks?key=${FIREBASE_API_KEY}&pageSize=500`);
-        const parsed = JSON.parse(listData);
-        const tasks = parsed.documents ? parsed.documents.map(d => parseFirestoreDoc(d.fields || {})) : [];
+        // Paginate through all tasks
+        let allTasks = [];
+        let nextPageToken = null;
+        do {
+            let url = `${FIRESTORE_URL}/tasks?key=${FIREBASE_API_KEY}&pageSize=300`;
+            if (nextPageToken) url += `&pageToken=${nextPageToken}`;
+            const listData = await httpGet(url);
+            const parsed = JSON.parse(listData);
+            if (parsed.documents && Array.isArray(parsed.documents)) {
+                for (const doc of parsed.documents) {
+                    allTasks.push(parseFirestoreDoc(doc.fields || {}));
+                }
+            }
+            nextPageToken = parsed.nextPageToken || null;
+        } while (nextPageToken);
 
         const now = Date.now();
         const oneHourAgo = now - 3600000;
         const oneDayAgo = now - 86400000;
 
-        let totalTasksCompleted = tasks.length;
         let totalPaidUSD = 0;
         let paidLastHourUSD = 0;
         let paidLast24hUSD = 0;
         const uniqueUsers = new Set();
 
-        for (const t of tasks) {
+        for (const t of allTasks) {
             totalPaidUSD += t.rewardUSD || 0;
-            uniqueUsers.add(t.userId);
+            if (t.userId) uniqueUsers.add(t.userId);
             const ts = t.timestamp ? new Date(t.timestamp).getTime() : 0;
             if (ts > oneHourAgo) paidLastHourUSD += t.rewardUSD || 0;
             if (ts > oneDayAgo) paidLast24hUSD += t.rewardUSD || 0;
         }
 
-        res.json({
-            totalTasksCompleted,
-            totalPaidUSD: parseFloat(totalPaidUSD.toFixed(2)),
+        // Persist highest stats to Firestore so they never decrease
+        let persisted = null;
+        try { persisted = await firestore.getDoc('config', 'platformStats'); } catch(e) {}
+
+        const stats = {
+            totalTasksCompleted: Math.max(allTasks.length, (persisted && persisted.totalTasksCompleted) || 0),
+            totalPaidUSD: parseFloat(Math.max(totalPaidUSD, (persisted && persisted.totalPaidUSD) || 0).toFixed(2)),
             paidLastHourUSD: parseFloat(paidLastHourUSD.toFixed(2)),
             paidLast24hUSD: parseFloat(paidLast24hUSD.toFixed(2)),
-            uniqueUsers: uniqueUsers.size,
-        });
+            uniqueUsers: Math.max(uniqueUsers.size, (persisted && persisted.uniqueUsers) || 0),
+            updatedAt: new Date().toISOString(),
+        };
+
+        try { await firestore.setDoc('config', 'platformStats', stats); } catch(e) {}
+
+        _platformStatsCache = stats;
+        _platformStatsCacheTime = Date.now();
+        res.json(stats);
     } catch (err) {
+        console.error('Platform stats error:', err.message);
+        // Try to return persisted stats
+        try {
+            const persisted = await firestore.getDoc('config', 'platformStats');
+            if (persisted) return res.json(persisted);
+        } catch(e) {}
         res.json({ totalTasksCompleted: 0, totalPaidUSD: 0, paidLastHourUSD: 0, paidLast24hUSD: 0, uniqueUsers: 0 });
     }
 });

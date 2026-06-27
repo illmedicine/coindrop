@@ -75,3 +75,29 @@ window.addEventListener('scroll', () => {
         nav.style.boxShadow = '0 2px 8px rgba(0,0,0,0.08)';
     }
 });
+
+// Load live platform stats
+(async function loadLandingStats() {
+    try {
+        const res = await fetch('https://coindrop-auth.up.railway.app/api/platform-stats');
+        const s = await res.json();
+        const el = document.getElementById('active-members');
+        const paid = document.getElementById('total-paid-usd');
+        if (el && s.uniqueUsers) el.textContent = s.uniqueUsers.toLocaleString();
+        if (paid && s.totalPaidUSD) paid.textContent = '$' + s.totalPaidUSD.toFixed(2);
+        // Update landing ticker with real data
+        const track = document.getElementById('landing-ticker-track');
+        if (track) {
+            const items = [
+                `<span class="ticker-item"><i class="fas fa-check-circle"></i> ${s.totalTasksCompleted.toLocaleString()} tasks completed on CoinDrop</span>`,
+                `<span class="ticker-item"><i class="fas fa-dollar-sign"></i> $${s.totalPaidUSD.toFixed(2)} total paid out to earners</span>`,
+                `<span class="ticker-item"><i class="fas fa-users"></i> ${s.uniqueUsers.toLocaleString()} active earners worldwide</span>`,
+                `<span class="ticker-item"><i class="fas fa-clock"></i> $${s.paidLastHourUSD.toFixed(2)} paid in the last hour</span>`,
+                `<span class="ticker-item"><i class="fas fa-calendar-day"></i> $${s.paidLast24hUSD.toFixed(2)} paid in the last 24 hours</span>`,
+                `<span class="ticker-item"><i class="fas fa-globe"></i> Available in 190+ countries · 100% free to join</span>`,
+            ];
+            const html = items.join('');
+            track.innerHTML = html + html;
+        }
+    } catch(e) {}
+})();
