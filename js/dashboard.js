@@ -738,3 +738,24 @@ function loadEarningsSummary() {
     if (ev) ev.textContent = document.getElementById('pd-views')?.textContent || '0';
     if (eo) eo.textContent = `${document.getElementById('pd-likes')?.textContent || 0} / ${document.getElementById('pd-comments')?.textContent || 0} / ${document.getElementById('pd-subs')?.textContent || 0}`;
 }
+
+// ===== Platform Stats Ticker =====
+async function loadPlatformStats() {
+    const track = document.getElementById('stats-ticker-track');
+    if (!track) return;
+    try {
+        const res = await fetch('https://coindrop-auth.up.railway.app/api/platform-stats');
+        const s = await res.json();
+        const items = [
+            `<span class="ticker-item"><i class="fas fa-check-circle"></i> ${s.totalTasksCompleted.toLocaleString()} tasks completed</span>`,
+            `<span class="ticker-item"><i class="fas fa-dollar-sign"></i> $${s.totalPaidUSD.toFixed(2)} total paid out</span>`,
+            `<span class="ticker-item"><i class="fas fa-users"></i> ${s.uniqueUsers.toLocaleString()} unique earners</span>`,
+            `<span class="ticker-item"><i class="fas fa-clock"></i> $${s.paidLastHourUSD.toFixed(2)} paid in the last hour</span>`,
+            `<span class="ticker-item"><i class="fas fa-calendar-day"></i> $${s.paidLast24hUSD.toFixed(2)} paid in the last 24 hours</span>`,
+        ];
+        const html = items.join('');
+        track.innerHTML = html + html;
+    } catch (e) { console.warn('Stats ticker error:', e); }
+}
+loadPlatformStats();
+setInterval(loadPlatformStats, 60000);

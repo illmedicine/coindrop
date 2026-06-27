@@ -867,6 +867,43 @@ app.get('/api/user-subscriptions/:userId', async (req, res) => {
     }
 });
 
+// ===== Platform Stats =====
+app.get('/api/platform-stats', async (req, res) => {
+    try {
+        const listData = await httpGet(`${FIRESTORE_URL}/tasks?key=${FIREBASE_API_KEY}&pageSize=500`);
+        const parsed = JSON.parse(listData);
+        const tasks = parsed.documents ? parsed.documents.map(d => parseFirestoreDoc(d.fields || {})) : [];
+
+        const now = Date.now();
+        const oneHourAgo = now - 3600000;
+        const oneDayAgo = now - 86400000;
+
+        let totalTasksCompleted = tasks.length;
+        let totalPaidUSD = 0;
+        let paidLastHourUSD = 0;
+        let paidLast24hUSD = 0;
+        const uniqueUsers = new Set();
+
+        for (const t of tasks) {
+            totalPaidUSD += t.rewardUSD || 0;
+            uniqueUsers.add(t.userId);
+            const ts = t.timestamp ? new Date(t.timestamp).getTime() : 0;
+            if (ts > oneHourAgo) paidLastHourUSD += t.rewardUSD || 0;
+            if (ts > oneDayAgo) paidLast24hUSD += t.rewardUSD || 0;
+        }
+
+        res.json({
+            totalTasksCompleted,
+            totalPaidUSD: parseFloat(totalPaidUSD.toFixed(2)),
+            paidLastHourUSD: parseFloat(paidLastHourUSD.toFixed(2)),
+            paidLast24hUSD: parseFloat(paidLast24hUSD.toFixed(2)),
+            uniqueUsers: uniqueUsers.size,
+        });
+    } catch (err) {
+        res.json({ totalTasksCompleted: 0, totalPaidUSD: 0, paidLastHourUSD: 0, paidLast24hUSD: 0, uniqueUsers: 0 });
+    }
+});
+
 // ===== Anthropic API =====
 function anthropicRequest(body) {
     return new Promise((resolve, reject) => {
