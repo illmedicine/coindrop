@@ -548,30 +548,17 @@ app.get('/api/admin/check', (req, res) => {
 // ===== Earnings Potential (server-cached, highest value persists) =====
 const EP_DEFAULT = { daily: 22.40, sub: 0.85, residual: 0.17, network: '17 creators · 640 videos' };
 let cachedEarningsPotential = EP_DEFAULT;
-let _epCacheTime = 0;
 
-app.get('/api/earnings-potential', async (req, res) => {
-    // Return cached immediately (2 min cache)
-    if (cachedEarningsPotential && Date.now() - _epCacheTime < 120000) {
-        return res.json(cachedEarningsPotential);
-    }
+// Load persisted EP on startup
+(async function loadEP() {
     try {
-        let existing = null;
-        try { existing = await firestore.getDoc('config', 'earningsPotential'); } catch(e) {}
+        const existing = await firestore.getDoc('config', 'earningsPotential');
+        if (existing && existing.daily >= EP_DEFAULT.daily) cachedEarningsPotential = existing;
+    } catch(e) {}
+})();
 
-        if (existing && existing.daily) {
-            // Always keep the highest
-            if (existing.daily >= EP_DEFAULT.daily) {
-                cachedEarningsPotential = existing;
-            } else {
-                cachedEarningsPotential = EP_DEFAULT;
-            }
-        }
-        _epCacheTime = Date.now();
-        res.json(cachedEarningsPotential);
-    } catch (err) {
-        res.json(cachedEarningsPotential || EP_DEFAULT);
-    }
+app.get('/api/earnings-potential', (req, res) => {
+    res.json(cachedEarningsPotential);
 });
 
 // Client reports actual video/creator counts so server can persist the highest earning potential
@@ -874,51 +861,59 @@ app.get('/api/user-subscriptions/:userId', async (req, res) => {
     }
 });
 
-// ===== Platform Stats =====
-let _platformStatsCache = null;
-let _platformStatsCacheTime = 0;
+// ===== Unified Cache System =====
+// All data loaded from Firestore on startup, refreshed every 5 min in background
+const cache = {
+    tasks: [],
+    platformStats: { totalTasksCompleted: 0, totalPaidUSD: 0, paidLastHourUSD: 0, paidLast24hUSD: 0, uniqueUsers: 0 },
+    leaderboard: { leaders: [] },
+    lastRefresh: 0,
+    refreshing: false,
+};
 
-// Shared task cache — used by platform-stats AND leaderboard to avoid duplicate Firestore reads
-let _allTasksCache = null;
-let _allTasksCacheTime = 0;
-
-async function getAllTasks() {
-    if (_allTasksCache && Date.now() - _allTasksCacheTime < 120000) return _allTasksCache;
-    let allTasks = [];
-    let nextPageToken = null;
-    do {
-        let url = `${FIRESTORE_URL}/tasks?key=${FIREBASE_API_KEY}&pageSize=300`;
-        if (nextPageToken) url += `&pageToken=${nextPageToken}`;
-        const listData = await httpGet(url);
-        const parsed = JSON.parse(listData);
-        if (parsed.documents && Array.isArray(parsed.documents)) {
-            for (const doc of parsed.documents) {
-                allTasks.push({ ...parseFirestoreDoc(doc.fields || {}), _docId: doc.name.split('/').pop() });
-            }
-        }
-        nextPageToken = parsed.nextPageToken || null;
-    } while (nextPageToken);
-    _allTasksCache = allTasks;
-    _allTasksCacheTime = Date.now();
-    return allTasks;
+async function loadCacheFromFirestore() {
+    console.log('Loading cached data from Firestore...');
+    try {
+        const stats = await firestore.getDoc('config', 'platformStats');
+        if (stats && stats.totalTasksCompleted) cache.platformStats = stats;
+    } catch(e) { console.warn('Stats cache load skipped'); }
+    try {
+        const lb = await firestore.getDoc('config', 'leaderboard');
+        if (lb && lb.leaders) cache.leaderboard = { leaders: JSON.parse(lb.leaders) };
+    } catch(e) { console.warn('Leaderboard cache load skipped'); }
+    console.log(`Cache loaded: ${cache.platformStats.totalTasksCompleted} tasks, ${cache.leaderboard.leaders.length} leaders`);
 }
 
-app.get('/api/platform-stats', async (req, res) => {
-    if (_platformStatsCache && Date.now() - _platformStatsCacheTime < 120000) {
-        return res.json(_platformStatsCache);
-    }
+async function refreshAllData() {
+    if (cache.refreshing) return;
+    cache.refreshing = true;
+    console.log('Refreshing all data from Firestore...');
     try {
-        const allTasks = await getAllTasks();
+        let allTasks = [];
+        let nextPageToken = null;
+        do {
+            let url = `${FIRESTORE_URL}/tasks?key=${FIREBASE_API_KEY}&pageSize=300`;
+            if (nextPageToken) url += `&pageToken=${nextPageToken}`;
+            const listData = await httpGet(url);
+            const parsed = JSON.parse(listData);
+            if (parsed.error) { console.warn('Firestore rate limited during refresh'); break; }
+            if (parsed.documents && Array.isArray(parsed.documents)) {
+                for (const doc of parsed.documents) {
+                    allTasks.push({ ...parseFirestoreDoc(doc.fields || {}), _docId: doc.name.split('/').pop() });
+                }
+            }
+            nextPageToken = parsed.nextPageToken || null;
+        } while (nextPageToken);
 
+        if (allTasks.length === 0) { cache.refreshing = false; return; }
+        cache.tasks = allTasks;
+
+        // Compute platform stats
         const now = Date.now();
         const oneHourAgo = now - 3600000;
         const oneDayAgo = now - 86400000;
-
-        let totalPaidUSD = 0;
-        let paidLastHourUSD = 0;
-        let paidLast24hUSD = 0;
+        let totalPaidUSD = 0, paidLastHourUSD = 0, paidLast24hUSD = 0;
         const uniqueUsers = new Set();
-
         for (const t of allTasks) {
             totalPaidUSD += t.rewardUSD || 0;
             if (t.userId) uniqueUsers.add(t.userId);
@@ -926,34 +921,59 @@ app.get('/api/platform-stats', async (req, res) => {
             if (ts > oneHourAgo) paidLastHourUSD += t.rewardUSD || 0;
             if (ts > oneDayAgo) paidLast24hUSD += t.rewardUSD || 0;
         }
-
-        // Persist highest stats to Firestore so they never decrease
-        let persisted = null;
-        try { persisted = await firestore.getDoc('config', 'platformStats'); } catch(e) {}
-
-        const stats = {
-            totalTasksCompleted: Math.max(allTasks.length, (persisted && persisted.totalTasksCompleted) || 0),
-            totalPaidUSD: parseFloat(Math.max(totalPaidUSD, (persisted && persisted.totalPaidUSD) || 0).toFixed(2)),
+        cache.platformStats = {
+            totalTasksCompleted: Math.max(allTasks.length, cache.platformStats.totalTasksCompleted || 0),
+            totalPaidUSD: parseFloat(Math.max(totalPaidUSD, cache.platformStats.totalPaidUSD || 0).toFixed(2)),
             paidLastHourUSD: parseFloat(paidLastHourUSD.toFixed(2)),
             paidLast24hUSD: parseFloat(paidLast24hUSD.toFixed(2)),
-            uniqueUsers: Math.max(uniqueUsers.size, (persisted && persisted.uniqueUsers) || 0),
+            uniqueUsers: Math.max(uniqueUsers.size, cache.platformStats.uniqueUsers || 0),
             updatedAt: new Date().toISOString(),
         };
 
-        try { await firestore.setDoc('config', 'platformStats', stats); } catch(e) {}
+        // Compute leaderboard
+        const userMap = {};
+        const userNames = {};
+        for (const t of allTasks) {
+            if (!t.userId) continue;
+            if (!userMap[t.userId]) userMap[t.userId] = { tasksCompleted: 0, totalEarnedUSD: 0 };
+            userMap[t.userId].tasksCompleted++;
+            userMap[t.userId].totalEarnedUSD += t.rewardUSD || 0;
+            if (t.username && !userNames[t.userId]) userNames[t.userId] = t.username;
+        }
+        const leaders = [];
+        const sortedUsers = Object.entries(userMap).sort((a, b) => (b[1].totalEarnedUSD || 0) - (a[1].totalEarnedUSD || 0)).slice(0, 20);
+        for (const [userId, data] of sortedUsers) {
+            let name = userNames[userId] || userId.substring(0, 8);
+            let avatar = null;
+            try {
+                const userDoc = await firestore.getDoc('users', userId);
+                if (userDoc) { name = userDoc.displayName || name; avatar = userDoc.avatar || null; }
+            } catch(e) {}
+            leaders.push({ userId, name, avatar, ...data });
+        }
+        cache.leaderboard = { leaders };
 
-        _platformStatsCache = stats;
-        _platformStatsCacheTime = Date.now();
-        res.json(stats);
+        // Persist to Firestore for next startup
+        try { await firestore.setDoc('config', 'platformStats', cache.platformStats); } catch(e) {}
+        try { await firestore.setDoc('config', 'leaderboard', { leaders: JSON.stringify(leaders), updatedAt: new Date().toISOString() }); } catch(e) {}
+
+        cache.lastRefresh = Date.now();
+        console.log(`Refresh complete: ${allTasks.length} tasks, ${leaders.length} leaders, $${cache.platformStats.totalPaidUSD} paid`);
     } catch (err) {
-        console.error('Platform stats error:', err.message);
-        // Try to return persisted stats
-        try {
-            const persisted = await firestore.getDoc('config', 'platformStats');
-            if (persisted) return res.json(persisted);
-        } catch(e) {}
-        res.json({ totalTasksCompleted: 0, totalPaidUSD: 0, paidLastHourUSD: 0, paidLast24hUSD: 0, uniqueUsers: 0 });
+        console.error('Data refresh error:', err.message);
     }
+    cache.refreshing = false;
+}
+
+// Load persisted cache on startup, then refresh in background
+loadCacheFromFirestore().then(() => {
+    setTimeout(refreshAllData, 10000);
+});
+// Refresh every 5 minutes
+setInterval(refreshAllData, 300000);
+
+app.get('/api/platform-stats', (req, res) => {
+    res.json(cache.platformStats);
 });
 
 // ===== Anthropic API =====
@@ -1073,63 +1093,9 @@ app.get('/api/user-stats/:userId', async (req, res) => {
     }
 });
 
-// API: Get global leaderboard (list all stats docs, sort server-side)
-let _leaderboardCache = null;
-let _leaderboardCacheTime = 0;
-
-app.get('/api/leaderboard', async (req, res) => {
-    if (_leaderboardCache && Date.now() - _leaderboardCacheTime < 120000) {
-        return res.json(_leaderboardCache);
-    }
-    try {
-        const allTasks = await getAllTasks();
-        const userMap = {};
-
-        for (const t of allTasks) {
-                if (!t.userId) continue;
-                if (!userMap[t.userId]) {
-                    userMap[t.userId] = { tasksCompleted: 0, totalEarnedUSD: 0, views: 0, likes: 0, comments: 0, subs: 0 };
-                }
-                userMap[t.userId].tasksCompleted++;
-                userMap[t.userId].totalEarnedUSD += t.rewardUSD || 0;
-                if (t.taskType === 'watch') userMap[t.userId].views++;
-                else if (t.taskType === 'like') userMap[t.userId].likes++;
-                else if (t.taskType === 'comment') userMap[t.userId].comments++;
-                else if (t.taskType === 'subscribe') userMap[t.userId].subs++;
-        }
-
-        // Extract names from task data to avoid extra Firestore calls
-        const userNames = {};
-        for (const t of allTasks) {
-            if (t.userId && t.username && !userNames[t.userId]) {
-                userNames[t.userId] = t.username;
-            }
-        }
-        const leaders = [];
-        for (const [userId, data] of Object.entries(userMap)) {
-            let name = userNames[userId] || userId.substring(0, 8);
-            let avatar = null;
-            // Only fetch user doc for top 20 to minimize calls
-            if (Object.keys(userMap).length <= 20 || leaders.length < 20) {
-                try {
-                    const userDoc = await firestore.getDoc('users', userId);
-                    if (userDoc) {
-                        name = userDoc.displayName || name;
-                        avatar = userDoc.avatar || null;
-                    }
-                } catch(e) {}
-            }
-            leaders.push({ userId, name, avatar, ...data });
-        }
-        leaders.sort((a, b) => (b.totalEarnedUSD || 0) - (a.totalEarnedUSD || 0));
-        const result = { leaders: leaders.slice(0, 20) };
-        _leaderboardCache = result;
-        _leaderboardCacheTime = Date.now();
-        res.json(result);
-    } catch(e) {
-        console.error('Leaderboard error:', e.message);
-        res.json({ leaders: [] });
-    }
+// API: Get global leaderboard (served from cache, refreshed every 5 min)
+app.get('/api/leaderboard', (req, res) => {
+    res.json(cache.leaderboard);
 });
 
 // API: Sync videos from YouTube RSS for all channels
