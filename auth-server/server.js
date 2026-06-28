@@ -1043,13 +1043,12 @@ async function refreshAllData() {
 
 // Load persisted cache on startup, then refresh in background with retries
 loadCacheFromFirestore().then(() => {
-    // Stagger initial refresh to avoid rate limits after deploy
     setTimeout(refreshAllData, 30000);
-    // Retry if first refresh fails (rate limited)
     setTimeout(() => { if (cache.tasks.length === 0) refreshAllData(); }, 90000);
     setTimeout(() => { if (cache.tasks.length === 0) refreshAllData(); }, 180000);
+    setTimeout(() => { if (cache.tasks.length === 0) { loadCacheFromFirestore(); refreshAllData(); } }, 600000);
+    setTimeout(() => { if (cache.tasks.length === 0) { loadCacheFromFirestore(); refreshAllData(); } }, 1800000);
 });
-// Refresh every 5 minutes
 setInterval(refreshAllData, 300000);
 
 // Admin can trigger manual refresh
