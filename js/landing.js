@@ -52,13 +52,17 @@ document.addEventListener('scroll', () => {
             const icon = prestige === 'Gold' ? 'fa-star' : prestige === 'Silver' ? 'fa-shield-alt' : 'fa-medal';
             const avatar = l.avatar || 'https://api.dicebear.com/7.x/thumbs/svg?seed=' + encodeURIComponent(l.name);
             const rankIcon = i < 3 ? rankIcons[i] + ' ' : '';
+            const lbBadges = l.badges || [];
+            const badgePills = lbBadges.map(function(b) {
+                return '<span class="prestige-pill prestige-' + b.id + '" style="--pill-color:' + b.color + ';--pill-bg:' + b.bg + '"><i class="' + b.icon + '"></i> ' + b.label + '</span>';
+            }).join(' ');
             const row = document.createElement('div');
             row.className = 'lb-row ' + (rowClasses[i] || '');
             row.innerHTML = '<span class="lb-rank">' + rankIcon + (i + 1) + '</span>' +
                 '<span class="lb-member"><img src="' + avatar + '" alt="" class="lb-avatar"> ' + l.name + '</span>' +
                 '<span class="lb-tasks">' + totalTasks.toLocaleString() + '</span>' +
                 '<span class="lb-earned">$' + earnedUSD.toFixed(2) + '</span>' +
-                '<span class="lb-prestige"><span class="badge badge-' + badgeClass + '"><i class="fas fa-' + icon + '"></i> ' + prestige + '</span></span>';
+                '<span class="lb-prestige"><span class="badge badge-' + badgeClass + '"><i class="fas fa-' + icon + '"></i> ' + prestige + '</span> ' + badgePills + '</span>';
             container.appendChild(row);
         });
     } catch (e) {

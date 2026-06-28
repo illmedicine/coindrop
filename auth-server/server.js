@@ -543,6 +543,27 @@ async function sendSolPayment(privateKeyBase58, recipientAddress, amountSOL) {
 // ===== Admin Check =====
 const ADMIN_EMAILS = ['demarkuswilsone@gmail.com', 'dwilson@illyrobotic-ai.com'];
 
+// ===== Prestige Badges =====
+const BETA_BADGE_CUTOFF = '2026-06-30T23:59:59.000Z';
+
+function computeUserBadges(userId, email, tasksCompleted, firstTaskTimestamp) {
+    const badges = [];
+    const now = new Date();
+    const cutoff = new Date(BETA_BADGE_CUTOFF);
+    const isAdmin = ADMIN_EMAILS.includes((email || '').toLowerCase().trim());
+    if (isAdmin) {
+        badges.push({ id: 'admin', label: 'ADMIN', icon: 'fas fa-shield-alt', color: '#dc2626', bg: '#fef2f2' });
+    }
+    if (tasksCompleted > 0 && firstTaskTimestamp) {
+        const firstTask = new Date(firstTaskTimestamp);
+        if (firstTask <= cutoff) {
+            badges.push({ id: 'beta-tester', label: 'Beta Tester', icon: 'fas fa-flask', color: '#7c3aed', bg: '#f5f3ff' });
+            badges.push({ id: 'coin-collector', label: 'COIN-COLLECTOR', icon: 'fas fa-coins', color: '#d97706', bg: '#fffbeb' });
+        }
+    }
+    return badges;
+}
+
 app.get('/api/admin/check', (req, res) => {
     const email = (req.query.email || '').toLowerCase().trim();
     res.json({ isAdmin: ADMIN_EMAILS.includes(email) });
@@ -903,12 +924,14 @@ async function loadCacheFromFirestore() {
                     const data = parseFirestoreDoc(doc.fields || {});
                     let name = userId.substring(0, 8);
                     let avatar = null;
+                    let email = null;
                     try {
                         const userDoc = await firestore.getDoc('users', userId);
-                        if (userDoc) { name = userDoc.displayName || name; avatar = userDoc.avatar || null; }
+                        if (userDoc) { name = userDoc.displayName || name; avatar = userDoc.avatar || null; email = userDoc.email || null; }
                     } catch(e) {}
+                    const badges = computeUserBadges(userId, email, data.tasksCompleted || 0, data.lastActivity || null);
                     leaders.push({
-                        userId, name, avatar,
+                        userId, name, avatar, badges,
                         tasksCompleted: data.tasksCompleted || 0,
                         totalEarnedUSD: data.totalEarned || 0,
                     });
@@ -994,11 +1017,15 @@ async function refreshAllData() {
         for (const [userId, data] of sortedUsers) {
             let name = userNames[userId] || userId.substring(0, 8);
             let avatar = null;
+            let email = null;
             try {
                 const userDoc = await firestore.getDoc('users', userId);
-                if (userDoc) { name = userDoc.displayName || name; avatar = userDoc.avatar || null; }
+                if (userDoc) { name = userDoc.displayName || name; avatar = userDoc.avatar || null; email = userDoc.email || null; }
             } catch(e) {}
-            leaders.push({ userId, name, avatar, ...data });
+            const userTasks = allTasks.filter(t => t.userId === userId);
+            const firstTs = userTasks.reduce((min, t) => (!min || (t.timestamp && t.timestamp < min)) ? t.timestamp : min, null);
+            const badges = computeUserBadges(userId, email, data.tasksCompleted, firstTs || new Date().toISOString());
+            leaders.push({ userId, name, avatar, badges, ...data });
         }
         cache.leaderboard = { leaders };
 
@@ -1173,10 +1200,47 @@ app.get('/api/user-stats/:userId', async (req, res) => {
             }
         } catch(e) {}
 
-        res.json({ stats, tasks, cooldowns });
+        // Compute badges for this user
+        let email = (req.query.email || '').toLowerCase().trim() || null;
+        if (!email) {
+            try {
+                const userDoc = await firestore.getDoc('users', userId);
+                if (userDoc) email = userDoc.email || null;
+            } catch(e) {}
+        }
+        const firstTaskTs = tasks.length > 0
+            ? tasks.reduce((min, t) => (!min || (t.timestamp && t.timestamp < min)) ? t.timestamp : min, null)
+            : null;
+        const badges = computeUserBadges(userId, email, stats.tasksCompleted || tasks.length, firstTaskTs);
+
+        res.json({ stats, tasks, cooldowns, badges });
     } catch(e) {
         console.error('User stats error:', e.message);
-        res.json({ stats: {}, tasks: [], cooldowns: {} });
+        res.json({ stats: {}, tasks: [], cooldowns: {}, badges: [] });
+    }
+});
+
+// API: Get user badges
+app.get('/api/user-badges/:userId', async (req, res) => {
+    try {
+        const userId = req.params.userId;
+        const email = (req.query.email || '').toLowerCase().trim();
+        let tasksCompleted = 0;
+        let firstTs = null;
+        if (cache.tasks && cache.tasks.length > 0) {
+            const userTasks = cache.tasks.filter(t => t.userId === userId);
+            tasksCompleted = userTasks.length;
+            firstTs = userTasks.reduce((min, t) => (!min || (t.timestamp && t.timestamp < min)) ? t.timestamp : min, null);
+        } else {
+            try {
+                const s = await firestore.getDoc('stats', userId);
+                if (s) tasksCompleted = s.tasksCompleted || 0;
+            } catch(e) {}
+        }
+        const badges = computeUserBadges(userId, email, tasksCompleted, firstTs || new Date().toISOString());
+        res.json({ badges });
+    } catch(e) {
+        res.json({ badges: [] });
     }
 });
 

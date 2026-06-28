@@ -441,6 +441,11 @@
     color: var(--orange);
 }
 
+/* Prestige Badge Pills */
+.prestige-pill { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 20px; font-size: 0.65rem; font-weight: 700; letter-spacing: 0.3px; color: var(--pill-color); background: var(--pill-bg); border: 1.5px solid var(--pill-color); white-space: nowrap; vertical-align: middle; }
+.prestige-pill i { font-size: 0.6rem; }
+.lb-prestige { display: flex; flex-wrap: wrap; gap: 3px; align-items: center; }
+
 /* ===== Community ===== */
 .community-grid {
     display: grid;

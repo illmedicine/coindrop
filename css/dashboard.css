@@ -1125,6 +1125,19 @@
 .notif-item .notif-text small { color: var(--gray-400); font-size: 0.75rem; }
 .notif-item .notif-dismiss { background: none; border: none; color: var(--gray-300); cursor: pointer; font-size: 0.8rem; }
 
+/* Prestige Badge Pills */
+.prestige-pill { display: inline-flex; align-items: center; gap: 4px; padding: 3px 10px; border-radius: 20px; font-size: 0.7rem; font-weight: 700; letter-spacing: 0.3px; color: var(--pill-color); background: var(--pill-bg); border: 1.5px solid var(--pill-color); white-space: nowrap; }
+.prestige-pill i { font-size: 0.65rem; }
+.prestige-admin { animation: adminGlow 2s ease-in-out infinite alternate; }
+@keyframes adminGlow { 0% { box-shadow: 0 0 4px rgba(220,38,38,0.3); } 100% { box-shadow: 0 0 10px rgba(220,38,38,0.6); } }
+.prestige-beta-tester { animation: betaPulse 3s ease-in-out infinite alternate; }
+@keyframes betaPulse { 0% { box-shadow: 0 0 3px rgba(124,58,237,0.2); } 100% { box-shadow: 0 0 8px rgba(124,58,237,0.5); } }
+.prestige-coin-collector { animation: coinShine 2.5s ease-in-out infinite alternate; }
+@keyframes coinShine { 0% { box-shadow: 0 0 3px rgba(217,119,6,0.2); } 100% { box-shadow: 0 0 8px rgba(217,119,6,0.5); } }
+.user-badges-row { display: inline-flex; gap: 4px; margin-left: 4px; flex-wrap: wrap; }
+.pd-badges-row { display: flex; gap: 4px; margin-top: 6px; flex-wrap: wrap; }
+.lb-badges-col { display: flex; flex-wrap: wrap; gap: 3px; align-items: center; }
+
 /* Stats Ticker */
 .stats-ticker { background: var(--navy); color: var(--white); padding: 8px 0; overflow: hidden; white-space: nowrap; margin-bottom: 16px; border-radius: 8px; max-width: 100%; width: 100%; position: relative; }
 .ticker-track { display: inline-flex; animation: tickerScroll 30s linear infinite; will-change: transform; }

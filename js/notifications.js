@@ -101,11 +101,31 @@ function checkPayoutAnnouncement() {
     }
 }
 
+// Community Lead badge notification
+function checkBadgeNotification() {
+    const user = JSON.parse(localStorage.getItem('coindrop_user') || '{}');
+    if (!user.id) return;
+    const seen = localStorage.getItem('coindrop_badge_notice_20260627_' + user.id);
+    if (seen) return;
+    const badges = window._userBadges || [];
+    const hasBeta = badges.some(b => b.id === 'beta-tester');
+    const hasCoin = badges.some(b => b.id === 'coin-collector');
+    if (hasBeta && hasCoin) {
+        addNotification(
+            'You\'ve Been Hired as a COIN-COLLECTOR Community Lead!',
+            'Congratulations! You earned the rare <b>Beta Tester</b> and <b>COIN-COLLECTOR</b> prestige badges. These badges are only available until 6/30/2026 and will remain on your profile permanently. <br><br><b>New Hire Bonus:</b> Friend request <b>"illymeds"</b> on Discord and send a screenshot of your badges for a <b>$1 bonus</b>! <a href="https://discord.gg/847XjyVa3C" target="_blank" style="color:var(--orange);font-weight:600;">Join Discord</a>',
+            'fas fa-award',
+            '#7c3aed'
+        );
+        localStorage.setItem('coindrop_badge_notice_20260627_' + user.id, 'true');
+    }
+}
+
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
     checkWelcomeNotice();
     checkPayoutAnnouncement();
     updateNotifBadge();
 });
-// Retry after user data loads
-setTimeout(() => { checkWelcomeNotice(); checkPayoutAnnouncement(); updateNotifBadge(); }, 2000);
+// Retry after user data loads (badges need time to load from server)
+setTimeout(() => { checkWelcomeNotice(); checkPayoutAnnouncement(); checkBadgeNotification(); updateNotifBadge(); }, 3000);

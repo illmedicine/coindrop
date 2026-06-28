@@ -178,6 +178,13 @@ const PRESTIGE = {
     diamond: { label: 'Diamond', icon: 'fas fa-gem', class: 'badge-diamond' },
 };
 
+function renderBadgePills(badges) {
+    if (!badges || !badges.length) return '';
+    return badges.map(b =>
+        `<span class="prestige-pill prestige-${b.id}" style="--pill-color:${b.color};--pill-bg:${b.bg}"><i class="${b.icon}"></i> ${b.label}</span>`
+    ).join(' ');
+}
+
 if (user) {
     const p = PRESTIGE[user.prestige] || PRESTIGE.starter;
     document.getElementById('user-name').textContent = user.displayName;
@@ -370,7 +377,8 @@ async function syncFromServer() {
             } catch(e) {}
         }
 
-        const resp = await fetch(`${API_URL}/api/user-stats/${user.id}`);
+        const emailParam = user.email ? `?email=${encodeURIComponent(user.email)}` : '';
+        const resp = await fetch(`${API_URL}/api/user-stats/${user.id}${emailParam}`);
         const data = await resp.json();
         const stats = data.stats || {};
 
@@ -407,6 +415,14 @@ async function syncFromServer() {
         }
 
         localStorage.setItem('coindrop_user', JSON.stringify(user));
+
+        // Display prestige badges
+        const userBadges = data.badges || [];
+        const badgeContainer = document.getElementById('user-badges-row');
+        if (badgeContainer) badgeContainer.innerHTML = renderBadgePills(userBadges);
+        const pdBadgeContainer = document.getElementById('pd-badges-row');
+        if (pdBadgeContainer) pdBadgeContainer.innerHTML = renderBadgePills(userBadges);
+        window._userBadges = userBadges;
 
         // Load cooldowns from server
         _cooldownCache = {};
@@ -688,12 +704,13 @@ async function loadFullLeaderboard() {
             else if (tc >= 10) prestige = 'bronze';
             const pb = PRESTIGE[prestige];
             const isYou = user && l.userId === user.id;
+            const lbBadges = l.badges || [];
             return `<div class="lb-full-row ${isYou ? 'you' : ''}">
                 <span class="mini-lb-rank">${i+1}</span>
                 <span class="lb-member"><img src="${l.avatar || 'https://api.dicebear.com/7.x/thumbs/svg?seed=' + l.userId}" class="lb-avatar" alt=""> ${l.name}${isYou ? ' (You)' : ''}</span>
                 <span class="lb-tasks">${tc}</span>
                 <span class="lb-earned">$${(l.totalEarnedUSD||l.totalEarned||0).toFixed(2)}</span>
-                <span><span class="badge ${pb.class}"><i class="${pb.icon}"></i> ${pb.label}</span></span>
+                <span class="lb-badges-col"><span class="badge ${pb.class}"><i class="${pb.icon}"></i> ${pb.label}</span>${lbBadges.length ? ' ' + renderBadgePills(lbBadges) : ''}</span>
             </div>`;
         }).join('');
     } catch(e) { el.innerHTML = '<p class="text-muted" style="padding:20px;text-align:center">Leaderboard loading failed.</p>'; }
