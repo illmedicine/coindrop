@@ -1,0 +1,63 @@
+// CoinDrop Android Build Configuration for Google Play Store
+// Save as: android/app/build.gradle.kts
+
+android {
+    namespace = "com.coindrop.app"
+    compileSdk = 35  // Android 15 (required for Google Play Store as of Aug 2024)
+
+    defaultConfig {
+        applicationId = "com.coindrop.app"
+        minSdk = 26  // Android 8.0 (API 26)
+        targetSdk = 35  // Android 15
+        versionCode = 1
+        versionName = "1.0.0"
+
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    }
+
+    buildTypes {
+        release {
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
+            signingConfig = signingConfigs.release
+        }
+
+        debug {
+            isMinifyEnabled = false
+            signingConfig = signingConfigs.debug
+        }
+    }
+
+    signingConfigs {
+        release {
+            storeFile = file(System.getenv("KEYSTORE_FILE") ?: "release.keystore")
+            storePassword = System.getenv("KEYSTORE_PASSWORD")
+            keyAlias = System.getenv("KEY_ALIAS")
+            keyPassword = System.getenv("KEY_PASSWORD")
+        }
+    }
+
+    lint {
+        disable.add("MissingTranslation")
+        disable.add("ExtraTranslation")
+        warningsAsErrors = false
+    }
+
+    packagingOptions {
+        exclude("META-INF/proguard/androidx-*.pro")
+    }
+}
+
+dependencies {
+    implementation(platform("androidx.compose:compose-bom:2024.04.00"))
+    implementation("androidx.core:core-splashscreen:1.0.1")
+    implementation("androidx.security:security-crypto:1.1.0-alpha06")
+
+    // Capacitor
+    implementation("com.capacitorjs:core:5.7.0")
+    implementation("com.capacitorjs:android:5.7.0")
+}

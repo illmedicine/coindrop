@@ -1,0 +1,23 @@
+{
+  "name": "coindrop",
+  "version": "1.0.0",
+  "description": "Turn your screen time into Solana - CoinDrop",
+  "main": "index.js",
+  "scripts": {
+    "cap:add:android": "capacitor add android",
+    "cap:build": "capacitor build android",
+    "cap:run": "capacitor run android",
+    "cap:sync": "capacitor sync",
+    "cap:open": "capacitor open android"
+  },
+  "dependencies": {
+    "@capacitor/core": "^5.7.0",
+    "@capacitor/android": "^5.7.0",
+    "@capacitor/splash-screen": "^5.7.0"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^5.7.0"
+  },
+  "author": "Illy Robotic Instruments",
+  "license": "MIT"
+}
