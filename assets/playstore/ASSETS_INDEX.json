@@ -1,0 +1,53 @@
+{
+  "generated_at": "2026-06-28T00:36:48.460679",
+  "app_name": "CoinDrop",
+  "version": "1.0.0",
+  "total_assets": 10,
+  "files": [
+    {
+      "name": "icon_512.png",
+      "size": "512x512",
+      "purpose": "Google Play listing icon"
+    },
+    {
+      "name": "icon_192.png",
+      "size": "192x192",
+      "purpose": "Launcher icon"
+    },
+    {
+      "name": "icon_144.png",
+      "size": "144x144",
+      "purpose": "Large screen icon"
+    },
+    {
+      "name": "icon_96.png",
+      "size": "96x96",
+      "purpose": "Medium icon"
+    },
+    {
+      "name": "icon_72.png",
+      "size": "72x72",
+      "purpose": "Small icon"
+    },
+    {
+      "name": "icon_48.png",
+      "size": "48x48",
+      "purpose": "Notification icon"
+    },
+    {
+      "name": "feature_graphic_1024x500.png",
+      "size": "1024x500",
+      "purpose": "Play Store banner"
+    },
+    {
+      "name": "screenshot_template_1080x1920.png",
+      "size": "1080x1920",
+      "purpose": "Phone screenshot"
+    },
+    {
+      "name": "screenshot_tablet_2560x1440.png",
+      "size": "2560x1440",
+      "purpose": "Tablet screenshot"
+    }
+  ]
+}
