@@ -1,0 +1,12 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.coindrop.app",
+      "sha256_cert_fingerprints": [
+        "AA:1A:27:AC:D6:EF:94:68:AD:F9:3B:1F:30:63:5D:4B:DE:A2:9E:75:5F:58:5C:24:1E:12:36:C9:39:F5:6E:A6"
+      ]
+    }
+  }
+]

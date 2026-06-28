@@ -1,0 +1,2 @@
+-keep class com.coindrop.app.** { *; }
+-keep class com.google.androidbrowserhelper.** { *; }

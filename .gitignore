@@ -1,0 +1,14 @@
+# Android
+android/release.keystore
+android/keystore.properties
+android/app/build/
+android/.gradle/
+android/build/
+android/local.properties
+
+# Node
+node_modules/
+
+# OS
+.DS_Store
+Thumbs.db
