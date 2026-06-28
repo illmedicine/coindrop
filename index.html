@@ -9,6 +9,8 @@
     <title>CoinDrop — Watch. Engage. Earn.</title>
     <meta name="description" content="Turn your screen time into Solana. Watch YouTube, engage on Instagram, earn daily SOL payouts. Free to join, no age restrictions, available worldwide.">
     <link rel="icon" type="image/png" href="assets/logo.png">
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#F7931A">
     <link rel="stylesheet" href="css/style.css">
     <link rel="stylesheet" href="css/landing.css">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
@@ -363,5 +365,6 @@
 
     <script src="js/app.js"></script>
     <script src="js/landing.js"></script>
+    <script>if('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js');</script>
 </body>
 </html>
