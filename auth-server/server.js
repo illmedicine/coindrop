@@ -1145,27 +1145,24 @@ app.get('/api/user-stats/:userId', async (req, res) => {
     try {
         const { userId } = req.params;
         let stats = { views: 0, likes: 0, comments: 0, subs: 0, tasksCompleted: 0, totalEarned: 0 };
-        // Only read stats doc from Firestore if cache is empty
-        if (!cache.tasks || cache.tasks.length === 0) {
-            try {
-                const s = await firestore.getDoc('stats', userId);
-                if (s) stats = s;
-            } catch(e) {}
-        }
+        // Always read stats doc from Firestore as baseline
+        try {
+            const s = await firestore.getDoc('stats', userId);
+            if (s) stats = s;
+        } catch(e) {}
 
-        // Try cache first, fall back to Firestore query
+        // Get tasks from cache or Firestore query
         let tasks = [];
         if (cache.tasks && cache.tasks.length > 0) {
             tasks = cache.tasks.filter(t => t.userId === userId)
-                .sort((a, b) => (b.timestamp || '') > (a.timestamp || '') ? 1 : -1)
-                .slice(0, 30);
+                .sort((a, b) => (b.timestamp || '') > (a.timestamp || '') ? 1 : -1);
         } else {
             try {
-                tasks = await firestore.query('tasks', 'userId', 'EQUAL', userId, 'timestamp', 30);
+                tasks = await firestore.query('tasks', 'userId', 'EQUAL', userId, 'timestamp', 50);
             } catch(e) { console.warn('Task query error:', e.message); }
         }
 
-        // Always recompute stats from tasks for consistency across devices
+        // Recompute stats from tasks if we have them, take the higher count
         if (tasks.length > 0) {
             const computed = { views: 0, likes: 0, comments: 0, subs: 0, tasksCompleted: 0, totalEarned: 0 };
             for (const t of tasks) {
@@ -1178,22 +1175,6 @@ app.get('/api/user-stats/:userId', async (req, res) => {
             }
             if (computed.tasksCompleted >= (stats.tasksCompleted || 0)) {
                 stats = computed;
-            }
-        }
-        // Also check full cache for all user tasks (cache may have more than 30)
-        if (cache.tasks && cache.tasks.length > 0) {
-            const allUserTasks = cache.tasks.filter(t => t.userId === userId);
-            if (allUserTasks.length > tasks.length) {
-                const full = { views: 0, likes: 0, comments: 0, subs: 0, tasksCompleted: 0, totalEarned: 0 };
-                for (const t of allUserTasks) {
-                    full.tasksCompleted++;
-                    full.totalEarned += t.rewardUSD || 0;
-                    if (t.taskType === 'watch') full.views++;
-                    else if (t.taskType === 'like') full.likes++;
-                    else if (t.taskType === 'comment') full.comments++;
-                    else if (t.taskType === 'subscribe') full.subs++;
-                }
-                if (full.tasksCompleted >= stats.tasksCompleted) stats = full;
             }
         }
 
@@ -1214,12 +1195,14 @@ app.get('/api/user-stats/:userId', async (req, res) => {
             const userDoc = await getUserProfileCached(userId);
             if (userDoc) email = userDoc.email || null;
         }
-        const firstTaskTs = tasks.length > 0
+        let firstTaskTs = tasks.length > 0
             ? tasks.reduce((min, t) => (!min || (t.timestamp && t.timestamp < min)) ? t.timestamp : min, null)
             : null;
+        // Fallback: if no tasks in cache but stats doc shows activity, use lastActivity as timestamp
+        if (!firstTaskTs && stats.lastActivity) firstTaskTs = stats.lastActivity;
         const badges = computeUserBadges(userId, email, stats.tasksCompleted || tasks.length, firstTaskTs);
 
-        res.json({ stats, tasks, cooldowns, badges });
+        res.json({ stats, tasks: tasks.slice(0, 30), cooldowns, badges });
     } catch(e) {
         console.error('User stats error:', e.message);
         res.json({ stats: {}, tasks: [], cooldowns: {}, badges: [] });
