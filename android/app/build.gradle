@@ -9,11 +9,11 @@ if (keystorePropertiesFile.exists()) {
 }
 
 android {
-    namespace 'com.coindrop.app'
+    namespace 'in.coindrop'
     compileSdk 35
 
     defaultConfig {
-        applicationId "com.coindrop.app"
+        applicationId "in.coindrop"
         minSdk 26
         targetSdk 35
         versionCode 1

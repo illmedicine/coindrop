@@ -52,7 +52,7 @@
 
             <meta-data
                 android:name="android.support.customtabs.trusted.FILE_PROVIDER_AUTHORITY"
-                android:value="com.coindrop.app.fileprovider" />
+                android:value="in.coindrop.fileprovider" />
 
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -81,7 +81,7 @@
 
         <provider
             android:name="androidx.core.content.FileProvider"
-            android:authorities="com.coindrop.app.fileprovider"
+            android:authorities="in.coindrop.fileprovider"
             android:grantUriPermissions="true"
             android:exported="false">
             <meta-data
