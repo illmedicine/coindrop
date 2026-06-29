@@ -8,11 +8,26 @@ const FIREBASE_PROJECT = 'coindrop-e39de';
 const FIRESTORE_URL = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT}/databases/(default)/documents`;
 const FIREBASE_API_KEY = 'AIzaSyCiDPW1rGWSbL1ozIFIVh3B_IaA8nReeI8';
 
+let _firestoreThrottled = false;
+let _throttleUntil = 0;
+
+function checkThrottle(parsed) {
+    if (parsed && parsed.error && (parsed.error.code === 429 || parsed.error.status === 'RESOURCE_EXHAUSTED')) {
+        _firestoreThrottled = true;
+        _throttleUntil = Date.now() + 60000;
+        console.error('FIRESTORE QUOTA EXCEEDED — serving from cache for 60s');
+        return true;
+    }
+    if (_firestoreThrottled && Date.now() > _throttleUntil) _firestoreThrottled = false;
+    return false;
+}
+
 const firestore = {
     async getDoc(collection, docId) {
         try {
             const data = await httpGet(`${FIRESTORE_URL}/${collection}/${docId}?key=${FIREBASE_API_KEY}`);
             const parsed = JSON.parse(data);
+            if (checkThrottle(parsed)) return null;
             if (parsed.error) return null;
             return parseFirestoreDoc(parsed.fields || {});
         } catch { return null; }
@@ -446,16 +461,35 @@ Respond with EXACTLY this JSON (no other text):
                 timestamp: '__serverTimestamp__'
             });
 
-            // Update user stats (read-modify-write since REST doesn't support increment)
+            // Denormalized stats write — single doc contains everything the frontend needs
             const existingStats = await firestore.getDoc('stats', userId) || {};
-            await firestore.setDoc('stats', userId, {
-                [statField]: (existingStats[statField] || 0) + 1,
+            const newStats = {
+                views: (existingStats.views || 0) + (statField === 'views' ? 1 : 0),
+                likes: (existingStats.likes || 0) + (statField === 'likes' ? 1 : 0),
+                comments: (existingStats.comments || 0) + (statField === 'comments' ? 1 : 0),
+                subs: (existingStats.subs || 0) + (statField === 'subs' ? 1 : 0),
                 tasksCompleted: (existingStats.tasksCompleted || 0) + 1,
                 totalEarned: (existingStats.totalEarned || 0) + rewardUSD,
-                lastActivity: '__serverTimestamp__'
-            });
+                lastActivity: '__serverTimestamp__',
+                firstTaskAt: existingStats.firstTaskAt || new Date().toISOString(),
+                displayName: username || existingStats.displayName || userId.substring(0, 8),
+                avatar: (existingUser && existingUser.avatar) || existingStats.avatar || '',
+                email: (existingUser && existingUser.email) || existingStats.email || '',
+            };
+            // Compute prestige + badges and store in stats doc
+            let prestige = 'starter';
+            const tc = newStats.tasksCompleted;
+            if (tc >= 500) prestige = 'diamond';
+            else if (tc >= 300) prestige = 'platinum';
+            else if (tc >= 150) prestige = 'gold';
+            else if (tc >= 50) prestige = 'silver';
+            else if (tc >= 10) prestige = 'bronze';
+            newStats.prestige = prestige;
+            const badges = computeUserBadges(userId, newStats.email, tc, newStats.firstTaskAt);
+            newStats.badges = JSON.stringify(badges);
+            await firestore.setDoc('stats', userId, newStats);
 
-            // Set cooldown
+            // Set cooldown — merged into single doc
             const existingCd = await firestore.getDoc('cooldowns', userId) || {};
             existingCd[`${videoId}_${taskType}`] = new Date().toISOString();
             await firestore.setDoc('cooldowns', userId, existingCd);
@@ -664,25 +698,33 @@ app.get('/api/admin/unpaid-tasks', async (req, res) => {
         return res.status(403).json({ error: 'Unauthorized' });
     }
     try {
-        // Admin view always reads fresh from Firestore (paginated) for accuracy
+        // Try Firestore first, fall back to cache if throttled
         let allTasks = [];
-        let nextPageToken = null;
-        do {
-            let url = `${FIRESTORE_URL}/tasks?key=${FIREBASE_API_KEY}&pageSize=300`;
-            if (nextPageToken) url += `&pageToken=${nextPageToken}`;
-            const listData = await httpGet(url);
-            const parsed = JSON.parse(listData);
-            if (!parsed.documents) break;
-            for (const doc of parsed.documents) {
-                allTasks.push({ ...parseFirestoreDoc(doc.fields || {}), docId: doc.name.split('/').pop() });
-            }
-            nextPageToken = parsed.nextPageToken || null;
-        } while (nextPageToken);
-        if (allTasks.length === 0) return res.json({ unpaid: [], duplicatesMarked: 0 });
-        // Update server cache with fresh data
-        cache.tasks = allTasks.map(t => ({ ...t, _docId: t.docId }));
-        recomputeStatsFromCache();
-        console.log(`Admin unpaid-tasks: loaded ${allTasks.length} total tasks from Firestore`);
+        if (!_firestoreThrottled) {
+            let nextPageToken = null;
+            do {
+                let url = `${FIRESTORE_URL}/tasks?key=${FIREBASE_API_KEY}&pageSize=300`;
+                if (nextPageToken) url += `&pageToken=${nextPageToken}`;
+                const listData = await httpGet(url);
+                const parsed = JSON.parse(listData);
+                if (checkThrottle(parsed)) break;
+                if (!parsed.documents) break;
+                for (const doc of parsed.documents) {
+                    allTasks.push({ ...parseFirestoreDoc(doc.fields || {}), docId: doc.name.split('/').pop() });
+                }
+                nextPageToken = parsed.nextPageToken || null;
+            } while (nextPageToken);
+        }
+        if (allTasks.length > 0) {
+            cache.tasks = allTasks.map(t => ({ ...t, _docId: t.docId }));
+            recomputeStatsFromCache();
+        } else if (cache.tasks.length > 0) {
+            allTasks = cache.tasks.map(t => ({ ...t, docId: t._docId || t.docId }));
+            console.log(`Admin unpaid-tasks: using cache (${allTasks.length} tasks) — Firestore ${_firestoreThrottled ? 'throttled' : 'empty'}`);
+        } else {
+            return res.json({ unpaid: [], error: _firestoreThrottled ? 'Firestore quota exceeded — data will refresh when quota resets at midnight PT' : null });
+        }
+        console.log(`Admin unpaid-tasks: processing ${allTasks.length} total tasks`);
 
         const unpaid = [];
         const seenSubscribes = new Set();
@@ -912,7 +954,7 @@ const cache = {
 };
 
 async function loadCacheFromFirestore() {
-    console.log('Loading cached data from Firestore (2 reads)...');
+    console.log('Loading cached data from Firestore...');
     try {
         const stats = await firestore.getDoc('config', 'platformStats');
         if (stats && stats.totalTasksCompleted) cache.platformStats = stats;
@@ -924,7 +966,18 @@ async function loadCacheFromFirestore() {
             if (Array.isArray(parsed) && parsed.length > 0) cache.leaderboard = { leaders: parsed };
         }
     } catch(e) { console.warn('Leaderboard cache load skipped'); }
-    console.log(`Cache loaded: ${cache.platformStats.totalTasksCompleted} tasks, ${cache.leaderboard.leaders.length} leaders`);
+    // Load persisted task snapshot so we have data even if Firestore is throttled
+    try {
+        const taskSnap = await firestore.getDoc('config', 'taskSnapshot');
+        if (taskSnap && taskSnap.tasks) {
+            const parsed = JSON.parse(taskSnap.tasks);
+            if (Array.isArray(parsed) && parsed.length > 0 && cache.tasks.length === 0) {
+                cache.tasks = parsed;
+                console.log(`Loaded ${parsed.length} tasks from persisted snapshot`);
+            }
+        }
+    } catch(e) { console.warn('Task snapshot load skipped'); }
+    console.log(`Cache loaded: stats=${cache.platformStats.totalTasksCompleted}, leaders=${cache.leaderboard.leaders.length}, tasks=${cache.tasks.length}`);
 }
 
 function getCachedUserProfile(userId) {
@@ -1003,7 +1056,8 @@ async function refreshAllData() {
             if (nextPageToken) url += `&pageToken=${nextPageToken}`;
             const listData = await httpGet(url);
             const parsed = JSON.parse(listData);
-            if (parsed.error) { console.warn('Firestore rate limited during refresh'); break; }
+            if (checkThrottle(parsed)) break;
+            if (parsed.error) { console.warn('Firestore error during refresh:', parsed.error.message); break; }
             if (parsed.documents && Array.isArray(parsed.documents)) {
                 for (const doc of parsed.documents) {
                     allTasks.push({ ...parseFirestoreDoc(doc.fields || {}), _docId: doc.name.split('/').pop() });
@@ -1018,9 +1072,14 @@ async function refreshAllData() {
         recomputeStatsFromCache();
         await recomputeLeaderboardFromCache();
 
-        // Persist to Firestore for next startup (2 writes)
+        // Persist to Firestore for next startup (3 writes)
         try { await firestore.setDoc('config', 'platformStats', cache.platformStats); } catch(e) {}
         try { await firestore.setDoc('config', 'leaderboard', { leaders: JSON.stringify(cache.leaderboard.leaders), updatedAt: new Date().toISOString() }); } catch(e) {}
+        // Persist task snapshot so data survives restarts + quota exhaustion
+        try {
+            const snapshot = allTasks.map(t => ({ userId: t.userId, videoId: t.videoId, videoTitle: t.videoTitle, creatorName: t.creatorName, taskType: t.taskType, platform: t.platform, rewardUSD: t.rewardUSD, rewardSOL: t.rewardSOL, txSignature: t.txSignature || '', payoutSuccess: t.payoutSuccess || false, walletAddress: t.walletAddress || '', username: t.username || '', timestamp: t.timestamp, _docId: t._docId || '' }));
+            await firestore.setDoc('config', 'taskSnapshot', { tasks: JSON.stringify(snapshot), count: snapshot.length, updatedAt: new Date().toISOString() });
+        } catch(e) { console.warn('Task snapshot persist skipped:', e.message); }
 
         cache.lastRefresh = Date.now();
         console.log(`Refresh complete: ${allTasks.length} tasks, ${cache.leaderboard.leaders.length} leaders, $${cache.platformStats.totalPaidUSD} paid`);
@@ -1150,57 +1209,53 @@ app.get('/api/user-profile/:userId', async (req, res) => {
     } catch(e) { res.json({ profile: {} }); }
 });
 
-// API: Get user stats and task history — ALWAYS reads from Firestore directly, never cache-dependent
+// API: Get user stats — denormalized: 2 Firestore reads max (stats + cooldowns)
+// Badges, prestige, display info all stored in the stats doc at write time
 app.get('/api/user-stats/:userId', async (req, res) => {
     try {
         const { userId } = req.params;
 
-        // 1. Read authoritative stats doc from Firestore (1 read)
-        let stats = { views: 0, likes: 0, comments: 0, subs: 0, tasksCompleted: 0, totalEarned: 0, lastActivity: null };
-        try {
-            const s = await firestore.getDoc('stats', userId);
-            if (s) stats = { ...stats, ...s };
-        } catch(e) { console.warn('Stats read error:', e.message); }
-
-        // 2. Read user tasks — try Firestore query first, fall back to cache
-        let tasks = [];
-        try {
-            tasks = await firestore.query('tasks', 'userId', 'EQUAL', userId, 'timestamp', 50);
-        } catch(e) {
-            console.warn('Tasks query error, falling back to cache:', e.message);
-            if (cache.tasks && cache.tasks.length > 0) {
-                tasks = cache.tasks.filter(t => t.userId === userId);
+        // 1. Read denormalized stats doc (1 read — contains stats + badges + prestige)
+        let stats = { views: 0, likes: 0, comments: 0, subs: 0, tasksCompleted: 0, totalEarned: 0 };
+        let badges = [];
+        const s = await firestore.getDoc('stats', userId);
+        if (s) {
+            stats = { views: s.views || 0, likes: s.likes || 0, comments: s.comments || 0, subs: s.subs || 0, tasksCompleted: s.tasksCompleted || 0, totalEarned: s.totalEarned || 0, lastActivity: s.lastActivity || null, firstTaskAt: s.firstTaskAt || null, prestige: s.prestige || 'starter' };
+            // Badges stored as JSON string in stats doc
+            if (s.badges) {
+                try { badges = JSON.parse(s.badges); } catch(e) { badges = []; }
             }
         }
-        tasks.sort((a, b) => (b.timestamp || '') > (a.timestamp || '') ? 1 : -1);
+        // If stats doc has no badges yet (legacy), compute them
+        if (badges.length === 0 && stats.tasksCompleted > 0) {
+            const email = (req.query.email || '').toLowerCase().trim() || (s && s.email) || '';
+            badges = computeUserBadges(userId, email, stats.tasksCompleted, stats.firstTaskAt || stats.lastActivity);
+        }
+        // Admin badge check — always include if email matches
+        const email = (req.query.email || '').toLowerCase().trim() || (s && s.email) || '';
+        if (ADMIN_EMAILS.includes(email) && !badges.some(b => b.id === 'admin')) {
+            badges.unshift({ id: 'admin', label: 'ADMIN', icon: 'fas fa-shield-alt', color: '#dc2626', bg: '#fef2f2' });
+        }
 
-        // 3. Read cooldowns from Firestore (1 read)
+        // 2. Read cooldowns (1 read)
         let cooldowns = {};
-        try {
-            const cdData = await firestore.getDoc('cooldowns', userId) || {};
+        const cdData = await firestore.getDoc('cooldowns', userId);
+        if (cdData) {
             for (const [key, val] of Object.entries(cdData)) {
                 const ms = typeof val === 'string' ? new Date(val).getTime() : val;
-                if (Date.now() - ms < 24 * 60 * 60 * 1000) {
-                    cooldowns[key] = ms;
-                }
+                if (Date.now() - ms < 24 * 60 * 60 * 1000) cooldowns[key] = ms;
             }
-        } catch(e) {}
-
-        // 4. Compute badges — use stats doc as authoritative source
-        let email = (req.query.email || '').toLowerCase().trim() || null;
-        if (!email) {
-            try {
-                const userDoc = await firestore.getDoc('users', userId);
-                if (userDoc) email = userDoc.email || null;
-            } catch(e) {}
         }
-        let firstTaskTs = tasks.length > 0
-            ? tasks.reduce((min, t) => (!min || (t.timestamp && t.timestamp < min)) ? t.timestamp : min, null)
-            : null;
-        if (!firstTaskTs && stats.lastActivity) firstTaskTs = stats.lastActivity;
-        const badges = computeUserBadges(userId, email, stats.tasksCompleted || tasks.length, firstTaskTs);
 
-        res.json({ stats, tasks: tasks.slice(0, 30), cooldowns, badges });
+        // 3. Tasks from cache only (zero reads — cache populated by background refresh)
+        let tasks = [];
+        if (cache.tasks.length > 0) {
+            tasks = cache.tasks.filter(t => t.userId === userId)
+                .sort((a, b) => (b.timestamp || '') > (a.timestamp || '') ? 1 : -1)
+                .slice(0, 30);
+        }
+
+        res.json({ stats, tasks, cooldowns, badges });
     } catch(e) {
         console.error('User stats error:', e.message);
         res.json({ stats: {}, tasks: [], cooldowns: {}, badges: [] });

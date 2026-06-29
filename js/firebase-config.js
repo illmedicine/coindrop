@@ -14,6 +14,10 @@ let db, auth;
 try {
     firebase.initializeApp(firebaseConfig);
     db = firebase.firestore();
+    // Enable offline persistence — serves cached reads locally, reduces Firestore reads
+    db.enablePersistence({ synchronizeTabs: true }).catch(e => {
+        console.warn('Persistence not enabled:', e.code);
+    });
     auth = firebase.auth();
 } catch(e) {
     console.warn('Firebase init error (non-fatal):', e.message);
