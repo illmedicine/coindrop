@@ -1488,6 +1488,7 @@ async function fetchDiscordServerStats() {
 }
 
 app.get('/api/discord-stats', async (req, res) => {
+    if (req.query.refresh) { _discordStatsCache.timestamp = 0; }
     const stats = await fetchDiscordServerStats();
     res.json(stats);
 });
