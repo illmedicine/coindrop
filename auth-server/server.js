@@ -828,7 +828,7 @@ app.post('/api/admin/retry-all', async (req, res) => {
     if (!ADMIN_EMAILS.includes(email)) {
         return res.status(403).json({ error: 'Unauthorized' });
     }
-    const limit = Math.min(batchSize || 10, 20);
+    const limit = Math.min(batchSize || 5, 10);
     try {
         let allTasks;
         if (cache.tasks.length > 0) {
@@ -862,7 +862,12 @@ app.post('/api/admin/retry-all', async (req, res) => {
                 continue;
             }
             try {
-                const txSig = await sendSolPayment(treasuryKey, wallet, parseFloat(data.rewardSOL || 0));
+                // 2s delay between transactions to avoid Solana RPC rate limiting
+                if (results.length > 0) await new Promise(r => setTimeout(r, 2000));
+                const txSig = await Promise.race([
+                    sendSolPayment(treasuryKey, wallet, parseFloat(data.rewardSOL || 0)),
+                    new Promise((_, reject) => setTimeout(() => reject(new Error('Solana RPC timeout after 30s')), 30000))
+                ]);
                 const TASKS_URL = `${FIRESTORE_URL}/tasks/${data.docId}?key=${FIREBASE_API_KEY}&updateMask.fieldPaths=txSignature&updateMask.fieldPaths=payoutSuccess&updateMask.fieldPaths=retryTimestamp`;
                 const patchData = JSON.stringify({
                     fields: {

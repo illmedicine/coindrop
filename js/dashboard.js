@@ -209,15 +209,10 @@ if (user) {
     const pdBadge = document.getElementById('pd-badge');
     if (pdBadge) { pdBadge.innerHTML = `<i class="${p.icon}"></i> ${p.label}`; pdBadge.className = `badge ${p.class}`; }
 
-    // Wallet UI
+    // Wallet UI — hide banner until server confirms wallet status
     updateWalletUI(user.walletAddress || '');
-    if (!user.walletAddress) {
-        const banner = document.getElementById('wallet-required-banner');
-        if (banner) banner.classList.remove('hidden');
-    } else {
-        const banner = document.getElementById('wallet-required-banner');
-        if (banner) banner.classList.add('hidden');
-    }
+    const banner = document.getElementById('wallet-required-banner');
+    if (banner) banner.classList.add('hidden');
 }
 
 // Profile dropdown toggle
@@ -350,10 +345,14 @@ async function syncFromServer() {
                     user.walletAddress = profileData.profile.walletAddress;
                     localStorage.setItem('coindrop_user', JSON.stringify(user));
                     updateWalletUI(user.walletAddress);
-                    const banner = document.getElementById('wallet-required-banner');
-                    if (banner) banner.classList.add('hidden');
                 }
             } catch(e) {}
+        }
+        // Show/hide wallet banner based on server-confirmed wallet status
+        const walletBanner = document.getElementById('wallet-required-banner');
+        if (walletBanner) {
+            if (user.walletAddress) walletBanner.classList.add('hidden');
+            else walletBanner.classList.remove('hidden');
         }
 
         const emailParam = user.email ? `?email=${encodeURIComponent(user.email)}` : '';
