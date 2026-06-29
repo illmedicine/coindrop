@@ -1025,7 +1025,9 @@ function recomputeStatsFromCache() {
     for (const t of cache.tasks) {
         totalPaidUSD += t.rewardUSD || 0;
         if (t.userId) uniqueUsers.add(t.userId);
-        const ts = t.timestamp ? new Date(t.timestamp).getTime() : 0;
+        // Use retryTimestamp (actual payment time) if available, otherwise task completion time
+        const paidAt = t.retryTimestamp || t.timestamp;
+        const ts = paidAt ? new Date(paidAt).getTime() : 0;
         if (ts > oneHourAgo) paidLastHourUSD += t.rewardUSD || 0;
         if (ts > oneDayAgo) paidLast24hUSD += t.rewardUSD || 0;
     }
