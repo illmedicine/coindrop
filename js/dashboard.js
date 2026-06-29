@@ -186,17 +186,20 @@ function renderBadgePills(badges) {
 }
 
 if (user) {
-    const p = PRESTIGE[user.prestige] || PRESTIGE.starter;
+    // Only use localStorage for identity (name, avatar, auth) — stats come from server
     document.getElementById('user-name').textContent = user.displayName;
     document.getElementById('user-avatar').src = user.avatar;
+    const p = PRESTIGE[user.prestige] || PRESTIGE.starter;
     document.getElementById('user-badge').innerHTML = `<i class="${p.icon}"></i> ${p.label}`;
     document.getElementById('user-badge').className = `badge ${p.class}`;
-    document.getElementById('total-earned').textContent = `${user.totalEarned} SOL`;
-    document.getElementById('tasks-done').textContent = user.tasksCompleted;
-    document.getElementById('active-subs').textContent = user.activeSubscriptions;
-    document.getElementById('active-follows').textContent = user.activeFollows;
 
-    // Profile dropdown data
+    // Show loading state for stats until server responds
+    document.getElementById('total-earned').textContent = '...';
+    document.getElementById('tasks-done').textContent = '...';
+    document.getElementById('active-subs').textContent = '...';
+    document.getElementById('active-follows').textContent = '...';
+
+    // Profile dropdown identity
     const pdAvatar = document.getElementById('pd-avatar');
     if (pdAvatar) pdAvatar.src = user.avatar;
     const pdName = document.getElementById('pd-name');
@@ -205,32 +208,8 @@ if (user) {
     if (pdUsername) pdUsername.textContent = `@${user.username || user.displayName}`;
     const pdBadge = document.getElementById('pd-badge');
     if (pdBadge) { pdBadge.innerHTML = `<i class="${p.icon}"></i> ${p.label}`; pdBadge.className = `badge ${p.class}`; }
-    const pdEarned = document.getElementById('pd-earned');
-    if (pdEarned) pdEarned.textContent = `${user.totalEarned} SOL`;
-    const pdTasks = document.getElementById('pd-tasks');
-    if (pdTasks) pdTasks.textContent = user.tasksCompleted;
 
-    const taskBreakdown = JSON.parse(localStorage.getItem('coindrop_task_breakdown') || '{"views":0,"likes":0,"comments":0,"subs":0}');
-    const pdViews = document.getElementById('pd-views');
-    if (pdViews) pdViews.textContent = taskBreakdown.views;
-    const pdLikes = document.getElementById('pd-likes');
-    if (pdLikes) pdLikes.textContent = taskBreakdown.likes;
-    const pdComments = document.getElementById('pd-comments');
-    if (pdComments) pdComments.textContent = taskBreakdown.comments;
-    const pdSubs = document.getElementById('pd-subs');
-    if (pdSubs) pdSubs.textContent = (user.activeSubscriptions || 0) + (user.activeFollows || 0);
-
-    // Prestige progress
-    const prestigeOrder = ['starter','bronze','silver','gold','platinum','diamond'];
-    const currentIdx = prestigeOrder.indexOf(user.prestige || 'starter');
-    const progressPct = Math.round(((currentIdx + 1) / prestigeOrder.length) * 100);
-    const pdProgress = document.getElementById('pd-progress');
-    if (pdProgress) pdProgress.style.width = progressPct + '%';
-    document.querySelectorAll('.pd-rank').forEach((el, i) => {
-        if (i <= currentIdx) el.classList.add('active');
-    });
-
-    // Wallet UI — show banner if no wallet, never auto-open modal
+    // Wallet UI
     updateWalletUI(user.walletAddress || '');
     if (!user.walletAddress) {
         const banner = document.getElementById('wallet-required-banner');
@@ -416,13 +395,35 @@ async function syncFromServer() {
 
         localStorage.setItem('coindrop_user', JSON.stringify(user));
 
-        // Display prestige badges
+        // Display prestige badges from server
         const userBadges = data.badges || [];
         const badgeContainer = document.getElementById('user-badges-row');
         if (badgeContainer) badgeContainer.innerHTML = renderBadgePills(userBadges);
         const pdBadgeContainer = document.getElementById('pd-badges-row');
         if (pdBadgeContainer) pdBadgeContainer.innerHTML = renderBadgePills(userBadges);
         window._userBadges = userBadges;
+
+        // Update prestige progress from server data
+        const tc = stats.tasksCompleted || 0;
+        let prestige = 'starter';
+        if (tc >= 500) prestige = 'diamond';
+        else if (tc >= 300) prestige = 'platinum';
+        else if (tc >= 150) prestige = 'gold';
+        else if (tc >= 50) prestige = 'silver';
+        else if (tc >= 10) prestige = 'bronze';
+        const sp = PRESTIGE[prestige] || PRESTIGE.starter;
+        const prestigeOrder = ['starter','bronze','silver','gold','platinum','diamond'];
+        const currentIdx = prestigeOrder.indexOf(prestige);
+        const progressPct = Math.round(((currentIdx + 1) / prestigeOrder.length) * 100);
+        document.getElementById('user-badge').innerHTML = `<i class="${sp.icon}"></i> ${sp.label}`;
+        document.getElementById('user-badge').className = `badge ${sp.class}`;
+        const pdBadge = document.getElementById('pd-badge');
+        if (pdBadge) { pdBadge.innerHTML = `<i class="${sp.icon}"></i> ${sp.label}`; pdBadge.className = `badge ${sp.class}`; }
+        const pdProgress = document.getElementById('pd-progress');
+        if (pdProgress) pdProgress.style.width = progressPct + '%';
+        document.querySelectorAll('.pd-rank').forEach((el, i) => {
+            el.classList.toggle('active', i <= currentIdx);
+        });
 
         // Load cooldowns from server
         _cooldownCache = {};

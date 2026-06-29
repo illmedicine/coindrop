@@ -1047,7 +1047,17 @@ app.get('/api/admin/refresh-cache', async (req, res) => {
     res.json({ tasks: cache.tasks.length, leaders: cache.leaderboard.leaders.length, stats: cache.platformStats });
 });
 
-app.get('/api/platform-stats', (req, res) => {
+app.get('/api/platform-stats', async (req, res) => {
+    if (cache.platformStats.totalTasksCompleted > BASELINE_STATS.totalTasksCompleted) {
+        return res.json(cache.platformStats);
+    }
+    // Cache is stale — read persisted stats from Firestore
+    try {
+        const stats = await firestore.getDoc('config', 'platformStats');
+        if (stats && stats.totalTasksCompleted) {
+            cache.platformStats = stats;
+        }
+    } catch(e) {}
     res.json(cache.platformStats);
 });
 
@@ -1140,44 +1150,31 @@ app.get('/api/user-profile/:userId', async (req, res) => {
     } catch(e) { res.json({ profile: {} }); }
 });
 
-// API: Get user stats and task history
+// API: Get user stats and task history — ALWAYS reads from Firestore directly, never cache-dependent
 app.get('/api/user-stats/:userId', async (req, res) => {
     try {
         const { userId } = req.params;
-        let stats = { views: 0, likes: 0, comments: 0, subs: 0, tasksCompleted: 0, totalEarned: 0 };
-        // Always read stats doc from Firestore as baseline
+
+        // 1. Read authoritative stats doc from Firestore (1 read)
+        let stats = { views: 0, likes: 0, comments: 0, subs: 0, tasksCompleted: 0, totalEarned: 0, lastActivity: null };
         try {
             const s = await firestore.getDoc('stats', userId);
-            if (s) stats = s;
-        } catch(e) {}
+            if (s) stats = { ...stats, ...s };
+        } catch(e) { console.warn('Stats read error:', e.message); }
 
-        // Get tasks from cache or Firestore query
+        // 2. Read user tasks — try Firestore query first, fall back to cache
         let tasks = [];
-        if (cache.tasks && cache.tasks.length > 0) {
-            tasks = cache.tasks.filter(t => t.userId === userId)
-                .sort((a, b) => (b.timestamp || '') > (a.timestamp || '') ? 1 : -1);
-        } else {
-            try {
-                tasks = await firestore.query('tasks', 'userId', 'EQUAL', userId, 'timestamp', 50);
-            } catch(e) { console.warn('Task query error:', e.message); }
-        }
-
-        // Recompute stats from tasks if we have them, take the higher count
-        if (tasks.length > 0) {
-            const computed = { views: 0, likes: 0, comments: 0, subs: 0, tasksCompleted: 0, totalEarned: 0 };
-            for (const t of tasks) {
-                computed.tasksCompleted++;
-                computed.totalEarned += t.rewardUSD || 0;
-                if (t.taskType === 'watch') computed.views++;
-                else if (t.taskType === 'like') computed.likes++;
-                else if (t.taskType === 'comment') computed.comments++;
-                else if (t.taskType === 'subscribe') computed.subs++;
-            }
-            if (computed.tasksCompleted >= (stats.tasksCompleted || 0)) {
-                stats = computed;
+        try {
+            tasks = await firestore.query('tasks', 'userId', 'EQUAL', userId, 'timestamp', 50);
+        } catch(e) {
+            console.warn('Tasks query error, falling back to cache:', e.message);
+            if (cache.tasks && cache.tasks.length > 0) {
+                tasks = cache.tasks.filter(t => t.userId === userId);
             }
         }
+        tasks.sort((a, b) => (b.timestamp || '') > (a.timestamp || '') ? 1 : -1);
 
+        // 3. Read cooldowns from Firestore (1 read)
         let cooldowns = {};
         try {
             const cdData = await firestore.getDoc('cooldowns', userId) || {};
@@ -1189,16 +1186,17 @@ app.get('/api/user-stats/:userId', async (req, res) => {
             }
         } catch(e) {}
 
-        // Compute badges for this user
+        // 4. Compute badges — use stats doc as authoritative source
         let email = (req.query.email || '').toLowerCase().trim() || null;
         if (!email) {
-            const userDoc = await getUserProfileCached(userId);
-            if (userDoc) email = userDoc.email || null;
+            try {
+                const userDoc = await firestore.getDoc('users', userId);
+                if (userDoc) email = userDoc.email || null;
+            } catch(e) {}
         }
         let firstTaskTs = tasks.length > 0
             ? tasks.reduce((min, t) => (!min || (t.timestamp && t.timestamp < min)) ? t.timestamp : min, null)
             : null;
-        // Fallback: if no tasks in cache but stats doc shows activity, use lastActivity as timestamp
         if (!firstTaskTs && stats.lastActivity) firstTaskTs = stats.lastActivity;
         const badges = computeUserBadges(userId, email, stats.tasksCompleted || tasks.length, firstTaskTs);
 
@@ -1233,8 +1231,44 @@ app.get('/api/user-badges/:userId', async (req, res) => {
     }
 });
 
-// API: Get global leaderboard (served from cache, refreshed every 5 min)
-app.get('/api/leaderboard', (req, res) => {
+// API: Get global leaderboard — serve from memory, rebuild from Firestore if empty
+app.get('/api/leaderboard', async (req, res) => {
+    if (cache.leaderboard.leaders.length > 0) {
+        return res.json(cache.leaderboard);
+    }
+    // Cache empty (server just started) — read persisted leaderboard from Firestore
+    try {
+        const lb = await firestore.getDoc('config', 'leaderboard');
+        if (lb && lb.leaders) {
+            const parsed = JSON.parse(lb.leaders);
+            if (Array.isArray(parsed) && parsed.length > 0) {
+                cache.leaderboard = { leaders: parsed };
+                return res.json(cache.leaderboard);
+            }
+        }
+    } catch(e) {}
+    // Still empty — build from stats collection directly (1 doc per user, cheap)
+    try {
+        const listData = await httpGet(`${FIRESTORE_URL}/stats?key=${FIREBASE_API_KEY}&pageSize=50`);
+        const parsed = JSON.parse(listData);
+        if (parsed.documents && Array.isArray(parsed.documents)) {
+            const leaders = [];
+            for (const doc of parsed.documents) {
+                const uid = doc.name.split('/').pop();
+                const data = parseFirestoreDoc(doc.fields || {});
+                let name = uid.substring(0, 8), avatar = null, email = null;
+                try {
+                    const u = await firestore.getDoc('users', uid);
+                    if (u) { name = u.displayName || name; avatar = u.avatar || null; email = u.email || null; }
+                } catch(e) {}
+                const badges = computeUserBadges(uid, email, data.tasksCompleted || 0, data.lastActivity || null);
+                leaders.push({ userId: uid, name, avatar, badges, tasksCompleted: data.tasksCompleted || 0, totalEarnedUSD: data.totalEarned || 0 });
+            }
+            leaders.sort((a, b) => (b.totalEarnedUSD || 0) - (a.totalEarnedUSD || 0));
+            cache.leaderboard = { leaders: leaders.slice(0, 20) };
+            try { await firestore.setDoc('config', 'leaderboard', { leaders: JSON.stringify(cache.leaderboard.leaders), updatedAt: new Date().toISOString() }); } catch(e) {}
+        }
+    } catch(e) { console.warn('Leaderboard build error:', e.message); }
     res.json(cache.leaderboard);
 });
 
