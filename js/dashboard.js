@@ -756,6 +756,40 @@ function loadEarningsSummary() {
     if (eo) eo.textContent = `${document.getElementById('pd-likes')?.textContent || 0} / ${document.getElementById('pd-comments')?.textContent || 0} / ${document.getElementById('pd-subs')?.textContent || 0}`;
 }
 
+// ===== Presence Heartbeat & Live Counters =====
+async function sendPresenceHeartbeat() {
+    if (!user || !user.id) return;
+    try {
+        await fetch(`${API_URL}/api/presence/heartbeat`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ userId: user.id }),
+        });
+    } catch(e) {}
+}
+
+async function loadLiveCounters() {
+    try {
+        const [presenceRes, discordRes] = await Promise.all([
+            fetch(`${API_URL}/api/presence/count`),
+            fetch(`${API_URL}/api/discord-stats`),
+        ]);
+        const presence = await presenceRes.json();
+        const discord = await discordRes.json();
+        const activeEl = document.getElementById('active-users-count');
+        if (activeEl) activeEl.textContent = (presence.activeUsers || 0).toLocaleString();
+        const membersEl = document.getElementById('discord-members');
+        if (membersEl && discord.totalMembers) membersEl.textContent = discord.totalMembers.toLocaleString();
+        const onlineEl = document.getElementById('discord-online');
+        if (onlineEl && discord.onlineMembers) onlineEl.textContent = discord.onlineMembers.toLocaleString();
+    } catch(e) {}
+}
+
+sendPresenceHeartbeat();
+loadLiveCounters();
+setInterval(sendPresenceHeartbeat, 60000);
+setInterval(loadLiveCounters, 30000);
+
 // ===== Platform Stats Ticker =====
 async function loadPlatformStats() {
     const track = document.getElementById('stats-ticker-track');

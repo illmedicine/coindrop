@@ -51,9 +51,15 @@
             </a>
         </nav>
         <div class="sidebar-footer">
-            <div class="discord-status">
-                <span class="online-dot"></span>
-                <span id="discord-count">2,341</span> in Discord
+            <div class="sidebar-status-block">
+                <div class="active-users-status">
+                    <span class="online-dot"></span>
+                    <span><span class="status-value" id="active-users-count">--</span> online now</span>
+                </div>
+                <div class="discord-status">
+                    <i class="fab fa-discord" style="color:#5865F2;font-size:0.9rem;"></i>
+                    <span><span class="status-value" id="discord-members">--</span> members · <span class="status-value" id="discord-online">--</span> online</span>
+                </div>
             </div>
             <a href="#" class="sidebar-link" onclick="handleLogout()">
                 <i class="fas fa-sign-out-alt"></i> Logout

@@ -23,7 +23,12 @@ const firestore = {
     },
     async addDoc(collection, fields) {
         const body = JSON.stringify({ fields: toFirestoreFields(fields) });
-        return httpPostJson(`${FIRESTORE_URL}/${collection}?key=${FIREBASE_API_KEY}`, body);
+        const result = await httpPostJson(`${FIRESTORE_URL}/${collection}?key=${FIREBASE_API_KEY}`, body);
+        try {
+            const parsed = JSON.parse(result);
+            if (parsed.name) return parsed.name.split('/').pop();
+        } catch(e) {}
+        return null;
     },
     async query(collection, field, op, value, orderBy, limit) {
         const body = JSON.stringify({
@@ -115,7 +120,11 @@ const DISCORD_WEBHOOKS = {
     likes: process.env.DISCORD_WEBHOOK_LIKES,
     comments: process.env.DISCORD_WEBHOOK_COMMENTS,
     subscriber: process.env.DISCORD_WEBHOOK_SUBSCRIBER,
+    payouts: 'https://discord.com/api/webhooks/1521127897090359366/hZvkQGoEd2PNs-ht4ut1jcyLheM0Ubq95xdSQ9ebxMcooIN9PLnN86glL9qdhIHvTXyQ',
 };
+
+const DISCORD_SERVER_ID = '1517900956849803346';
+const DISCORD_BOT_TOKEN = process.env.DISCORD_BOT_TOKEN;
 
 // All rewards in USD cents — converted to SOL at payout time
 const TASK_REWARDS_USD = {
@@ -428,7 +437,7 @@ Respond with EXACTLY this JSON (no other text):
             const statField = { watch: 'views', like: 'likes', comment: 'comments', subscribe: 'subs', follow: 'subs' }[taskType] || 'views';
 
             // Log completed task
-            await firestore.addDoc('tasks', {
+            const newDocId = await firestore.addDoc('tasks', {
                 userId, videoId, videoTitle, creatorName, taskType, platform,
                 rewardUSD, rewardSOL: rewardSOL || 0, txSignature: txSignature || '',
                 payoutSuccess: payoutSuccess,
@@ -453,10 +462,14 @@ Respond with EXACTLY this JSON (no other text):
 
             console.log(`TASK LOGGED: ${username} (${userId}) — ${taskType} — ${videoTitle} — $${rewardUSD}`);
 
-            // Add to in-memory cache so it's immediately visible
-            cache.tasks.push({ userId, videoId, videoTitle, creatorName, taskType, platform, rewardUSD, rewardSOL: rewardSOL || 0, txSignature: txSignature || '', payoutSuccess, walletAddress: walletAddress || '', username: username || '', timestamp: new Date().toISOString() });
+            // Add to in-memory cache with docId so unpaid-tasks can reference it
+            cache.tasks.push({ userId, videoId, videoTitle, creatorName, taskType, platform, rewardUSD, rewardSOL: rewardSOL || 0, txSignature: txSignature || '', payoutSuccess, walletAddress: walletAddress || '', username: username || '', timestamp: new Date().toISOString(), _docId: newDocId || '' });
         } catch(dbErr) {
             console.error('Firestore write error:', dbErr.message);
+        }
+
+        if (payoutSuccess && txSignature) {
+            notifyPayout(userId, username, taskType, videoTitle, rewardUSD, rewardSOL, txSignature);
         }
 
         res.json({
@@ -651,22 +664,18 @@ app.get('/api/admin/unpaid-tasks', async (req, res) => {
         return res.status(403).json({ error: 'Unauthorized' });
     }
     try {
+        // Admin view always reads fresh from Firestore for accuracy, then updates cache
         const listData = await httpGet(`${FIRESTORE_URL}/tasks?key=${FIREBASE_API_KEY}&pageSize=500`);
         const parsed = JSON.parse(listData);
         if (!parsed.documents) return res.json({ unpaid: [], duplicatesMarked: 0 });
+        const allTasks = parsed.documents.map(doc => ({ ...parseFirestoreDoc(doc.fields || {}), docId: doc.name.split('/').pop() }));
+        // Update server cache with fresh data
+        cache.tasks = allTasks.map(t => ({ ...t, _docId: t.docId }));
+        recomputeStatsFromCache();
+
         const unpaid = [];
-        // Track subscribes: only first per user+creator is eligible
-        const seenSubscribes = new Set(); // "userId:creatorName"
-        // First pass: collect ALL tasks (paid + unpaid) to find which subscribes are first
-        const allTasks = [];
-        for (const doc of parsed.documents) {
-            const data = parseFirestoreDoc(doc.fields || {});
-            const docId = doc.name.split('/').pop();
-            allTasks.push({ ...data, docId });
-        }
-        // Sort by timestamp ascending so first subscribe wins
+        const seenSubscribes = new Set();
         allTasks.sort((a, b) => (a.timestamp || '') < (b.timestamp || '') ? -1 : 1);
-        // Build set of first subscribes (paid or unpaid)
         for (const t of allTasks) {
             if (t.taskType === 'subscribe') {
                 const key = `${t.userId}:${t.creatorName}`;
@@ -675,36 +684,13 @@ app.get('/api/admin/unpaid-tasks', async (req, res) => {
                     t._isFirstSubscribe = true;
                 } else {
                     t._isFirstSubscribe = false;
-                    // Mark duplicate subscribes as ineligible in Firestore (set payoutSuccess to 'duplicate')
-                    if (!t.txSignature && !t.payoutSuccess) {
-                        try {
-                            const TASKS_URL = `${FIRESTORE_URL}/tasks/${t.docId}?key=${FIREBASE_API_KEY}&updateMask.fieldPaths=payoutSuccess&updateMask.fieldPaths=duplicateOf`;
-                            const patchData = JSON.stringify({
-                                fields: {
-                                    payoutSuccess: { stringValue: 'duplicate' },
-                                    duplicateOf: { stringValue: 'subscribe_duplicate' },
-                                }
-                            });
-                            await new Promise((resolve, reject) => {
-                                const url = new URL(TASKS_URL);
-                                const patchReq = https.request({
-                                    hostname: url.hostname, path: url.pathname + url.search, method: 'PATCH',
-                                    headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(patchData) },
-                                }, (patchRes) => { let b = ''; patchRes.on('data', c => b += c); patchRes.on('end', () => resolve(b)); });
-                                patchReq.on('error', reject);
-                                patchReq.write(patchData);
-                                patchReq.end();
-                            });
-                        } catch(e) { console.warn('Failed to mark duplicate:', e.message); }
-                    }
                 }
             }
         }
-        // Second pass: collect unpaid non-duplicate tasks
         for (const t of allTasks) {
             if (!t.txSignature && !t.payoutSuccess) {
                 if (t.taskType === 'subscribe' && !t._isFirstSubscribe) continue;
-                const userDoc = await firestore.getDoc('users', t.userId);
+                const userDoc = await getUserProfileCached(t.userId);
                 const wallet = userDoc ? userDoc.walletAddress : t.walletAddress;
                 unpaid.push({
                     docId: t.docId,
@@ -740,9 +726,9 @@ app.post('/api/admin/retry-payout', async (req, res) => {
         if (!TREASURY_PRIVATE_KEY_ENCRYPTED || !TREASURY_ENCRYPTION_KEY) {
             return res.status(400).json({ error: 'Treasury key not configured' });
         }
+        const taskDoc = await firestore.getDoc('tasks', docId);
         const treasuryKey = decryptPrivateKey(TREASURY_PRIVATE_KEY_ENCRYPTED, TREASURY_ENCRYPTION_KEY);
         const txSignature = await sendSolPayment(treasuryKey, walletAddress, parseFloat(rewardSOL));
-        // Update the task doc with the tx
         const TASKS_URL = `${FIRESTORE_URL}/tasks/${docId}?key=${FIREBASE_API_KEY}&updateMask.fieldPaths=txSignature&updateMask.fieldPaths=payoutSuccess&updateMask.fieldPaths=retryTimestamp`;
         const patchData = JSON.stringify({
             fields: {
@@ -767,6 +753,13 @@ app.post('/api/admin/retry-payout', async (req, res) => {
             patchReq.write(patchData);
             patchReq.end();
         });
+        // Update in-memory cache so unpaid count stays accurate
+        const cacheEntry = cache.tasks.find(t => (t._docId || t.docId) === docId);
+        if (cacheEntry) { cacheEntry.txSignature = txSignature; cacheEntry.payoutSuccess = true; }
+        if (taskDoc) {
+            const rewardUSD = taskDoc.rewardUSD || (parseFloat(rewardSOL) * 150);
+            notifyPayout(taskDoc.userId, taskDoc.username, taskDoc.taskType, taskDoc.videoTitle, rewardUSD, parseFloat(rewardSOL), txSignature);
+        }
         res.json({ success: true, txSignature });
     } catch (err) {
         console.error('Retry payout error:', err.message);
@@ -781,11 +774,15 @@ app.post('/api/admin/retry-all', async (req, res) => {
     }
     const limit = Math.min(batchSize || 10, 20);
     try {
-        const listData = await httpGet(`${FIRESTORE_URL}/tasks?key=${FIREBASE_API_KEY}&pageSize=500`);
-        const parsed = JSON.parse(listData);
-        if (!parsed.documents) return res.json({ results: [], total: 0, remaining: 0 });
-        // Deduplicate subscribes
-        const allTasks = parsed.documents.map(doc => ({ ...parseFirestoreDoc(doc.fields || {}), docId: doc.name.split('/').pop() }));
+        let allTasks;
+        if (cache.tasks.length > 0) {
+            allTasks = cache.tasks.map(t => ({ ...t, docId: t._docId || t.docId }));
+        } else {
+            const listData = await httpGet(`${FIRESTORE_URL}/tasks?key=${FIREBASE_API_KEY}&pageSize=500`);
+            const parsed = JSON.parse(listData);
+            if (!parsed.documents) return res.json({ results: [], total: 0, remaining: 0 });
+            allTasks = parsed.documents.map(doc => ({ ...parseFirestoreDoc(doc.fields || {}), docId: doc.name.split('/').pop() }));
+        }
         allTasks.sort((a, b) => (a.timestamp || '') < (b.timestamp || '') ? -1 : 1);
         const seenSubs = new Set();
         const eligible = [];
@@ -802,7 +799,7 @@ app.post('/api/admin/retry-all', async (req, res) => {
         const results = [];
         const treasuryKey = decryptPrivateKey(TREASURY_PRIVATE_KEY_ENCRYPTED, TREASURY_ENCRYPTION_KEY);
         for (const data of batch) {
-            const userDoc = await firestore.getDoc('users', data.userId);
+            const userDoc = await getUserProfileCached(data.userId);
             const wallet = userDoc ? userDoc.walletAddress : data.walletAddress;
             if (!wallet) {
                 results.push({ docId: data.docId, status: 'skipped', reason: 'No wallet address' });
@@ -829,6 +826,11 @@ app.post('/api/admin/retry-all', async (req, res) => {
                     patchReq.end();
                 });
                 results.push({ docId: data.docId, status: 'paid', txSignature: txSig });
+                // Update in-memory cache so unpaid count stays accurate
+                const cacheEntry = cache.tasks.find(t => (t._docId || t.docId) === data.docId);
+                if (cacheEntry) { cacheEntry.txSignature = txSig; cacheEntry.payoutSuccess = true; }
+                const rewardUSD = data.rewardUSD || (parseFloat(data.rewardSOL || 0) * 150);
+                notifyPayout(data.userId, data.username || (userDoc && userDoc.displayName), data.taskType, data.videoTitle, rewardUSD, parseFloat(data.rewardSOL || 0), txSig);
             } catch (payErr) {
                 results.push({ docId: data.docId, status: 'failed', reason: payErr.message });
             }
@@ -841,21 +843,18 @@ app.post('/api/admin/retry-all', async (req, res) => {
     }
 });
 
-// ===== Subscriptions with 30-day residual =====
+// ===== Subscriptions with 30-day residual (uses in-memory cache, zero reads) =====
 app.get('/api/user-subscriptions/:userId', async (req, res) => {
     try {
         const userId = req.params.userId;
-        const listData = await httpGet(`${FIRESTORE_URL}/tasks?key=${FIREBASE_API_KEY}&pageSize=500`);
-        const parsed = JSON.parse(listData);
-        if (!parsed.documents) return res.json({ subscriptions: [] });
+        const tasks = cache.tasks.length > 0 ? cache.tasks : [];
 
         const subsByCreator = {};
-        for (const doc of parsed.documents) {
-            const data = parseFirestoreDoc(doc.fields || {});
+        for (const data of tasks) {
             if (data.userId === userId && data.taskType === 'subscribe') {
                 const key = data.creatorName;
                 if (!subsByCreator[key] || (data.timestamp < subsByCreator[key].timestamp)) {
-                    subsByCreator[key] = { ...data, docId: doc.name.split('/').pop() };
+                    subsByCreator[key] = data;
                 }
             }
         }
@@ -886,19 +885,20 @@ app.get('/api/user-subscriptions/:userId', async (req, res) => {
 });
 
 // ===== Unified Cache System =====
-// Baseline data so endpoints never return empty — refreshed from Firestore in background
+// Optimized to minimize Firestore reads — uses in-memory cache + persisted config docs
 const BASELINE_STATS = { totalTasksCompleted: 299, totalPaidUSD: 6.22, paidLastHourUSD: 0, paidLast24hUSD: 0, uniqueUsers: 10 };
 
 const cache = {
     tasks: [],
     platformStats: { ...BASELINE_STATS },
     leaderboard: { leaders: [] },
+    userProfiles: {},
     lastRefresh: 0,
     refreshing: false,
 };
 
 async function loadCacheFromFirestore() {
-    console.log('Loading cached data from Firestore...');
+    console.log('Loading cached data from Firestore (2 reads)...');
     try {
         const stats = await firestore.getDoc('config', 'platformStats');
         if (stats && stats.totalTasksCompleted > cache.platformStats.totalTasksCompleted) cache.platformStats = stats;
@@ -910,56 +910,77 @@ async function loadCacheFromFirestore() {
             if (Array.isArray(parsed) && parsed.length > 0) cache.leaderboard = { leaders: parsed };
         }
     } catch(e) { console.warn('Leaderboard cache load skipped'); }
-
-    // If leaderboard still empty, try building from stats collection (lightweight, 1 doc per user)
-    if (cache.leaderboard.leaders.length === 0) {
-        try {
-            console.log('Building leaderboard from stats collection...');
-            const listData = await httpGet(`${FIRESTORE_URL}/stats?key=${FIREBASE_API_KEY}&pageSize=50`);
-            const parsed = JSON.parse(listData);
-            if (parsed.documents && Array.isArray(parsed.documents)) {
-                const leaders = [];
-                for (const doc of parsed.documents) {
-                    const userId = doc.name.split('/').pop();
-                    const data = parseFirestoreDoc(doc.fields || {});
-                    let name = userId.substring(0, 8);
-                    let avatar = null;
-                    let email = null;
-                    try {
-                        const userDoc = await firestore.getDoc('users', userId);
-                        if (userDoc) { name = userDoc.displayName || name; avatar = userDoc.avatar || null; email = userDoc.email || null; }
-                    } catch(e) {}
-                    const badges = computeUserBadges(userId, email, data.tasksCompleted || 0, data.lastActivity || null);
-                    leaders.push({
-                        userId, name, avatar, badges,
-                        tasksCompleted: data.tasksCompleted || 0,
-                        totalEarnedUSD: data.totalEarned || 0,
-                    });
-                }
-                leaders.sort((a, b) => (b.totalEarnedUSD || 0) - (a.totalEarnedUSD || 0));
-                cache.leaderboard = { leaders: leaders.slice(0, 20) };
-                // Persist so next startup is instant
-                try { await firestore.setDoc('config', 'leaderboard', { leaders: JSON.stringify(cache.leaderboard.leaders), updatedAt: new Date().toISOString() }); } catch(e) {}
-                // Update stats from this data if we have more
-                const totalTasks = leaders.reduce((s, l) => s + (l.tasksCompleted || 0), 0);
-                const totalPaid = leaders.reduce((s, l) => s + (l.totalEarnedUSD || 0), 0);
-                if (totalTasks > cache.platformStats.totalTasksCompleted) {
-                    cache.platformStats.totalTasksCompleted = totalTasks;
-                    cache.platformStats.totalPaidUSD = parseFloat(totalPaid.toFixed(2));
-                    cache.platformStats.uniqueUsers = leaders.length;
-                    try { await firestore.setDoc('config', 'platformStats', cache.platformStats); } catch(e) {}
-                }
-            }
-        } catch(e) { console.warn('Stats collection fallback skipped:', e.message); }
-    }
-
     console.log(`Cache loaded: ${cache.platformStats.totalTasksCompleted} tasks, ${cache.leaderboard.leaders.length} leaders`);
+}
+
+function getCachedUserProfile(userId) {
+    return cache.userProfiles[userId] || null;
+}
+
+async function getUserProfileCached(userId) {
+    if (cache.userProfiles[userId]) return cache.userProfiles[userId];
+    try {
+        const doc = await firestore.getDoc('users', userId);
+        if (doc) cache.userProfiles[userId] = doc;
+        return doc;
+    } catch(e) { return null; }
+}
+
+function recomputeStatsFromCache() {
+    if (cache.tasks.length === 0) return;
+    const now = Date.now();
+    const oneHourAgo = now - 3600000;
+    const oneDayAgo = now - 86400000;
+    let totalPaidUSD = 0, paidLastHourUSD = 0, paidLast24hUSD = 0;
+    const uniqueUsers = new Set();
+    for (const t of cache.tasks) {
+        totalPaidUSD += t.rewardUSD || 0;
+        if (t.userId) uniqueUsers.add(t.userId);
+        const ts = t.timestamp ? new Date(t.timestamp).getTime() : 0;
+        if (ts > oneHourAgo) paidLastHourUSD += t.rewardUSD || 0;
+        if (ts > oneDayAgo) paidLast24hUSD += t.rewardUSD || 0;
+    }
+    cache.platformStats = {
+        totalTasksCompleted: Math.max(cache.tasks.length, cache.platformStats.totalTasksCompleted || 0),
+        totalPaidUSD: parseFloat(Math.max(totalPaidUSD, cache.platformStats.totalPaidUSD || 0).toFixed(2)),
+        paidLastHourUSD: parseFloat(paidLastHourUSD.toFixed(2)),
+        paidLast24hUSD: parseFloat(paidLast24hUSD.toFixed(2)),
+        uniqueUsers: Math.max(uniqueUsers.size, cache.platformStats.uniqueUsers || 0),
+        updatedAt: new Date().toISOString(),
+    };
+}
+
+async function recomputeLeaderboardFromCache() {
+    if (cache.tasks.length === 0) return;
+    const userMap = {};
+    const userNames = {};
+    for (const t of cache.tasks) {
+        if (!t.userId) continue;
+        if (!userMap[t.userId]) userMap[t.userId] = { tasksCompleted: 0, totalEarnedUSD: 0 };
+        userMap[t.userId].tasksCompleted++;
+        userMap[t.userId].totalEarnedUSD += t.rewardUSD || 0;
+        if (t.username && !userNames[t.userId]) userNames[t.userId] = t.username;
+    }
+    const leaders = [];
+    const sortedUsers = Object.entries(userMap).sort((a, b) => (b[1].totalEarnedUSD || 0) - (a[1].totalEarnedUSD || 0)).slice(0, 20);
+    for (const [userId, data] of sortedUsers) {
+        let name = userNames[userId] || userId.substring(0, 8);
+        let avatar = null;
+        let email = null;
+        const userDoc = await getUserProfileCached(userId);
+        if (userDoc) { name = userDoc.displayName || name; avatar = userDoc.avatar || null; email = userDoc.email || null; }
+        const userTasks = cache.tasks.filter(t => t.userId === userId);
+        const firstTs = userTasks.reduce((min, t) => (!min || (t.timestamp && t.timestamp < min)) ? t.timestamp : min, null);
+        const badges = computeUserBadges(userId, email, data.tasksCompleted, firstTs || new Date().toISOString());
+        leaders.push({ userId, name, avatar, badges, ...data });
+    }
+    cache.leaderboard = { leaders };
 }
 
 async function refreshAllData() {
     if (cache.refreshing) return;
     cache.refreshing = true;
-    console.log('Refreshing all data from Firestore...');
+    console.log('Refreshing task data from Firestore...');
     try {
         let allTasks = [];
         let nextPageToken = null;
@@ -980,76 +1001,29 @@ async function refreshAllData() {
         if (allTasks.length === 0) { cache.refreshing = false; return; }
         cache.tasks = allTasks;
 
-        // Compute platform stats
-        const now = Date.now();
-        const oneHourAgo = now - 3600000;
-        const oneDayAgo = now - 86400000;
-        let totalPaidUSD = 0, paidLastHourUSD = 0, paidLast24hUSD = 0;
-        const uniqueUsers = new Set();
-        for (const t of allTasks) {
-            totalPaidUSD += t.rewardUSD || 0;
-            if (t.userId) uniqueUsers.add(t.userId);
-            const ts = t.timestamp ? new Date(t.timestamp).getTime() : 0;
-            if (ts > oneHourAgo) paidLastHourUSD += t.rewardUSD || 0;
-            if (ts > oneDayAgo) paidLast24hUSD += t.rewardUSD || 0;
-        }
-        cache.platformStats = {
-            totalTasksCompleted: Math.max(allTasks.length, cache.platformStats.totalTasksCompleted || 0),
-            totalPaidUSD: parseFloat(Math.max(totalPaidUSD, cache.platformStats.totalPaidUSD || 0).toFixed(2)),
-            paidLastHourUSD: parseFloat(paidLastHourUSD.toFixed(2)),
-            paidLast24hUSD: parseFloat(paidLast24hUSD.toFixed(2)),
-            uniqueUsers: Math.max(uniqueUsers.size, cache.platformStats.uniqueUsers || 0),
-            updatedAt: new Date().toISOString(),
-        };
+        recomputeStatsFromCache();
+        await recomputeLeaderboardFromCache();
 
-        // Compute leaderboard
-        const userMap = {};
-        const userNames = {};
-        for (const t of allTasks) {
-            if (!t.userId) continue;
-            if (!userMap[t.userId]) userMap[t.userId] = { tasksCompleted: 0, totalEarnedUSD: 0 };
-            userMap[t.userId].tasksCompleted++;
-            userMap[t.userId].totalEarnedUSD += t.rewardUSD || 0;
-            if (t.username && !userNames[t.userId]) userNames[t.userId] = t.username;
-        }
-        const leaders = [];
-        const sortedUsers = Object.entries(userMap).sort((a, b) => (b[1].totalEarnedUSD || 0) - (a[1].totalEarnedUSD || 0)).slice(0, 20);
-        for (const [userId, data] of sortedUsers) {
-            let name = userNames[userId] || userId.substring(0, 8);
-            let avatar = null;
-            let email = null;
-            try {
-                const userDoc = await firestore.getDoc('users', userId);
-                if (userDoc) { name = userDoc.displayName || name; avatar = userDoc.avatar || null; email = userDoc.email || null; }
-            } catch(e) {}
-            const userTasks = allTasks.filter(t => t.userId === userId);
-            const firstTs = userTasks.reduce((min, t) => (!min || (t.timestamp && t.timestamp < min)) ? t.timestamp : min, null);
-            const badges = computeUserBadges(userId, email, data.tasksCompleted, firstTs || new Date().toISOString());
-            leaders.push({ userId, name, avatar, badges, ...data });
-        }
-        cache.leaderboard = { leaders };
-
-        // Persist to Firestore for next startup
+        // Persist to Firestore for next startup (2 writes)
         try { await firestore.setDoc('config', 'platformStats', cache.platformStats); } catch(e) {}
-        try { await firestore.setDoc('config', 'leaderboard', { leaders: JSON.stringify(leaders), updatedAt: new Date().toISOString() }); } catch(e) {}
+        try { await firestore.setDoc('config', 'leaderboard', { leaders: JSON.stringify(cache.leaderboard.leaders), updatedAt: new Date().toISOString() }); } catch(e) {}
 
         cache.lastRefresh = Date.now();
-        console.log(`Refresh complete: ${allTasks.length} tasks, ${leaders.length} leaders, $${cache.platformStats.totalPaidUSD} paid`);
+        console.log(`Refresh complete: ${allTasks.length} tasks, ${cache.leaderboard.leaders.length} leaders, $${cache.platformStats.totalPaidUSD} paid`);
     } catch (err) {
         console.error('Data refresh error:', err.message);
     }
     cache.refreshing = false;
 }
 
-// Load persisted cache on startup, then refresh in background with retries
+// Load persisted cache on startup, then do ONE full refresh, then refresh every 15 min instead of 5
 loadCacheFromFirestore().then(() => {
     setTimeout(refreshAllData, 30000);
-    setTimeout(() => { if (cache.tasks.length === 0) refreshAllData(); }, 90000);
-    setTimeout(() => { if (cache.tasks.length === 0) refreshAllData(); }, 180000);
-    setTimeout(() => { if (cache.tasks.length === 0) { loadCacheFromFirestore(); refreshAllData(); } }, 600000);
-    setTimeout(() => { if (cache.tasks.length === 0) { loadCacheFromFirestore(); refreshAllData(); } }, 1800000);
+    setTimeout(() => { if (cache.tasks.length === 0) refreshAllData(); }, 120000);
 });
-setInterval(refreshAllData, 300000);
+setInterval(refreshAllData, 900000);
+// Recompute stats from in-memory cache every 60s (zero Firestore reads)
+setInterval(() => { if (cache.tasks.length > 0) recomputeStatsFromCache(); }, 60000);
 
 // Admin can trigger manual refresh
 app.get('/api/admin/refresh-cache', async (req, res) => {
@@ -1145,10 +1119,10 @@ function postToDiscord(webhookUrl, payload) {
     });
 }
 
-// API: Get user profile (wallet, displayName, avatar)
+// API: Get user profile (wallet, displayName, avatar) — uses cached profiles
 app.get('/api/user-profile/:userId', async (req, res) => {
     try {
-        const profile = await firestore.getDoc('users', req.params.userId);
+        const profile = await getUserProfileCached(req.params.userId);
         res.json({ profile: profile || {} });
     } catch(e) { res.json({ profile: {} }); }
 });
@@ -1158,10 +1132,13 @@ app.get('/api/user-stats/:userId', async (req, res) => {
     try {
         const { userId } = req.params;
         let stats = { views: 0, likes: 0, comments: 0, subs: 0, tasksCompleted: 0, totalEarned: 0 };
-        try {
-            const s = await firestore.getDoc('stats', userId);
-            if (s) stats = s;
-        } catch(e) {}
+        // Only read stats doc from Firestore if cache is empty
+        if (!cache.tasks || cache.tasks.length === 0) {
+            try {
+                const s = await firestore.getDoc('stats', userId);
+                if (s) stats = s;
+            } catch(e) {}
+        }
 
         // Try cache first, fall back to Firestore query
         let tasks = [];
@@ -1175,16 +1152,35 @@ app.get('/api/user-stats/:userId', async (req, res) => {
             } catch(e) { console.warn('Task query error:', e.message); }
         }
 
-        // Recompute stats from tasks if stats doc was empty/stale
-        if (tasks.length > 0 && stats.tasksCompleted === 0) {
-            stats = { views: 0, likes: 0, comments: 0, subs: 0, tasksCompleted: 0, totalEarned: 0 };
+        // Always recompute stats from tasks for consistency across devices
+        if (tasks.length > 0) {
+            const computed = { views: 0, likes: 0, comments: 0, subs: 0, tasksCompleted: 0, totalEarned: 0 };
             for (const t of tasks) {
-                stats.tasksCompleted++;
-                stats.totalEarned += t.rewardUSD || 0;
-                if (t.taskType === 'watch') stats.views++;
-                else if (t.taskType === 'like') stats.likes++;
-                else if (t.taskType === 'comment') stats.comments++;
-                else if (t.taskType === 'subscribe') stats.subs++;
+                computed.tasksCompleted++;
+                computed.totalEarned += t.rewardUSD || 0;
+                if (t.taskType === 'watch') computed.views++;
+                else if (t.taskType === 'like') computed.likes++;
+                else if (t.taskType === 'comment') computed.comments++;
+                else if (t.taskType === 'subscribe') computed.subs++;
+            }
+            if (computed.tasksCompleted >= (stats.tasksCompleted || 0)) {
+                stats = computed;
+            }
+        }
+        // Also check full cache for all user tasks (cache may have more than 30)
+        if (cache.tasks && cache.tasks.length > 0) {
+            const allUserTasks = cache.tasks.filter(t => t.userId === userId);
+            if (allUserTasks.length > tasks.length) {
+                const full = { views: 0, likes: 0, comments: 0, subs: 0, tasksCompleted: 0, totalEarned: 0 };
+                for (const t of allUserTasks) {
+                    full.tasksCompleted++;
+                    full.totalEarned += t.rewardUSD || 0;
+                    if (t.taskType === 'watch') full.views++;
+                    else if (t.taskType === 'like') full.likes++;
+                    else if (t.taskType === 'comment') full.comments++;
+                    else if (t.taskType === 'subscribe') full.subs++;
+                }
+                if (full.tasksCompleted >= stats.tasksCompleted) stats = full;
             }
         }
 
@@ -1202,10 +1198,8 @@ app.get('/api/user-stats/:userId', async (req, res) => {
         // Compute badges for this user
         let email = (req.query.email || '').toLowerCase().trim() || null;
         if (!email) {
-            try {
-                const userDoc = await firestore.getDoc('users', userId);
-                if (userDoc) email = userDoc.email || null;
-            } catch(e) {}
+            const userDoc = await getUserProfileCached(userId);
+            if (userDoc) email = userDoc.email || null;
         }
         const firstTaskTs = tasks.length > 0
             ? tasks.reduce((min, t) => (!min || (t.timestamp && t.timestamp < min)) ? t.timestamp : min, null)
@@ -1330,6 +1324,161 @@ app.get('/api/sync-videos', async (req, res) => {
         res.status(500).json({ error: e.message });
     }
 });
+
+// ===== Presence Tracking (active logged-in users) =====
+const activeUsers = new Map();
+const PRESENCE_TTL = 90000;
+
+app.post('/api/presence/heartbeat', (req, res) => {
+    const { userId } = req.body;
+    if (!userId) return res.status(400).json({ error: 'Missing userId' });
+    activeUsers.set(userId, Date.now());
+    res.json({ ok: true });
+});
+
+app.get('/api/presence/count', (req, res) => {
+    const now = Date.now();
+    let count = 0;
+    for (const [uid, ts] of activeUsers) {
+        if (now - ts > PRESENCE_TTL) activeUsers.delete(uid);
+        else count++;
+    }
+    res.json({ activeUsers: count });
+});
+
+// ===== Discord Server Stats =====
+let _discordStatsCache = { totalMembers: 0, onlineMembers: 0, timestamp: 0 };
+
+async function fetchDiscordServerStats() {
+    if (Date.now() - _discordStatsCache.timestamp < 120000 && _discordStatsCache.totalMembers > 0) {
+        return _discordStatsCache;
+    }
+    try {
+        if (DISCORD_BOT_TOKEN) {
+            const data = await new Promise((resolve, reject) => {
+                const req = https.request({
+                    hostname: 'discord.com',
+                    path: `/api/v10/guilds/${DISCORD_SERVER_ID}?with_counts=true`,
+                    method: 'GET',
+                    headers: { Authorization: `Bot ${DISCORD_BOT_TOKEN}` },
+                }, (res) => {
+                    let d = '';
+                    res.on('data', c => d += c);
+                    res.on('end', () => { try { resolve(JSON.parse(d)); } catch { reject(new Error(d)); } });
+                });
+                req.on('error', reject);
+                req.end();
+            });
+            if (data.approximate_member_count) {
+                _discordStatsCache = {
+                    totalMembers: data.approximate_member_count,
+                    onlineMembers: data.approximate_presence_count || 0,
+                    timestamp: Date.now(),
+                };
+                return _discordStatsCache;
+            }
+        }
+        const widgetData = await httpGet(`https://discord.com/api/guilds/${DISCORD_SERVER_ID}/widget.json`);
+        const widget = JSON.parse(widgetData);
+        _discordStatsCache = {
+            totalMembers: widget.presence_count || _discordStatsCache.totalMembers,
+            onlineMembers: widget.presence_count || 0,
+            timestamp: Date.now(),
+        };
+        return _discordStatsCache;
+    } catch (e) {
+        console.warn('Discord stats fetch error:', e.message);
+        return _discordStatsCache;
+    }
+}
+
+app.get('/api/discord-stats', async (req, res) => {
+    const stats = await fetchDiscordServerStats();
+    res.json(stats);
+});
+
+// ===== User Notifications (Firestore-backed for cross-device consistency) =====
+app.get('/api/notifications/:userId', async (req, res) => {
+    try {
+        const doc = await firestore.getDoc('notifications', req.params.userId);
+        res.json({ notifications: doc && doc.items ? JSON.parse(doc.items) : [] });
+    } catch (e) {
+        res.json({ notifications: [] });
+    }
+});
+
+app.post('/api/notifications/:userId/add', async (req, res) => {
+    const { title, message, icon, color } = req.body;
+    const userId = req.params.userId;
+    try {
+        const doc = await firestore.getDoc('notifications', userId);
+        const items = doc && doc.items ? JSON.parse(doc.items) : [];
+        items.unshift({ title, message, icon: icon || 'fas fa-info-circle', color: color || 'var(--orange)', time: new Date().toISOString(), id: Date.now().toString() });
+        if (items.length > 50) items.length = 50;
+        await firestore.setDoc('notifications', userId, { items: JSON.stringify(items), updatedAt: '__serverTimestamp__' });
+        res.json({ ok: true });
+    } catch (e) {
+        console.error('Notification save error:', e.message);
+        res.json({ ok: false });
+    }
+});
+
+app.post('/api/notifications/:userId/clear', async (req, res) => {
+    try {
+        await firestore.setDoc('notifications', req.params.userId, { items: JSON.stringify([]), updatedAt: '__serverTimestamp__' });
+        res.json({ ok: true });
+    } catch (e) { res.json({ ok: false }); }
+});
+
+app.post('/api/notifications/:userId/dismiss', async (req, res) => {
+    const { notifId } = req.body;
+    try {
+        const doc = await firestore.getDoc('notifications', req.params.userId);
+        let items = doc && doc.items ? JSON.parse(doc.items) : [];
+        items = items.filter(n => n.id !== notifId);
+        await firestore.setDoc('notifications', req.params.userId, { items: JSON.stringify(items), updatedAt: '__serverTimestamp__' });
+        res.json({ ok: true });
+    } catch (e) { res.json({ ok: false }); }
+});
+
+// Helper: send payout notification to user and post to Discord payouts channel
+async function notifyPayout(userId, username, taskType, videoTitle, rewardUSD, rewardSOL, txSignature) {
+    try {
+        const doc = await firestore.getDoc('notifications', userId);
+        const items = doc && doc.items ? JSON.parse(doc.items) : [];
+        items.unshift({
+            title: 'Payment Received!',
+            message: `You were paid <b>$${rewardUSD.toFixed(3)}</b> (${rewardSOL.toFixed(6)} SOL) for your <b>${taskType}</b> task on "${videoTitle}".${txSignature ? ` <a href="https://solscan.io/tx/${txSignature}" target="_blank" style="color:var(--orange);">View transaction</a>` : ''}`,
+            icon: 'fas fa-coins',
+            color: '#22c55e',
+            time: new Date().toISOString(),
+            id: Date.now().toString() + Math.random().toString(36).slice(2, 6),
+        });
+        if (items.length > 50) items.length = 50;
+        await firestore.setDoc('notifications', userId, { items: JSON.stringify(items), updatedAt: '__serverTimestamp__' });
+    } catch (e) { console.warn('Payout notification save error:', e.message); }
+
+    if (DISCORD_WEBHOOKS.payouts) {
+        try {
+            await postToDiscord(DISCORD_WEBHOOKS.payouts, {
+                username: 'CoinDrop Payouts',
+                avatar_url: 'https://coindrop.in/assets/logo.svg',
+                embeds: [{
+                    color: 0x22c55e,
+                    title: '✅ Payout Sent',
+                    description: `**@${username || userId.substring(0, 8)}** was paid for a **${taskType}** task.`,
+                    fields: [
+                        { name: '🎥 Content', value: (videoTitle || 'N/A').substring(0, 100), inline: true },
+                        { name: '💰 Amount', value: `$${rewardUSD.toFixed(3)} (${rewardSOL.toFixed(6)} SOL)`, inline: true },
+                        ...(txSignature ? [{ name: '📝 Transaction', value: `[View on Solscan](https://solscan.io/tx/${txSignature})` }] : []),
+                    ],
+                    timestamp: new Date().toISOString(),
+                    footer: { text: 'CoinDrop Payouts' },
+                }]
+            });
+        } catch (e) { console.warn('Payouts webhook error:', e.message); }
+    }
+}
 
 app.get('/health', (req, res) => res.json({ status: 'ok', features: { verification: !!ANTHROPIC_API_KEY, payouts: !!TREASURY_PRIVATE_KEY_ENCRYPTED, discord: !!DISCORD_WEBHOOKS.views } }));
 

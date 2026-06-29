@@ -1,4 +1,4 @@
-// ===== CoinDrop Notifications =====
+// ===== CoinDrop Notifications (Firestore-backed for cross-device consistency) =====
 
 const NOTIF_API = 'https://coindrop-auth.up.railway.app';
 
@@ -6,7 +6,7 @@ function getNotifications() {
     return JSON.parse(localStorage.getItem('coindrop_notifications') || '[]');
 }
 
-function saveNotifications(notifs) {
+function saveNotificationsLocal(notifs) {
     localStorage.setItem('coindrop_notifications', JSON.stringify(notifs));
     updateNotifBadge();
 }
@@ -44,29 +44,73 @@ function renderNotifications() {
             <div class="notif-text">
                 <strong>${n.title}</strong>
                 <span style="font-size:0.8rem;color:var(--navy);">${n.message}</span>
-                <small>${n.time || ''}</small>
+                <small>${n.time ? new Date(n.time).toLocaleString() : ''}</small>
             </div>
-            <button class="notif-dismiss" onclick="dismissNotification(${i})"><i class="fas fa-times"></i></button>
+            <button class="notif-dismiss" onclick="dismissNotification(${i}, '${n.id || ''}')"><i class="fas fa-times"></i></button>
         </div>
     `).join('');
 }
 
-function dismissNotification(index) {
+function dismissNotification(index, notifId) {
     const notifs = getNotifications();
     notifs.splice(index, 1);
-    saveNotifications(notifs);
+    saveNotificationsLocal(notifs);
     renderNotifications();
+    const user = JSON.parse(localStorage.getItem('coindrop_user') || '{}');
+    if (user.id && notifId) {
+        fetch(`${NOTIF_API}/api/notifications/${user.id}/dismiss`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ notifId }),
+        }).catch(() => {});
+    }
 }
 
 function clearAllNotifications() {
-    saveNotifications([]);
+    saveNotificationsLocal([]);
     renderNotifications();
+    const user = JSON.parse(localStorage.getItem('coindrop_user') || '{}');
+    if (user.id) {
+        fetch(`${NOTIF_API}/api/notifications/${user.id}/clear`, { method: 'POST', headers: { 'Content-Type': 'application/json' } }).catch(() => {});
+    }
 }
 
 function addNotification(title, message, icon, color) {
     const notifs = getNotifications();
-    notifs.unshift({ title, message, icon: icon || 'fas fa-info-circle', color: color || 'var(--orange)', time: new Date().toLocaleString() });
-    saveNotifications(notifs);
+    const notif = { title, message, icon: icon || 'fas fa-info-circle', color: color || 'var(--orange)', time: new Date().toISOString(), id: Date.now().toString() };
+    notifs.unshift(notif);
+    saveNotificationsLocal(notifs);
+    const user = JSON.parse(localStorage.getItem('coindrop_user') || '{}');
+    if (user.id) {
+        fetch(`${NOTIF_API}/api/notifications/${user.id}/add`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(notif),
+        }).catch(() => {});
+    }
+}
+
+async function syncNotificationsFromServer() {
+    const user = JSON.parse(localStorage.getItem('coindrop_user') || '{}');
+    if (!user.id) return;
+    try {
+        const res = await fetch(`${NOTIF_API}/api/notifications/${user.id}`);
+        const data = await res.json();
+        const serverNotifs = data.notifications || [];
+        if (serverNotifs.length > 0) {
+            const local = getNotifications();
+            const localIds = new Set(local.map(n => n.id).filter(Boolean));
+            let merged = [...local];
+            for (const sn of serverNotifs) {
+                if (sn.id && !localIds.has(sn.id)) {
+                    merged.push(sn);
+                }
+            }
+            merged.sort((a, b) => new Date(b.time || 0) - new Date(a.time || 0));
+            if (merged.length > 50) merged.length = 50;
+            saveNotificationsLocal(merged);
+        }
+    } catch(e) {}
 }
 
 // Welcome notice for new users
@@ -85,22 +129,6 @@ function checkWelcomeNotice() {
     }
 }
 
-// System announcement - payout notice
-function checkPayoutAnnouncement() {
-    const user = JSON.parse(localStorage.getItem('coindrop_user') || '{}');
-    if (!user.id) return;
-    const seen = localStorage.getItem('coindrop_payout_notice_20260626_' + user.id);
-    if (!seen) {
-        addNotification(
-            'Retroactive Payouts Issued',
-            'As of 6/26/2026 at 7:30 PM EST, all unpaid payouts for completed tasks were issued. If you completed a task in the past 48 hours and have not been paid, please check your Phantom wallet now.',
-            'fas fa-coins',
-            'var(--orange)'
-        );
-        localStorage.setItem('coindrop_payout_notice_20260626_' + user.id, 'true');
-    }
-}
-
 // Community Lead badge notification
 function checkBadgeNotification() {
     const user = JSON.parse(localStorage.getItem('coindrop_user') || '{}');
@@ -113,7 +141,7 @@ function checkBadgeNotification() {
     if (hasBeta && hasCoin) {
         addNotification(
             'You\'ve Been Hired as a COIN-COLLECTOR Community Lead!',
-            'Congratulations! You earned the rare <b>Beta Tester</b> and <b>COIN-COLLECTOR</b> prestige badges. These badges are only available until 6/30/2026 and will remain on your profile permanently. <br><br><b>New Hire Bonus:</b> Friend request <b>"illymeds"</b> on Discord and send a screenshot of your badges for a <b>$1 bonus</b>! <a href="https://discord.gg/847XjyVa3C" target="_blank" style="color:var(--orange);font-weight:600;">Join Discord</a>',
+            'Congratulations! You earned the rare <b>Beta Tester</b> and <b>COIN-COLLECTOR</b> prestige badges. These badges are only available until 6/30/2026 and will remain on your profile permanently. <br><br><b>New Hire Bonus:</b> Friend request <b>"illmeds"</b> on Discord and send a screenshot of your badges for a <b>$1 bonus</b>! <a href="https://discord.gg/847XjyVa3C" target="_blank" style="color:var(--orange);font-weight:600;">Join Discord</a>',
             'fas fa-award',
             '#7c3aed'
         );
@@ -124,8 +152,7 @@ function checkBadgeNotification() {
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
     checkWelcomeNotice();
-    checkPayoutAnnouncement();
+    syncNotificationsFromServer();
     updateNotifBadge();
 });
-// Retry after user data loads (badges need time to load from server)
-setTimeout(() => { checkWelcomeNotice(); checkPayoutAnnouncement(); checkBadgeNotification(); updateNotifBadge(); }, 3000);
+setTimeout(() => { checkWelcomeNotice(); syncNotificationsFromServer(); checkBadgeNotification(); updateNotifBadge(); }, 3000);

@@ -105,3 +105,15 @@ window.addEventListener('scroll', () => {
         }
     } catch(e) {}
 })();
+
+// Load Discord server stats (landing page)
+(async function loadDiscordStatsLanding() {
+    try {
+        const res = await fetch('https://coindrop-auth.up.railway.app/api/discord-stats');
+        const data = await res.json();
+        const membersEl = document.getElementById('discord-members-landing');
+        const onlineEl = document.getElementById('discord-online-landing');
+        if (membersEl && data.totalMembers) membersEl.textContent = data.totalMembers.toLocaleString();
+        if (onlineEl && data.onlineMembers) onlineEl.textContent = data.onlineMembers.toLocaleString();
+    } catch(e) {}
+})();
