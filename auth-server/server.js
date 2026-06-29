@@ -823,22 +823,36 @@ app.post('/api/admin/retry-payout', async (req, res) => {
     }
 });
 
+// Batch payout — aggregates all unpaid tasks per wallet into ONE Solana transaction per user
 app.post('/api/admin/retry-all', async (req, res) => {
     const { email, batchSize } = req.body;
     if (!ADMIN_EMAILS.includes(email)) {
         return res.status(403).json({ error: 'Unauthorized' });
     }
-    const limit = Math.min(batchSize || 5, 10);
+    const walletLimit = Math.min(batchSize || 5, 10);
     try {
+        // Get all tasks
         let allTasks;
         if (cache.tasks.length > 0) {
             allTasks = cache.tasks.map(t => ({ ...t, docId: t._docId || t.docId }));
         } else {
-            const listData = await httpGet(`${FIRESTORE_URL}/tasks?key=${FIREBASE_API_KEY}&pageSize=500`);
-            const parsed = JSON.parse(listData);
-            if (!parsed.documents) return res.json({ results: [], total: 0, remaining: 0 });
-            allTasks = parsed.documents.map(doc => ({ ...parseFirestoreDoc(doc.fields || {}), docId: doc.name.split('/').pop() }));
+            let fetched = [];
+            let nextPageToken = null;
+            do {
+                let url = `${FIRESTORE_URL}/tasks?key=${FIREBASE_API_KEY}&pageSize=300`;
+                if (nextPageToken) url += `&pageToken=${nextPageToken}`;
+                const listData = await httpGet(url);
+                const parsed = JSON.parse(listData);
+                if (!parsed.documents) break;
+                for (const doc of parsed.documents) {
+                    fetched.push({ ...parseFirestoreDoc(doc.fields || {}), docId: doc.name.split('/').pop() });
+                }
+                nextPageToken = parsed.nextPageToken || null;
+            } while (nextPageToken);
+            allTasks = fetched;
         }
+
+        // Find eligible unpaid tasks
         allTasks.sort((a, b) => (a.timestamp || '') < (b.timestamp || '') ? -1 : 1);
         const seenSubs = new Set();
         const eligible = [];
@@ -851,53 +865,56 @@ app.post('/api/admin/retry-all', async (req, res) => {
             }
             eligible.push(t);
         }
-        const batch = eligible.slice(0, limit);
+
+        // Aggregate by wallet address — one transaction per wallet
+        const walletGroups = {};
+        let skippedNoWallet = 0;
+        for (const t of eligible) {
+            const userDoc = await getUserProfileCached(t.userId);
+            const wallet = (userDoc && userDoc.walletAddress) || t.walletAddress || '';
+            if (!wallet) { skippedNoWallet++; continue; }
+            if (!walletGroups[wallet]) walletGroups[wallet] = { wallet, totalSOL: 0, totalUSD: 0, tasks: [], userId: t.userId, username: t.username || (userDoc && userDoc.displayName) || '' };
+            walletGroups[wallet].totalSOL += parseFloat(t.rewardSOL || 0);
+            walletGroups[wallet].totalUSD += t.rewardUSD || 0;
+            walletGroups[wallet].tasks.push(t);
+        }
+
+        const wallets = Object.values(walletGroups).slice(0, walletLimit);
+        const totalWallets = Object.keys(walletGroups).length;
         const results = [];
         const treasuryKey = decryptPrivateKey(TREASURY_PRIVATE_KEY_ENCRYPTED, TREASURY_ENCRYPTION_KEY);
-        for (const data of batch) {
-            const userDoc = await getUserProfileCached(data.userId);
-            const wallet = userDoc ? userDoc.walletAddress : data.walletAddress;
-            if (!wallet) {
-                results.push({ docId: data.docId, status: 'skipped', reason: 'No wallet address' });
-                continue;
-            }
+
+        for (const group of wallets) {
             try {
-                // 2s delay between transactions to avoid Solana RPC rate limiting
                 if (results.length > 0) await new Promise(r => setTimeout(r, 2000));
+                console.log(`BATCH PAY: ${group.username} (${group.wallet.substring(0,8)}...) — ${group.tasks.length} tasks, ${group.totalSOL.toFixed(6)} SOL`);
                 const txSig = await Promise.race([
-                    sendSolPayment(treasuryKey, wallet, parseFloat(data.rewardSOL || 0)),
-                    new Promise((_, reject) => setTimeout(() => reject(new Error('Solana RPC timeout after 30s')), 30000))
+                    sendSolPayment(treasuryKey, group.wallet, group.totalSOL),
+                    new Promise((_, reject) => setTimeout(() => reject(new Error('Solana RPC timeout')), 30000))
                 ]);
-                const TASKS_URL = `${FIRESTORE_URL}/tasks/${data.docId}?key=${FIREBASE_API_KEY}&updateMask.fieldPaths=txSignature&updateMask.fieldPaths=payoutSuccess&updateMask.fieldPaths=retryTimestamp`;
-                const patchData = JSON.stringify({
-                    fields: {
-                        txSignature: { stringValue: txSig },
-                        payoutSuccess: { booleanValue: true },
-                        retryTimestamp: { stringValue: new Date().toISOString() },
-                    }
-                });
-                await new Promise((resolve, reject) => {
-                    const url = new URL(TASKS_URL);
-                    const patchReq = https.request({
-                        hostname: url.hostname, path: url.pathname + url.search, method: 'PATCH',
-                        headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(patchData) },
-                    }, (patchRes) => { let b = ''; patchRes.on('data', c => b += c); patchRes.on('end', () => resolve(b)); });
-                    patchReq.on('error', reject);
-                    patchReq.write(patchData);
-                    patchReq.end();
-                });
-                results.push({ docId: data.docId, status: 'paid', txSignature: txSig });
-                // Update in-memory cache so unpaid count stays accurate
-                const cacheEntry = cache.tasks.find(t => (t._docId || t.docId) === data.docId);
-                if (cacheEntry) { cacheEntry.txSignature = txSig; cacheEntry.payoutSuccess = true; }
-                const rewardUSD = data.rewardUSD || (parseFloat(data.rewardSOL || 0) * 150);
-                notifyPayout(data.userId, data.username || (userDoc && userDoc.displayName), data.taskType, data.videoTitle, rewardUSD, parseFloat(data.rewardSOL || 0), txSig);
+                // Mark ALL tasks for this wallet as paid
+                for (const t of group.tasks) {
+                    try {
+                        const TASKS_URL = `${FIRESTORE_URL}/tasks/${t.docId}?key=${FIREBASE_API_KEY}&updateMask.fieldPaths=txSignature&updateMask.fieldPaths=payoutSuccess&updateMask.fieldPaths=retryTimestamp`;
+                        const patchBody = JSON.stringify({ fields: { txSignature: { stringValue: txSig }, payoutSuccess: { booleanValue: true }, retryTimestamp: { stringValue: new Date().toISOString() } } });
+                        await httpPatch(TASKS_URL, patchBody);
+                        const ce = cache.tasks.find(c => (c._docId || c.docId) === t.docId);
+                        if (ce) { ce.txSignature = txSig; ce.payoutSuccess = true; }
+                    } catch(e) { console.warn('Task patch error:', t.docId, e.message); }
+                }
+                results.push({ wallet: group.wallet, username: group.username, status: 'paid', taskCount: group.tasks.length, totalSOL: group.totalSOL, totalUSD: group.totalUSD, txSignature: txSig });
+                // Send ONE notification per user with combined total
+                notifyPayout(group.userId, group.username, `${group.tasks.length} tasks`, 'multiple completed tasks', group.totalUSD, group.totalSOL, txSig);
             } catch (payErr) {
-                results.push({ docId: data.docId, status: 'failed', reason: payErr.message });
+                results.push({ wallet: group.wallet, username: group.username, status: 'failed', taskCount: group.tasks.length, reason: payErr.message });
             }
         }
-        const remaining = eligible.length - batch.length;
-        res.json({ results, total: results.length, remaining });
+
+        const paidWallets = results.filter(r => r.status === 'paid').length;
+        const paidTasks = results.filter(r => r.status === 'paid').reduce((s, r) => s + r.taskCount, 0);
+        const remaining = totalWallets - wallets.length;
+        console.log(`BATCH COMPLETE: ${paidWallets}/${wallets.length} wallets paid (${paidTasks} tasks), ${remaining} wallets remaining, ${skippedNoWallet} tasks skipped (no wallet)`);
+        res.json({ results, paidWallets, paidTasks, skippedNoWallet, remaining });
     } catch (err) {
         console.error('Retry-all error:', err.message);
         res.status(500).json({ error: err.message });

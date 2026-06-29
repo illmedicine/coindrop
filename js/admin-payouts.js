@@ -134,17 +134,18 @@ async function retryAllPayouts() {
     const email = getUserEmail();
     const btn = document.getElementById('retry-all-btn');
     const countEl = document.getElementById('unpaid-count');
-    let totalPaid = 0, totalFailed = 0, totalSkipped = 0;
+    let totalWalletsPaid = 0, totalTasksPaid = 0, totalFailed = 0, totalSkipped = 0;
     let firstError = null;
     let keepGoing = true;
 
     if (btn) { btn.disabled = true; }
 
     while (keepGoing) {
-        if (btn) btn.innerHTML = `<i class="fas fa-spinner fa-spin"></i> Paying... ${totalPaid} paid so far`;
+        if (btn) btn.innerHTML = `<i class="fas fa-spinner fa-spin"></i> Paying... ${totalWalletsPaid} users (${totalTasksPaid} tasks) paid`;
+        if (countEl) countEl.innerHTML = `<i class="fas fa-spinner fa-spin"></i> Processing batch...`;
         try {
             const controller = new AbortController();
-            const timeout = setTimeout(() => controller.abort(), 60000);
+            const timeout = setTimeout(() => controller.abort(), 120000);
             const res = await fetch(`${PAYOUT_API}/api/admin/retry-all`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -155,25 +156,28 @@ async function retryAllPayouts() {
             const data = await res.json();
             if (data.error) { firstError = data.error; keepGoing = false; break; }
             const results = data.results || [];
-            totalPaid += results.filter(r => r.status === 'paid').length;
+            totalWalletsPaid += results.filter(r => r.status === 'paid').length;
+            totalTasksPaid += (data.paidTasks || 0);
             totalFailed += results.filter(r => r.status === 'failed').length;
-            totalSkipped += results.filter(r => r.status === 'skipped').length;
+            totalSkipped += (data.skippedNoWallet || 0);
             if (!firstError) {
                 const fe = results.find(r => r.status === 'failed');
                 if (fe) firstError = fe.reason;
             }
-            if (countEl) countEl.innerHTML = `<strong>${totalPaid}</strong> paid, <strong>${totalFailed}</strong> failed — <strong>${data.remaining || 0}</strong> remaining`;
+            if (countEl) {
+                const paidDetails = results.filter(r => r.status === 'paid').map(r => `${r.username}: ${r.taskCount} tasks ($${r.totalUSD.toFixed(3)})`).join(' | ');
+                countEl.innerHTML = `<strong>${totalWalletsPaid}</strong> users paid (<strong>${totalTasksPaid}</strong> tasks) — <strong>${data.remaining || 0}</strong> users remaining${paidDetails ? '<br><small>' + paidDetails + '</small>' : ''}`;
+            }
             if (!data.remaining || data.remaining <= 0 || results.length === 0) {
                 keepGoing = false;
             }
             if (results.length > 0 && results.every(r => r.status === 'failed')) {
                 keepGoing = false;
             }
-            // 3s pause between batches to let Solana RPC cool down
             if (keepGoing) await new Promise(r => setTimeout(r, 3000));
         } catch (err) {
             if (err.name === 'AbortError') {
-                firstError = 'Batch timed out (60s) — Solana RPC may be overloaded. Try again in a minute.';
+                firstError = 'Batch timed out (2 min) — try again, it will resume where it left off.';
             } else {
                 firstError = err.message;
             }
@@ -181,7 +185,7 @@ async function retryAllPayouts() {
         }
     }
 
-    let msg = `Batch payout complete:\n${totalPaid} paid\n${totalFailed} failed\n${totalSkipped} skipped (no wallet)`;
+    let msg = `Batch payout complete:\n${totalWalletsPaid} users paid\n${totalTasksPaid} total tasks paid\n${totalFailed} users failed\n${totalSkipped} tasks skipped (no wallet)`;
     if (firstError) msg += `\n\nNote: ${firstError}`;
     alert(msg);
     loadTreasuryBalance();
