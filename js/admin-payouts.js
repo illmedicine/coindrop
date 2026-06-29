@@ -141,13 +141,17 @@ async function retryAllPayouts() {
     if (btn) { btn.disabled = true; }
 
     while (keepGoing) {
-        if (btn) btn.innerHTML = `<i class="fas fa-spinner fa-spin"></i> Paying batch... (${totalPaid} paid so far)`;
+        if (btn) btn.innerHTML = `<i class="fas fa-spinner fa-spin"></i> Paying... ${totalPaid} paid so far`;
         try {
+            const controller = new AbortController();
+            const timeout = setTimeout(() => controller.abort(), 60000);
             const res = await fetch(`${PAYOUT_API}/api/admin/retry-all`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ email, batchSize: 10 }),
+                body: JSON.stringify({ email, batchSize: 5 }),
+                signal: controller.signal,
             });
+            clearTimeout(timeout);
             const data = await res.json();
             if (data.error) { firstError = data.error; keepGoing = false; break; }
             const results = data.results || [];
@@ -162,18 +166,23 @@ async function retryAllPayouts() {
             if (!data.remaining || data.remaining <= 0 || results.length === 0) {
                 keepGoing = false;
             }
-            // If entire batch failed, stop to avoid infinite loop
             if (results.length > 0 && results.every(r => r.status === 'failed')) {
                 keepGoing = false;
             }
+            // 3s pause between batches to let Solana RPC cool down
+            if (keepGoing) await new Promise(r => setTimeout(r, 3000));
         } catch (err) {
-            firstError = err.message;
+            if (err.name === 'AbortError') {
+                firstError = 'Batch timed out (60s) — Solana RPC may be overloaded. Try again in a minute.';
+            } else {
+                firstError = err.message;
+            }
             keepGoing = false;
         }
     }
 
     let msg = `Batch payout complete:\n${totalPaid} paid\n${totalFailed} failed\n${totalSkipped} skipped (no wallet)`;
-    if (firstError) msg += `\n\nFirst error: ${firstError}`;
+    if (firstError) msg += `\n\nNote: ${firstError}`;
     alert(msg);
     loadTreasuryBalance();
     if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-paper-plane"></i> Pay All Unpaid'; }
