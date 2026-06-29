@@ -497,7 +497,10 @@ Respond with EXACTLY this JSON (no other text):
             console.log(`TASK LOGGED: ${username} (${userId}) — ${taskType} — ${videoTitle} — $${rewardUSD}`);
 
             // Add to in-memory cache with docId so unpaid-tasks can reference it
-            cache.tasks.push({ userId, videoId, videoTitle, creatorName, taskType, platform, rewardUSD, rewardSOL: rewardSOL || 0, txSignature: txSignature || '', payoutSuccess, walletAddress: walletAddress || '', username: username || '', timestamp: new Date().toISOString(), _docId: newDocId || '' });
+            const now = new Date().toISOString();
+            cache.tasks.push({ userId, videoId, videoTitle, creatorName, taskType, platform, rewardUSD, rewardSOL: rewardSOL || 0, txSignature: txSignature || '', payoutSuccess, walletAddress: walletAddress || '', username: username || '', timestamp: now, retryTimestamp: payoutSuccess ? now : '', _docId: newDocId || '' });
+            // Update platform stats immediately so ticker reflects this payout in real time
+            recomputeStatsFromCache();
         } catch(dbErr) {
             console.error('Firestore write error:', dbErr.message);
         }
@@ -809,9 +812,10 @@ app.post('/api/admin/retry-payout', async (req, res) => {
             patchReq.write(patchData);
             patchReq.end();
         });
-        // Update in-memory cache so unpaid count stays accurate
+        // Update in-memory cache so unpaid count and ticker stats update immediately
         const cacheEntry = cache.tasks.find(t => (t._docId || t.docId) === docId);
-        if (cacheEntry) { cacheEntry.txSignature = txSignature; cacheEntry.payoutSuccess = true; }
+        if (cacheEntry) { cacheEntry.txSignature = txSignature; cacheEntry.payoutSuccess = true; cacheEntry.retryTimestamp = new Date().toISOString(); }
+        recomputeStatsFromCache();
         if (taskDoc) {
             const rewardUSD = taskDoc.rewardUSD || (parseFloat(rewardSOL) * 150);
             notifyPayout(taskDoc.userId, taskDoc.username, taskDoc.taskType, taskDoc.videoTitle, rewardUSD, parseFloat(rewardSOL), txSignature);
@@ -913,6 +917,8 @@ app.post('/api/admin/retry-all', async (req, res) => {
         const paidWallets = results.filter(r => r.status === 'paid').length;
         const paidTasks = results.filter(r => r.status === 'paid').reduce((s, r) => s + r.taskCount, 0);
         const remaining = totalWallets - wallets.length;
+        // Update ticker stats immediately so they reflect these payouts in real time
+        recomputeStatsFromCache();
         console.log(`BATCH COMPLETE: ${paidWallets}/${wallets.length} wallets paid (${paidTasks} tasks), ${remaining} wallets remaining, ${skippedNoWallet} tasks skipped (no wallet)`);
         res.json({ results, paidWallets, paidTasks, skippedNoWallet, remaining });
     } catch (err) {

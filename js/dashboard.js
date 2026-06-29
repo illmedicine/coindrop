@@ -809,4 +809,4 @@ async function loadPlatformStats() {
     } catch (e) { console.warn('Stats ticker error:', e); }
 }
 loadPlatformStats();
-setInterval(loadPlatformStats, 60000);
+setInterval(loadPlatformStats, 15000);
