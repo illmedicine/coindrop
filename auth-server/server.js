@@ -664,14 +664,25 @@ app.get('/api/admin/unpaid-tasks', async (req, res) => {
         return res.status(403).json({ error: 'Unauthorized' });
     }
     try {
-        // Admin view always reads fresh from Firestore for accuracy, then updates cache
-        const listData = await httpGet(`${FIRESTORE_URL}/tasks?key=${FIREBASE_API_KEY}&pageSize=500`);
-        const parsed = JSON.parse(listData);
-        if (!parsed.documents) return res.json({ unpaid: [], duplicatesMarked: 0 });
-        const allTasks = parsed.documents.map(doc => ({ ...parseFirestoreDoc(doc.fields || {}), docId: doc.name.split('/').pop() }));
+        // Admin view always reads fresh from Firestore (paginated) for accuracy
+        let allTasks = [];
+        let nextPageToken = null;
+        do {
+            let url = `${FIRESTORE_URL}/tasks?key=${FIREBASE_API_KEY}&pageSize=300`;
+            if (nextPageToken) url += `&pageToken=${nextPageToken}`;
+            const listData = await httpGet(url);
+            const parsed = JSON.parse(listData);
+            if (!parsed.documents) break;
+            for (const doc of parsed.documents) {
+                allTasks.push({ ...parseFirestoreDoc(doc.fields || {}), docId: doc.name.split('/').pop() });
+            }
+            nextPageToken = parsed.nextPageToken || null;
+        } while (nextPageToken);
+        if (allTasks.length === 0) return res.json({ unpaid: [], duplicatesMarked: 0 });
         // Update server cache with fresh data
         cache.tasks = allTasks.map(t => ({ ...t, _docId: t.docId }));
         recomputeStatsFromCache();
+        console.log(`Admin unpaid-tasks: loaded ${allTasks.length} total tasks from Firestore`);
 
         const unpaid = [];
         const seenSubscribes = new Set();
@@ -707,7 +718,10 @@ app.get('/api/admin/unpaid-tasks', async (req, res) => {
             }
         }
         unpaid.sort((a, b) => (b.timestamp || '') < (a.timestamp || '') ? -1 : 1);
-        res.json({ unpaid });
+        const paidCount = allTasks.filter(t => t.txSignature || t.payoutSuccess).length;
+        const noPayout = allTasks.filter(t => !t.txSignature && !t.payoutSuccess).length;
+        console.log(`Admin unpaid-tasks: ${allTasks.length} total, ${paidCount} paid, ${noPayout} no-payout-flag, ${unpaid.length} eligible unpaid`);
+        res.json({ unpaid, debug: { totalTasks: allTasks.length, paidCount, noPayoutFlag: noPayout, eligibleUnpaid: unpaid.length } });
     } catch (err) {
         console.error('Admin unpaid error:', err.message);
         res.status(500).json({ error: 'Failed to fetch unpaid tasks' });
@@ -901,7 +915,7 @@ async function loadCacheFromFirestore() {
     console.log('Loading cached data from Firestore (2 reads)...');
     try {
         const stats = await firestore.getDoc('config', 'platformStats');
-        if (stats && stats.totalTasksCompleted > cache.platformStats.totalTasksCompleted) cache.platformStats = stats;
+        if (stats && stats.totalTasksCompleted) cache.platformStats = stats;
     } catch(e) { console.warn('Stats cache load skipped'); }
     try {
         const lb = await firestore.getDoc('config', 'leaderboard');
@@ -1016,13 +1030,12 @@ async function refreshAllData() {
     cache.refreshing = false;
 }
 
-// Load persisted cache on startup, then do ONE full refresh, then refresh every 15 min instead of 5
+// Load persisted cache on startup, then full refresh after 5s, then every 15 min
 loadCacheFromFirestore().then(() => {
-    setTimeout(refreshAllData, 30000);
-    setTimeout(() => { if (cache.tasks.length === 0) refreshAllData(); }, 120000);
+    setTimeout(refreshAllData, 5000);
+    setTimeout(() => { if (cache.tasks.length === 0) refreshAllData(); }, 60000);
 });
 setInterval(refreshAllData, 900000);
-// Recompute stats from in-memory cache every 60s (zero Firestore reads)
 setInterval(() => { if (cache.tasks.length > 0) recomputeStatsFromCache(); }, 60000);
 
 // Admin can trigger manual refresh
@@ -1355,36 +1368,46 @@ async function fetchDiscordServerStats() {
     }
     try {
         if (DISCORD_BOT_TOKEN) {
-            const data = await new Promise((resolve, reject) => {
-                const req = https.request({
-                    hostname: 'discord.com',
-                    path: `/api/v10/guilds/${DISCORD_SERVER_ID}?with_counts=true`,
-                    method: 'GET',
-                    headers: { Authorization: `Bot ${DISCORD_BOT_TOKEN}` },
-                }, (res) => {
-                    let d = '';
-                    res.on('data', c => d += c);
-                    res.on('end', () => { try { resolve(JSON.parse(d)); } catch { reject(new Error(d)); } });
+            try {
+                const data = await new Promise((resolve, reject) => {
+                    const req = https.request({
+                        hostname: 'discord.com',
+                        path: `/api/v10/guilds/${DISCORD_SERVER_ID}?with_counts=true`,
+                        method: 'GET',
+                        headers: { Authorization: `Bot ${DISCORD_BOT_TOKEN}` },
+                    }, (res) => {
+                        let d = '';
+                        res.on('data', c => d += c);
+                        res.on('end', () => { try { resolve(JSON.parse(d)); } catch { reject(new Error(d)); } });
+                    });
+                    req.on('error', reject);
+                    req.end();
                 });
-                req.on('error', reject);
-                req.end();
-            });
-            if (data.approximate_member_count) {
-                _discordStatsCache = {
-                    totalMembers: data.approximate_member_count,
-                    onlineMembers: data.approximate_presence_count || 0,
-                    timestamp: Date.now(),
-                };
-                return _discordStatsCache;
+                console.log('Discord bot API response:', JSON.stringify(data).substring(0, 200));
+                if (data.approximate_member_count) {
+                    _discordStatsCache = {
+                        totalMembers: data.approximate_member_count,
+                        onlineMembers: data.approximate_presence_count || 0,
+                        timestamp: Date.now(),
+                    };
+                    return _discordStatsCache;
+                }
+            } catch (botErr) {
+                console.warn('Discord bot API error:', botErr.message);
             }
         }
-        const widgetData = await httpGet(`https://discord.com/api/guilds/${DISCORD_SERVER_ID}/widget.json`);
-        const widget = JSON.parse(widgetData);
-        _discordStatsCache = {
-            totalMembers: widget.presence_count || _discordStatsCache.totalMembers,
-            onlineMembers: widget.presence_count || 0,
-            timestamp: Date.now(),
-        };
+        try {
+            const widgetData = await httpGet(`https://discord.com/api/guilds/${DISCORD_SERVER_ID}/widget.json`);
+            const widget = JSON.parse(widgetData);
+            console.log('Discord widget response keys:', Object.keys(widget));
+            _discordStatsCache = {
+                totalMembers: widget.members ? widget.members.length : (widget.presence_count || _discordStatsCache.totalMembers),
+                onlineMembers: widget.presence_count || 0,
+                timestamp: Date.now(),
+            };
+        } catch (widgetErr) {
+            console.warn('Discord widget error:', widgetErr.message);
+        }
         return _discordStatsCache;
     } catch (e) {
         console.warn('Discord stats fetch error:', e.message);

@@ -188,25 +188,10 @@ async function submitVerification(videoId, videoTitleEnc, creatorNameEnc, taskTy
                     <button class="btn btn-primary btn-block" onclick="closeTaskModal()">Done</button>
                 </div>
             `;
-            // Update Firebase stats + cooldown (non-blocking)
-            try {
-                if (typeof CoinDropDB !== 'undefined' && userId && typeof auth !== 'undefined' && auth.currentUser) {
-                    const rewardVal = result.rewardUSD || result.rewardSOL || result.reward || 0.01;
-                    await CoinDropDB.incrementTaskStat(userId, taskType, rewardVal);
-                    await CoinDropDB.setCooldown(userId, videoId, taskType);
-                    await CoinDropDB.logTask(userId, { videoId, videoTitle, creatorName, taskType, platform, rewardUSD: result.rewardUSD, rewardSOL: result.rewardSOL, txSignature: result.txSignature });
-                    const stats = await CoinDropDB.getTaskBreakdown(userId);
-                    user.tasksCompleted = stats.tasksCompleted || 0;
-                    user.totalEarned = stats.totalEarned || 0;
-                    localStorage.setItem('coindrop_user', JSON.stringify(user));
-                }
-            } catch(dbErr) {
-                console.warn('Firebase update skipped:', dbErr.message);
-                // Still count locally even if Firebase fails
-                user.tasksCompleted = (user.tasksCompleted || 0) + 1;
-                user.totalEarned = (user.totalEarned || 0) + (result.rewardUSD || 0.01);
-                localStorage.setItem('coindrop_user', JSON.stringify(user));
-            }
+            // Server already wrote task, stats, and cooldown to Firestore — just update localStorage
+            user.tasksCompleted = (user.tasksCompleted || 0) + 1;
+            user.totalEarned = (user.totalEarned || 0) + (result.rewardUSD || 0.01);
+            localStorage.setItem('coindrop_user', JSON.stringify(user));
         } else {
             resultDiv.innerHTML = `
                 <div class="verify-fail">
