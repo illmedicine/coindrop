@@ -149,10 +149,25 @@ function checkBadgeNotification() {
     }
 }
 
+// Horse racing cash prize giveaway announcement
+function checkHorseRacingNotification() {
+    const user = JSON.parse(localStorage.getItem('coindrop_user') || '{}');
+    if (!user.id) return;
+    const seen = localStorage.getItem('coindrop_horse_racing_notice_20260630_' + user.id);
+    if (seen) return;
+    addNotification(
+        'Cash Prize Horse Racing Giveaways!',
+        'Pick the right horse and win <b>$1 USD</b> per race! New horse racing giveaways are live in our Discord. <a href="https://discord.gg/U4nR9Mgg9" target="_blank" style="color:var(--orange);font-weight:600;">Join the race in Discord</a>',
+        'fas fa-horse',
+        '#F7931A'
+    );
+    localStorage.setItem('coindrop_horse_racing_notice_20260630_' + user.id, 'true');
+}
+
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
     checkWelcomeNotice();
     syncNotificationsFromServer();
     updateNotifBadge();
 });
-setTimeout(() => { checkWelcomeNotice(); syncNotificationsFromServer(); checkBadgeNotification(); updateNotifBadge(); }, 3000);
+setTimeout(() => { checkWelcomeNotice(); syncNotificationsFromServer(); checkBadgeNotification(); checkHorseRacingNotification(); updateNotifBadge(); }, 3000);
