@@ -1,7 +1,7 @@
 // ===== Task Verification Workflow =====
 const API_BASE = 'https://coindrop-auth.up.railway.app';
 
-function openTaskModal(videoId, videoTitle, creatorName, taskType, platform, isShort) {
+function openTaskModal(videoId, videoTitle, creatorName, taskType, platform, isShort, creatorHandle) {
     const user = JSON.parse(localStorage.getItem('coindrop_user') || '{}');
 
     // Check wallet before allowing task
@@ -68,7 +68,7 @@ function openTaskModal(videoId, videoTitle, creatorName, taskType, platform, isS
                     <button class="btn btn-ghost" onclick="goToEngage()" style="color:var(--navy)">
                         <i class="fas fa-arrow-left"></i> Back
                     </button>
-                    <button class="btn btn-primary" id="verify-btn" onclick="submitVerification('${videoId}','${encodeURIComponent(videoTitle)}','${encodeURIComponent(creatorName)}','${taskType}','${platform}','${user.id}','${user.username || ''}')" disabled>
+                    <button class="btn btn-primary" id="verify-btn" onclick="submitVerification('${videoId}','${encodeURIComponent(videoTitle)}','${encodeURIComponent(creatorName)}','${taskType}','${platform}','${user.id}','${user.username || ''}','${encodeURIComponent(creatorHandle || '')}')" disabled>
                         <i class="fas fa-shield-alt"></i> Verify Screenshot
                     </button>
                 </div>
@@ -137,9 +137,10 @@ function closeTaskModal() {
     currentScreenshotData = null;
 }
 
-async function submitVerification(videoId, videoTitleEnc, creatorNameEnc, taskType, platform, userId, username) {
+async function submitVerification(videoId, videoTitleEnc, creatorNameEnc, taskType, platform, userId, username, creatorHandleEnc) {
     const videoTitle = decodeURIComponent(videoTitleEnc);
     const creatorName = decodeURIComponent(creatorNameEnc);
+    const creatorHandle = creatorHandleEnc ? decodeURIComponent(creatorHandleEnc) : '';
     const btn = document.getElementById('verify-btn');
     btn.disabled = true;
     btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> AI Analyzing Screenshot...';
@@ -156,6 +157,7 @@ async function submitVerification(videoId, videoTitleEnc, creatorNameEnc, taskTy
                 taskType,
                 videoTitle,
                 creatorName,
+                creatorHandle,
                 videoId,
                 platform,
                 userId,

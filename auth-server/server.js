@@ -256,7 +256,11 @@ app.get('/auth/discord/callback', async (req, res) => {
 // ===== Screenshot Verification =====
 app.post('/api/verify-task', async (req, res) => {
     try {
-        const { screenshot, taskType, videoTitle, creatorName, videoId, platform, userId, username, walletAddress } = req.body;
+        const { screenshot, taskType, videoTitle, creatorName, creatorHandle, videoId, platform, userId, username, walletAddress } = req.body;
+        // Display name and channel handle can differ (e.g. persona "Aysha" vs handle "@Sage_elohi") — accept either on screen.
+        const creatorIdentity = creatorHandle && creatorHandle !== creatorName
+            ? `"${creatorName}" or "${creatorHandle}"`
+            : `"${creatorName}"`;
 
         if (!screenshot || !taskType || !videoTitle || !userId) {
             return res.status(400).json({ success: false, error: 'Missing required fields' });
@@ -301,21 +305,21 @@ app.post('/api/verify-task', async (req, res) => {
         const taskRules = {
             watch: `WATCH VERIFICATION — ALL 3 conditions must be met:
 1. VIDEO TITLE MATCH: The video title "${videoTitle}" (or a recognizable portion of it) must be visible on screen. Partial matches are OK (e.g. "MINDS THROUGH TIME" matching "MINDS THROUGH TIME : EPISODE 4 : CARDI B...").
-2. CHANNEL NAME VISIBLE: The creator/channel name "${creatorName}" (or a close variant like their YouTube handle) must be visible somewhere on screen — below the video, in the header, or in the URL.
+2. CHANNEL NAME VISIBLE: The creator/channel name ${creatorIdentity} (the display name and the @handle both refer to the SAME creator and either one being visible is sufficient — they do not need to resemble each other textually) must be visible somewhere on screen — below the video, in the header, or in the URL.
 3. ACTIVE PLAYBACK: Evidence the video was watched — look for ANY of: a red progress bar on the video timeline showing elapsed time, a pause button visible (meaning video is playing), visible timestamp showing elapsed time (e.g. "0:15 / 7:55"), or the video player in fullscreen/theater mode.
 
 PASS if all 3 conditions are met. FAIL if the title doesn't match, channel name isn't visible, or there's no evidence of playback.`,
 
             like: `LIKE VERIFICATION — ALL 3 conditions must be met:
 1. VIDEO TITLE MATCH: The video title "${videoTitle}" (or a recognizable portion) must be visible.
-2. CHANNEL NAME VISIBLE: The creator "${creatorName}" must be visible.
+2. CHANNEL NAME VISIBLE: The creator ${creatorIdentity} (display name or @handle — either is sufficient, they refer to the same creator) must be visible.
 3. LIKE BUTTON ACTIVE: The thumbs-up/like button must appear FILLED or SOLID. On YouTube dark mode, a LIKED video shows a SOLID WHITE filled thumb — this IS the active/liked state and PASSES. On YouTube light mode, it shows solid blue or black. On Instagram, a red filled heart. The ONLY state that FAILS is a clearly HOLLOW/OUTLINE-ONLY thumb with no fill (just a thin border with empty/transparent interior). If the thumb is solid white, solid blue, solid black, or any solid fill — that means LIKED and PASSES. A white filled thumb on a dark background is NOT an outline — it is the active liked state.
 
 PASS if the like button has ANY solid fill (white, blue, black, colored). FAIL ONLY if the thumb is a thin hollow outline with clearly empty interior.`,
 
             comment: `COMMENT VERIFICATION — ALL 4 conditions must be met:
 1. VIDEO TITLE MATCH: The video title "${videoTitle}" (or a recognizable portion) must be visible on screen.
-2. CHANNEL NAME VISIBLE: The creator/channel "${creatorName}" must be visible on screen.
+2. CHANNEL NAME VISIBLE: The creator/channel ${creatorIdentity} (display name or @handle — either is sufficient, they refer to the same creator) must be visible on screen.
 3. FRESH COMMENT VISIBLE: The comments section must be visible and show a recently posted comment with a timestamp of "0 seconds ago", "just now", or "1 minute ago". Comments showing "2 minutes ago" or older FAIL. The comment must contain actual text (not empty).
 4. COMMENTER IDENTITY MATCH: The profile avatar/icon next to the most recent comment (the one showing "0 seconds ago") should match the profile avatar shown in the "Add a comment..." input row above the comments. This confirms the logged-in user is the one who left the comment. If the same profile picture appears in both the "Add a comment" prompt and the newest comment, this confirms the commenter is the logged-in user.
 
@@ -323,7 +327,7 @@ PASS if all 4 conditions are met: matching title, visible channel name, a commen
 FAIL if: comment is 2+ minutes old, no comment visible, title/channel don't match, or the commenter profile doesn't match the "Add a comment" row.`,
 
             subscribe: `SUBSCRIBE VERIFICATION — ALL 2 conditions must be met:
-1. CHANNEL NAME VISIBLE: The creator/channel name "${creatorName}" (or a recognizable variant like "Just Clips" for "@JustClipsone") must be visible on screen.
+1. CHANNEL NAME VISIBLE: The creator/channel name ${creatorIdentity} (display name or @handle — either is sufficient, they refer to the same creator and do NOT need to textually resemble each other) must be visible on screen.
 2. SUBSCRIBED STATE: Look for ANY of these indicators that the user is already subscribed:
    - A bell/notification icon next to the channel name (with or without a dropdown arrow) — this means "Subscribed" and the subscribe button has been replaced by the bell
    - A gray "Subscribed" button
@@ -336,7 +340,7 @@ FAIL if: comment is 2+ minutes old, no comment visible, title/channel don't matc
 PASS if bell icon is present or subscribe button shows subscribed state. FAIL only if red Subscribe button is still visible.`,
 
             follow: `FOLLOW VERIFICATION — ALL 2 conditions must be met:
-1. ACCOUNT NAME VISIBLE: The creator "${creatorName}" must be visible.
+1. ACCOUNT NAME VISIBLE: The creator ${creatorIdentity} (display name or @handle — either is sufficient) must be visible.
 2. FOLLOWING STATE: The follow button must show "Following" rather than "Follow". If it still says "Follow", the user hasn't followed — FAIL.`
         };
 
@@ -344,7 +348,7 @@ PASS if bell icon is present or subscribe button shows subscribed state. FAIL on
 
 TASK: ${taskType.toUpperCase()}
 VIDEO/CONTENT: "${videoTitle}"
-CREATOR: ${creatorName}
+CREATOR: ${creatorName}${creatorHandle && creatorHandle !== creatorName ? ` (channel handle: ${creatorHandle})` : ''}
 PLATFORM: ${platform}
 
 ${taskRules[taskType] || taskRules.watch}
@@ -353,6 +357,7 @@ IMPORTANT RULES:
 - Check EACH condition independently. Do not assume — look carefully at the actual screenshot.
 - IGNORE ALL WATERMARKS: Videos may contain AI-generation watermarks (Sora, Runway, Kling, Pika, Midjourney, OpenAI, Google DeepMind, Stability AI, HiDream, Seedance, Higgsfield, etc.). These watermarks are part of the video content itself and are NOT relevant to verification. Do NOT fail or reduce confidence because of watermarks visible in the video player or on the video content.
 - IGNORE overlays, badges, or text burned into the video content — only evaluate the YouTube/Instagram UI elements (title, channel name, like button state, comments, progress bar).
+- CREATOR NAME MATCHING: Creators often have a display/persona name that is different from their @handle (e.g. display name "Aysha" with handle "@Sage_elohi"). This is normal and expected — do NOT fail verification just because the on-screen name doesn't textually resemble the other name. Seeing EITHER the display name OR the @handle on screen satisfies the channel name condition.
 - If you cannot clearly see a REQUIRED UI element (title, channel name, or action state), FAIL the verification.
 
 Respond with EXACTLY this JSON (no other text):

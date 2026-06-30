@@ -459,6 +459,7 @@ function renderCreators(filter) {
 
     filtered.forEach(creator => {
         const safeCreatorName = creator.name.replace(/'/g, "\\'");
+        const safeCreatorHandle = (creator.handle || '').replace(/'/g, "\\'");
         const videoCards = creator.videos.map(v => {
             const watchUrl = v.short
                 ? `https://www.youtube.com/shorts/${v.id}`
@@ -490,7 +491,7 @@ function renderCreators(filter) {
                         <span class="vta-reward">$0.01</span>
                         ${watchCd
                             ? `<span class="task-cooldown"><i class="fas fa-clock"></i> ${watchCdText}</span>`
-                            : `<button class="task-action-sm" onclick="openTaskModal('${v.id}','${safeTitle}','${safeCreatorName}','watch','${creator.platform}',${!!v.short})">Go</button>`
+                            : `<button class="task-action-sm" onclick="openTaskModal('${v.id}','${safeTitle}','${safeCreatorName}','watch','${creator.platform}',${!!v.short},'${safeCreatorHandle}')">Go</button>`
                         }
                     </div>
                     <div class="vta-row">
@@ -498,7 +499,7 @@ function renderCreators(filter) {
                         <span class="vta-reward">$0.005</span>
                         ${likeCd
                             ? `<span class="task-cooldown"><i class="fas fa-clock"></i> ${likeCdText}</span>`
-                            : `<button class="task-action-sm" onclick="openTaskModal('${v.id}','${safeTitle}','${safeCreatorName}','like','${creator.platform}',${!!v.short})">Go</button>`
+                            : `<button class="task-action-sm" onclick="openTaskModal('${v.id}','${safeTitle}','${safeCreatorName}','like','${creator.platform}',${!!v.short},'${safeCreatorHandle}')">Go</button>`
                         }
                     </div>
                     <div class="vta-row">
@@ -506,7 +507,7 @@ function renderCreators(filter) {
                         <span class="vta-reward">$0.02</span>
                         ${commentCd
                             ? `<span class="task-cooldown"><i class="fas fa-clock"></i> ${commentCdText}</span>`
-                            : `<button class="task-action-sm" onclick="openTaskModal('${v.id}','${safeTitle}','${safeCreatorName}','comment','${creator.platform}',${!!v.short})">Go</button>`
+                            : `<button class="task-action-sm" onclick="openTaskModal('${v.id}','${safeTitle}','${safeCreatorName}','comment','${creator.platform}',${!!v.short},'${safeCreatorHandle}')">Go</button>`
                         }
                     </div>
                 </div>
@@ -536,7 +537,7 @@ function renderCreators(filter) {
                         <a href="${creator.channelUrl}" target="_blank" class="btn-visit"><i class="fas fa-external-link-alt"></i> Visit Channel</a>
                         ${_subscribedCreators.has(creator.id)
                             ? `<button class="task-action subscribe-btn disabled"><i class="fas fa-check"></i> Subscribed</button>`
-                            : `<button class="task-action subscribe-btn" onclick="openTaskModal('${creator.id}','${safeCreatorName} Channel','${safeCreatorName}','subscribe','${creator.platform}',false)"><i class="fas fa-bell"></i> Subscribe — $0.05 + $0.01/mo</button>`
+                            : `<button class="task-action subscribe-btn" onclick="openTaskModal('${creator.id}','${safeCreatorName} Channel','${safeCreatorName}','subscribe','${creator.platform}',false,'${safeCreatorHandle}')"><i class="fas fa-bell"></i> Subscribe — $0.05 + $0.01/mo</button>`
                         }
                     </div>
                 </div>
