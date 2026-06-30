@@ -35,7 +35,7 @@ if (authData) {
         discordUser.authProvider = 'discord';
         // Save immediately to localStorage so dashboard loads
         localStorage.setItem('coindrop_user', JSON.stringify(discordUser));
-        window.history.replaceState({}, '', 'dashboard.html');
+        window.history.replaceState({}, '', '/dashboard');
     } catch (e) {
         console.error('Failed to parse auth data:', e);
     }
@@ -165,7 +165,7 @@ function updateWalletUI(address) {
 // Load user data
 const user = JSON.parse(localStorage.getItem('coindrop_user') || 'null');
 if (!user) {
-    window.location.href = 'login.html';
+    window.location.href = '/login';
 }
 
 // Prestige badge map
@@ -241,7 +241,7 @@ async function handleLogout() {
     if (typeof auth !== 'undefined') {
         try { await auth.signOut(); } catch(e) {}
     }
-    window.location.href = 'index.html';
+    window.location.href = '/';
 }
 
 function switchTab(tabName) {

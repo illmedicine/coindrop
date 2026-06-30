@@ -75,13 +75,13 @@
 <body>
     <nav class="navbar">
         <div class="nav-container">
-            <a href="index.html" class="nav-logo">
+            <a href="/" class="nav-logo">
                 <img src="assets/logo.png" alt="CoinDrop" class="logo-img">
                 <span class="logo-text">COIN<span class="logo-accent">DROP</span></span>
             </a>
             <div class="nav-links" id="nav-links">
-                <a href="index.html">Home</a>
-                <a href="register.html" class="btn btn-outline">Sign Up</a>
+                <a href="/">Home</a>
+                <a href="/register" class="btn btn-outline">Sign Up</a>
             </div>
             <button class="nav-toggle" id="nav-toggle" aria-label="Toggle menu">
                 <i class="fas fa-bars"></i>
@@ -116,7 +116,7 @@
             </div>
 
             <div class="login-help">
-                Don't have an account? <a href="register.html">Join CoinDrop</a>
+                Don't have an account? <a href="/register">Join CoinDrop</a>
             </div>
         </div>
     </section>
@@ -136,7 +136,7 @@
     <script>
         const existing = localStorage.getItem('coindrop_user');
         if (existing) {
-            window.location.href = 'dashboard.html';
+            window.location.href = '/dashboard';
         }
 
         const params = new URLSearchParams(window.location.search);
@@ -162,7 +162,7 @@
 
             try {
                 const userData = await signInWithGoogle();
-                window.location.href = 'dashboard.html';
+                window.location.href = '/dashboard';
             } catch (err) {
                 btn.disabled = false;
                 btn.innerHTML = '<img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="Google"> Sign in with Google';

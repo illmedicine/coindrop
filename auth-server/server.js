@@ -195,7 +195,7 @@ app.get('/auth/discord', (req, res) => {
 
 app.get('/auth/discord/callback', async (req, res) => {
     const { code } = req.query;
-    if (!code) return res.redirect(`${FRONTEND_URL}/login.html?error=no_code`);
+    if (!code) return res.redirect(`${FRONTEND_URL}/login?error=no_code`);
 
     try {
         const tokenData = await discordPost('/oauth2/token', querystring.stringify({
@@ -208,7 +208,7 @@ app.get('/auth/discord/callback', async (req, res) => {
 
         if (tokenData.error) {
             console.error('Token error:', tokenData);
-            return res.redirect(`${FRONTEND_URL}/login.html?error=auth_failed`);
+            return res.redirect(`${FRONTEND_URL}/login?error=auth_failed`);
         }
 
         const user = await discordGet('/users/@me', tokenData.access_token);
@@ -246,10 +246,10 @@ app.get('/auth/discord/callback', async (req, res) => {
         } catch(e) { console.warn('User profile save skipped:', e.message); }
 
         const encodedUser = encodeURIComponent(JSON.stringify(userData));
-        res.redirect(`${FRONTEND_URL}/dashboard.html?auth=${encodedUser}`);
+        res.redirect(`${FRONTEND_URL}/dashboard?auth=${encodedUser}`);
     } catch (err) {
         console.error('OAuth error:', err.message || err);
-        res.redirect(`${FRONTEND_URL}/login.html?error=auth_failed`);
+        res.redirect(`${FRONTEND_URL}/login?error=auth_failed`);
     }
 });
 
