@@ -149,6 +149,21 @@ function checkBadgeNotification() {
     }
 }
 
+// Google Play Store launch announcement
+function checkPlayStoreNotification() {
+    const user = JSON.parse(localStorage.getItem('coindrop_user') || '{}');
+    if (!user.id) return;
+    const seen = localStorage.getItem('coindrop_playstore_launch_20260701_' + user.id);
+    if (seen) return;
+    addNotification(
+        'CoinDrop is Now on Google Play!',
+        'The CoinDrop Android app is officially live! Download it now for a faster, native experience. <a href="https://play.google.com/store/apps/details?id=in.coindrop&pcampaignid=web_share" target="_blank" style="color:var(--orange);font-weight:600;"><i class="fab fa-google-play"></i> Download on Google Play</a>',
+        'fab fa-google-play',
+        '#01875f'
+    );
+    localStorage.setItem('coindrop_playstore_launch_20260701_' + user.id, 'true');
+}
+
 // Horse racing cash prize giveaway announcement
 function checkHorseRacingNotification() {
     const user = JSON.parse(localStorage.getItem('coindrop_user') || '{}');
@@ -170,4 +185,4 @@ document.addEventListener('DOMContentLoaded', () => {
     syncNotificationsFromServer();
     updateNotifBadge();
 });
-setTimeout(() => { checkWelcomeNotice(); syncNotificationsFromServer(); checkBadgeNotification(); checkHorseRacingNotification(); updateNotifBadge(); }, 3000);
+setTimeout(() => { checkWelcomeNotice(); syncNotificationsFromServer(); checkBadgeNotification(); checkHorseRacingNotification(); checkPlayStoreNotification(); updateNotifBadge(); }, 3000);

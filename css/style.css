@@ -114,6 +114,18 @@ h3 { font-size: 1.25rem; }
 }
 .btn-ghost:hover { background: rgba(255,255,255,0.1); }
 
+.btn-playstore {
+    background: #01875f;
+    color: var(--white);
+    border-color: #01875f;
+}
+.btn-playstore:hover {
+    background: #016b4d;
+    border-color: #016b4d;
+    transform: translateY(-2px);
+    box-shadow: 0 8px 25px rgba(1, 135, 95, 0.4);
+}
+
 .btn-lg { padding: 16px 32px; font-size: 1.05rem; }
 
 .btn-discord {
