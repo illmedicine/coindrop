@@ -10,7 +10,7 @@ const PLATFORM_MARKUP = 0.10; // 10%
 const TASK_RATES = {
     watch: { sol: 0.001, usd: null, label: 'Views' },
     like: { sol: 0.0005, usd: null, label: 'Likes' },
-    comment: { sol: null, usd: 0.02, label: 'Comments' },
+    comment: { sol: null, usd: 0.05, label: 'Comments' },
     subscribe: { sol: null, usd: 0.05, label: 'Subscribes' },
 };
 
@@ -55,7 +55,7 @@ async function loadCreatorAnalytics() {
         }
 
         const payoutSOL = (stats.views * 0.001) + (stats.likes * 0.0005);
-        const payoutUSD = (stats.comments * 0.02) + (stats.subscribes * 0.05);
+        const payoutUSD = (stats.comments * 0.05) + (stats.subscribes * 0.05);
         const totalTasks = stats.views + stats.likes + stats.comments + stats.subscribes;
 
         analyticsData.push({ creator, stats, payoutSOL, payoutUSD, totalTasks });
@@ -142,7 +142,7 @@ async function generateInvoice(creatorId) {
 
     const viewsSOL = stats.views * 0.001;
     const likesSOL = stats.likes * 0.0005;
-    const commentsUSD = stats.comments * 0.02;
+    const commentsUSD = stats.comments * 0.05;
     const subsUSD = stats.subscribes * 0.05;
     const subtotalSOL = viewsSOL + likesSOL;
     const subtotalUSD = commentsUSD + subsUSD;
@@ -216,7 +216,7 @@ async function generateInvoice(creatorId) {
                     <tr>
                         <td><i class="fas fa-comment"></i> Verified Comments</td>
                         <td>${stats.comments}</td>
-                        <td>$0.02</td>
+                        <td>$0.05</td>
                         <td>$${commentsUSD.toFixed(2)}</td>
                     </tr>
                     <tr>

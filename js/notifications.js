@@ -179,10 +179,25 @@ function checkHorseRacingNotification() {
     localStorage.setItem('coindrop_horse_racing_notice_20260630_' + user.id, 'true');
 }
 
+// Comment reward boost announcement
+function checkCommentBoostNotification() {
+    const user = JSON.parse(localStorage.getItem('coindrop_user') || '{}');
+    if (!user.id) return;
+    const seen = localStorage.getItem('coindrop_comment_boost_20260703_' + user.id);
+    if (seen) return;
+    addNotification(
+        '💬 Comments Now Pay $0.05 — 5× Boost!',
+        'Big update: verified comments now earn <b>$0.05 each</b> (up from $0.02)! Comment on every video task daily and earn up to <b>$8.70/day</b> from comments alone — then come back tomorrow and do it all again since comment tasks reset every 24 hours. The more creators we add, the more you can earn. Start commenting on everything now!',
+        'fas fa-comment-dollar',
+        '#22c55e'
+    );
+    localStorage.setItem('coindrop_comment_boost_20260703_' + user.id, 'true');
+}
+
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
     checkWelcomeNotice();
     syncNotificationsFromServer();
     updateNotifBadge();
 });
-setTimeout(() => { checkWelcomeNotice(); syncNotificationsFromServer(); checkBadgeNotification(); checkHorseRacingNotification(); checkPlayStoreNotification(); updateNotifBadge(); }, 3000);
+setTimeout(() => { checkWelcomeNotice(); syncNotificationsFromServer(); checkBadgeNotification(); checkHorseRacingNotification(); checkPlayStoreNotification(); checkCommentBoostNotification(); updateNotifBadge(); }, 3000);

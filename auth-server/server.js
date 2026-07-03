@@ -145,7 +145,7 @@ const DISCORD_BOT_TOKEN = process.env.DISCORD_BOT_TOKEN;
 const TASK_REWARDS_USD = {
     watch: 0.01,
     like: 0.005,
-    comment: 0.02,
+    comment: 0.05,
     subscribe: 0.05,
     follow: 0.05,
 };
@@ -328,11 +328,11 @@ PASS if: "Unlike" button visible, OR like count > 0 next to thumb, OR thumb has 
             comment: `COMMENT VERIFICATION — ALL 4 conditions must be met:
 1. VIDEO TITLE MATCH: The video title "${videoTitle}" (or a recognizable portion) must be visible on screen.
 2. CHANNEL NAME VISIBLE: The creator/channel ${creatorIdentity} (display name or @handle — either is sufficient, they refer to the same creator) must be visible on screen.
-3. FRESH COMMENT VISIBLE: The comments section must be visible and show a recently posted comment with a timestamp of "0 seconds ago", "just now", or "1 minute ago". Comments showing "2 minutes ago" or older FAIL. The comment must contain actual text (not empty).
-4. COMMENTER IDENTITY MATCH: The profile avatar/icon next to the most recent comment (the one showing "0 seconds ago") should match the profile avatar shown in the "Add a comment..." input row above the comments. This confirms the logged-in user is the one who left the comment. If the same profile picture appears in both the "Add a comment" prompt and the newest comment, this confirms the commenter is the logged-in user.
+3. FRESH COMMENT VISIBLE: The comments section must be visible and show a recently posted comment with a timestamp of "0 seconds ago", "just now", "1 minute ago", OR "2 minutes ago". Comments showing "3 minutes ago" or older FAIL. The comment must contain actual text (not empty). A timestamp is required — if no timestamp is visible, FAIL.
+4. COMMENTER NAME MATCH: The display name shown next to the most recent comment (the one with the freshest timestamp) must match or closely resemble the CoinDrop username "${username}". The match does not need to be perfect — YouTube display names may differ slightly from usernames (e.g. capitalization, spaces). However if the commenter name is completely unrelated to "${username}", FAIL. If you cannot read the commenter name at all, FAIL.
 
-PASS if all 4 conditions are met: matching title, visible channel name, a comment posted within the last minute (0 seconds to 1 minute ago), and the commenter's profile matches the "Add a comment" row.
-FAIL if: comment is 2+ minutes old, no comment visible, title/channel don't match, or the commenter profile doesn't match the "Add a comment" row.`,
+PASS if all 4 conditions are met: matching title, visible channel name, comment posted within 2 minutes, and commenter name matches "${username}".
+FAIL if: comment is 3+ minutes old, no timestamp visible, no comment visible, title/channel don't match, or commenter name does not resemble "${username}".`,
 
             subscribe: `SUBSCRIBE VERIFICATION — ALL 2 conditions must be met:
 1. CHANNEL NAME VISIBLE: The creator/channel name ${creatorIdentity} (display name or @handle — either is sufficient, they refer to the same creator and do NOT need to textually resemble each other) must be visible on screen.
@@ -653,7 +653,7 @@ app.post('/api/earnings-potential/update', async (req, res) => {
     const { totalVideos, totalCreators } = req.body;
     if (!totalVideos || !totalCreators) return res.status(400).json({ error: 'Missing counts' });
 
-    const dailyUSD = (totalVideos * 0.01) + (totalVideos * 0.005) + (totalVideos * 0.02);
+    const dailyUSD = (totalVideos * 0.01) + (totalVideos * 0.005) + (totalVideos * 0.05);
     const subOnetime = totalCreators * 0.05;
     const monthlyResidual = totalCreators * 0.01;
 

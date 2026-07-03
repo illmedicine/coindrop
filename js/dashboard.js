@@ -504,7 +504,7 @@ function renderCreators(filter) {
                     </div>
                     <div class="vta-row">
                         <span class="vta-label"><i class="fas fa-comment"></i> Comment</span>
-                        <span class="vta-reward">$0.02</span>
+                        <span class="vta-reward">$0.05</span>
                         ${commentCd
                             ? `<span class="task-cooldown"><i class="fas fa-clock"></i> ${commentCdText}</span>`
                             : `<button class="task-action-sm" onclick="openTaskModal('${v.id}','${safeTitle}','${safeCreatorName}','comment','${creator.platform}',${!!v.short},'${safeCreatorHandle}')">Go</button>`

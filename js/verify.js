@@ -18,7 +18,7 @@ function openTaskModal(videoId, videoTitle, creatorName, taskType, platform, isS
     const embedUrl = isShort
         ? `https://www.youtube.com/embed/${videoId}`
         : `https://www.youtube.com/embed/${videoId}?rel=0`;
-    const reward = { watch: '$0.01', like: '$0.005', comment: '$0.02', subscribe: '$0.05 + $0.01/mo', follow: '$0.05 + $0.01/mo' }[taskType];
+    const reward = { watch: '$0.01', like: '$0.005', comment: '$0.05', subscribe: '$0.05 + $0.01/mo', follow: '$0.05 + $0.01/mo' }[taskType];
     const actionLabel = { watch: 'Watch the video', like: 'Like the video', comment: 'Leave a comment', subscribe: 'Subscribe to channel', follow: 'Follow account' }[taskType];
     const actionIcon = { watch: 'fa-play', like: 'fa-thumbs-up', comment: 'fa-comment', subscribe: 'fa-bell', follow: 'fa-user-plus' }[taskType];
 
