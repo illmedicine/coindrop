@@ -49,6 +49,9 @@
             <a href="#" class="sidebar-link" data-tab="admin-payouts" id="admin-payouts-nav" style="display:none">
                 <i class="fas fa-hand-holding-usd"></i> Unpaid Payouts
             </a>
+            <a href="#" class="sidebar-link" data-tab="admin-audit" id="admin-audit-nav" style="display:none">
+                <i class="fas fa-shield-alt"></i> Leaderboard Audit
+            </a>
         </nav>
         <div class="sidebar-footer">
             <div class="sidebar-status-block">
@@ -365,6 +368,30 @@
             </div>
         </div>
 
+        <!-- Leaderboard Audit Tab (Admin Only) -->
+        <div class="tab-content" id="tab-admin-audit">
+            <div class="tab-header">
+                <h2><i class="fas fa-shield-alt text-orange"></i> Leaderboard Audit</h2>
+                <p class="text-muted">Full task history with AI fraud detection. Flagged tasks are ineligible for payout.</p>
+            </div>
+            <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:16px;">
+                <button class="btn btn-primary" onclick="loadAuditTasks()"><i class="fas fa-sync"></i> Refresh</button>
+                <button class="btn btn-primary" id="run-ai-btn" onclick="runAIAnalysis()" style="background:#7c3aed;"><i class="fas fa-robot"></i> Run AI Analysis</button>
+                <select id="audit-filter" onchange="applyAuditFilter()" style="padding:8px 14px;border-radius:8px;border:1px solid var(--gray-200);font-size:0.85rem;background:white;">
+                    <option value="all">All Tasks</option>
+                    <option value="flagged">Flagged Only</option>
+                    <option value="paid">Paid</option>
+                    <option value="unpaid">Unpaid</option>
+                </select>
+                <input id="audit-search" type="text" placeholder="Search user, creator, title..." oninput="applyAuditFilter()" style="padding:8px 14px;border-radius:8px;border:1px solid var(--gray-200);font-size:0.85rem;min-width:220px;">
+                <span id="audit-summary" class="text-muted" style="margin-left:auto;font-size:0.82rem;"></span>
+            </div>
+            <div id="audit-ai-report" style="display:none;margin-bottom:16px;padding:16px;background:#1e1b4b;border-radius:10px;color:white;"></div>
+            <div id="audit-tasks-list">
+                <p class="text-muted"><i class="fas fa-spinner fa-spin"></i> Loading audit data...</p>
+            </div>
+        </div>
+
         <div class="tab-content" id="tab-admin-payouts">
             <div class="tab-header">
                 <h2><i class="fas fa-hand-holding-usd text-orange"></i> Unpaid Payouts</h2>
@@ -462,6 +489,7 @@
     <script src="js/creators-data.js"></script>
     <script src="js/analytics.js"></script>
     <script src="js/admin-payouts.js"></script>
+    <script src="js/admin-audit.js"></script>
     <script src="js/notifications.js"></script>
     <script src="js/dashboard.js"></script>
 </body>

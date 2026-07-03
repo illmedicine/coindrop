@@ -27,10 +27,10 @@ async function checkIsAdmin() {
 async function showAdminPayoutsNav() {
     const isAdmin = await checkIsAdmin();
     if (isAdmin) {
-        const nav = document.getElementById('admin-payouts-nav');
-        if (nav) nav.style.display = '';
-        const analyticsNav = document.getElementById('analytics-nav');
-        if (analyticsNav) analyticsNav.style.display = '';
+        ['admin-payouts-nav', 'analytics-nav', 'admin-audit-nav'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.style.display = '';
+        });
     }
 }
 

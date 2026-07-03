@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CoinDrop</title>
+    <script>
+        // Redirect /@handle paths to /dashboard?c=handle so the dashboard auto-filters to that creator.
+        // All other 404s get a brief delay then redirect to the homepage.
+        (function() {
+            var path = window.location.pathname;
+            var atMatch = path.match(/^\/@?([^/]+)$/);
+            if (atMatch) {
+                window.location.replace('/dashboard?c=' + encodeURIComponent(atMatch[1]));
+            } else {
+                window.location.replace('/');
+            }
+        })();
+    </script>
+</head>
+<body></body>
+</html>

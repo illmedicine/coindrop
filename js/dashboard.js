@@ -553,16 +553,41 @@ function renderCreators(filter) {
 const filtersContainer = document.getElementById('creator-filters');
 if (filtersContainer) {
     filtersContainer.innerHTML = '<button class="filter-btn active" data-filter="all">All Creators</button>' +
-        CREATORS.map(c => `<button class="filter-btn" data-filter="${c.id}"><i class="fab fa-youtube"></i> ${c.handle}</button>`).join('');
+        CREATORS.map(c => `<button class="filter-btn" data-filter="${c.id}" data-handle="${c.handle}"><i class="fab fa-youtube"></i> ${c.handle}</button>`).join('');
 }
 
-renderCreators('all');
+// Resolve initial creator from URL path (e.g. coindrop.in/@illmedicine)
+function getCreatorFromUrl() {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('c')) {
+        const handle = '@' + params.get('c').replace(/^@/, '');
+        return CREATORS.find(c => c.handle.toLowerCase() === handle.toLowerCase());
+    }
+    return null;
+}
+
+const _urlCreator = getCreatorFromUrl();
+const _initialFilter = _urlCreator ? _urlCreator.id : 'all';
+renderCreators(_initialFilter);
+
+if (_urlCreator) {
+    // Switch to tasks tab if we landed via a creator URL
+    switchTab('tasks');
+}
 
 document.querySelectorAll('.filter-btn').forEach(btn => {
     btn.addEventListener('click', () => {
         document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
-        renderCreators(btn.dataset.filter);
+        const filterId = btn.dataset.filter;
+        renderCreators(filterId);
+        // Update URL — /@handle for specific creator, clean /dashboard for All
+        if (filterId === 'all') {
+            window.history.pushState({}, '', '/dashboard');
+        } else {
+            const handle = btn.dataset.handle || filterId;
+            window.history.pushState({}, '', '/' + handle);
+        }
     });
 });
 

@@ -313,9 +313,17 @@ PASS if all 3 conditions are met. FAIL if the title doesn't match, channel name 
             like: `LIKE VERIFICATION — ALL 3 conditions must be met:
 1. VIDEO TITLE MATCH: The video title "${videoTitle}" (or a recognizable portion) must be visible.
 2. CHANNEL NAME VISIBLE: The creator ${creatorIdentity} (display name or @handle — either is sufficient, they refer to the same creator) must be visible.
-3. LIKE BUTTON ACTIVE: The thumbs-up/like button must appear FILLED or SOLID. On YouTube dark mode, a LIKED video shows a SOLID WHITE filled thumb — this IS the active/liked state and PASSES. On YouTube light mode, it shows solid blue or black. On Instagram, a red filled heart. The ONLY state that FAILS is a clearly HOLLOW/OUTLINE-ONLY thumb with no fill (just a thin border with empty/transparent interior). If the thumb is solid white, solid blue, solid black, or any solid fill — that means LIKED and PASSES. A white filled thumb on a dark background is NOT an outline — it is the active liked state.
+3. LIKE BUTTON ACTIVE: The thumbs-up/like button must appear FILLED or SOLID, OR an "Unlike" label is visible. Specific rules:
+   - If the word "Unlike" appears anywhere near the like button, the content IS liked — PASS immediately.
+   - A like count (any number like "1", "42", etc.) next to the thumbs-up icon means the like is active — PASS.
+   - On YouTube dark mode, a LIKED video shows a SOLID WHITE filled thumb — this IS the active/liked state and PASSES.
+   - On YouTube light mode, it shows solid blue or black.
+   - On Instagram, a red filled heart.
+   - The ONLY state that FAILS is a clearly HOLLOW/OUTLINE-ONLY thumb with no fill AND no "Unlike" label AND no like count.
+   - LIVE STREAMS: If the video player shows "Live stream offline" or "Live stream" — this is completely normal and DOES NOT affect the like button verification. A live stream being offline has no progress bar by design. Only check the like button state, title, and channel name.
+   - IGNORE the video player state entirely for LIKE verification — do not require a progress bar, play button, or any playback evidence.
 
-PASS if the like button has ANY solid fill (white, blue, black, colored). FAIL ONLY if the thumb is a thin hollow outline with clearly empty interior.`,
+PASS if: "Unlike" button visible, OR like count > 0 next to thumb, OR thumb has any solid fill. FAIL ONLY if thumb is clearly hollow/outline with zero count and no Unlike label.`,
 
             comment: `COMMENT VERIFICATION — ALL 4 conditions must be met:
 1. VIDEO TITLE MATCH: The video title "${videoTitle}" (or a recognizable portion) must be visible on screen.
@@ -778,6 +786,93 @@ app.get('/api/admin/unpaid-tasks', async (req, res) => {
     }
 });
 
+// All tasks audit endpoint — returns every task with fraud flags
+app.get('/api/admin/all-tasks', async (req, res) => {
+    const email = req.query.email;
+    if (!ADMIN_EMAILS.includes(email)) return res.status(403).json({ error: 'Unauthorized' });
+    try {
+        let allTasks = [];
+        if (!_firestoreThrottled) {
+            let nextPageToken = null;
+            do {
+                let url = `${FIRESTORE_URL}/tasks?key=${FIREBASE_API_KEY}&pageSize=300`;
+                if (nextPageToken) url += `&pageToken=${nextPageToken}`;
+                const listData = await httpGet(url);
+                const parsed = JSON.parse(listData);
+                if (checkThrottle(parsed)) break;
+                if (!parsed.documents) break;
+                for (const doc of parsed.documents) {
+                    allTasks.push({ ...parseFirestoreDoc(doc.fields || {}), docId: doc.name.split('/').pop() });
+                }
+                nextPageToken = parsed.nextPageToken || null;
+            } while (nextPageToken);
+        }
+        if (allTasks.length === 0 && cache.tasks.length > 0) {
+            allTasks = cache.tasks.map(t => ({ ...t, docId: t._docId || t.docId }));
+        }
+
+        allTasks.sort((a, b) => (b.timestamp || '') < (a.timestamp || '') ? -1 : 1);
+
+        // Fraud detection
+        const subKeys = {};   // userId:creatorName -> count
+        const dayKeys = {};   // userId:videoId:taskType:date -> count
+        const userTaskCounts = {}; // userId:date -> count (botting)
+        for (const t of allTasks) {
+            if (t.taskType === 'subscribe') {
+                const k = `${t.userId}:${t.creatorName}`;
+                subKeys[k] = (subKeys[k] || 0) + 1;
+            }
+            if (t.taskType === 'watch' || t.taskType === 'like') {
+                const date = (t.timestamp || '').slice(0, 10);
+                const k = `${t.userId}:${t.videoId}:${t.taskType}:${date}`;
+                dayKeys[k] = (dayKeys[k] || 0) + 1;
+            }
+            const date = (t.timestamp || '').slice(0, 10);
+            const bk = `${t.userId}:${date}`;
+            userTaskCounts[bk] = (userTaskCounts[bk] || 0) + 1;
+        }
+
+        const tasks = allTasks.map(t => {
+            const flags = [];
+            if (t.taskType === 'subscribe') {
+                const k = `${t.userId}:${t.creatorName}`;
+                if ((subKeys[k] || 0) > 1) flags.push('DUPLICATE_SUBSCRIBE');
+            }
+            if (t.taskType === 'watch' || t.taskType === 'like') {
+                const date = (t.timestamp || '').slice(0, 10);
+                const k = `${t.userId}:${t.videoId}:${t.taskType}:${date}`;
+                if ((dayKeys[k] || 0) > 1) flags.push('SAME_DAY_DUPLICATE');
+            }
+            const date = (t.timestamp || '').slice(0, 10);
+            const bk = `${t.userId}:${date}`;
+            if ((userTaskCounts[bk] || 0) > 50) flags.push('HIGH_VOLUME_BOT_RISK');
+            return {
+                docId: t.docId,
+                userId: t.userId,
+                username: t.username || '',
+                taskType: t.taskType,
+                platform: t.platform || 'youtube',
+                creatorName: t.creatorName || '',
+                videoTitle: t.videoTitle || '',
+                videoId: t.videoId || '',
+                rewardUSD: t.rewardUSD || 0,
+                rewardSOL: t.rewardSOL || 0,
+                payoutSuccess: !!(t.txSignature || t.payoutSuccess),
+                txSignature: t.txSignature || '',
+                timestamp: t.timestamp || '',
+                walletAddress: t.walletAddress || '',
+                flags,
+            };
+        });
+
+        const flagged = tasks.filter(t => t.flags.length > 0).length;
+        res.json({ tasks, total: tasks.length, flagged });
+    } catch (err) {
+        console.error('Admin all-tasks error:', err.message);
+        res.status(500).json({ error: 'Failed to fetch tasks' });
+    }
+});
+
 app.post('/api/admin/retry-payout', async (req, res) => {
     const { email, docId, walletAddress, rewardSOL } = req.body;
     if (!ADMIN_EMAILS.includes(email)) {
@@ -861,16 +956,23 @@ app.post('/api/admin/retry-all', async (req, res) => {
             allTasks = fetched;
         }
 
-        // Find eligible unpaid tasks
+        // Find eligible unpaid tasks — dedup subscribe, same-day watch/like
         allTasks.sort((a, b) => (a.timestamp || '') < (b.timestamp || '') ? -1 : 1);
         const seenSubs = new Set();
+        const seenDailyActions = new Set(); // userId:videoId:taskType:date
         const eligible = [];
         for (const t of allTasks) {
             if (t.txSignature || t.payoutSuccess) continue;
             if (t.taskType === 'subscribe') {
                 const key = `${t.userId}:${t.creatorName}`;
-                if (seenSubs.has(key)) continue;
+                if (seenSubs.has(key)) { console.log(`DEDUP SKIP subscribe: ${t.username} -> ${t.creatorName}`); continue; }
                 seenSubs.add(key);
+            }
+            if (t.taskType === 'watch' || t.taskType === 'like') {
+                const date = (t.timestamp || '').slice(0, 10); // YYYY-MM-DD
+                const dayKey = `${t.userId}:${t.videoId}:${t.taskType}:${date}`;
+                if (seenDailyActions.has(dayKey)) { console.log(`DEDUP SKIP ${t.taskType}: ${t.username} -> ${t.videoId} on ${date}`); continue; }
+                seenDailyActions.add(dayKey);
             }
             eligible.push(t);
         }
