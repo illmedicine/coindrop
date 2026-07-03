@@ -1,0 +1,12 @@
+{
+  "projects": {
+    "default": "coindrop-e39de"
+  },
+  "targets": {
+    "coindrop-e39de": {
+      "hosting": {
+        "coindrop": ["coindrop-e39de"]
+      }
+    }
+  }
+}
