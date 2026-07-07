@@ -194,7 +194,22 @@ function checkCommentBoostNotification() {
     localStorage.setItem('coindrop_comment_boost_20260703_' + user.id, 'true');
 }
 
-// Twitch flash promo announcement
+// Twitch Live Earn feature launch announcement (one-time, all users)
+function checkTwitchEarnLaunchNotification() {
+    const user = JSON.parse(localStorage.getItem('coindrop_user') || '{}');
+    if (!user.id) return;
+    const seen = localStorage.getItem('coindrop_twitch_earn_launch_20260706_' + user.id);
+    if (seen) return;
+    addNotification(
+        '⚡ NEW: Earn Money Watching Twitch Live Streams!',
+        'CoinDrop just launched <b>Live Earn</b> — earn <b>$0.02 per minute</b> watching featured Twitch streams! When a creator goes live, you\'ll get a flash alert. Open the <b>Live Earn</b> tab in your dashboard, submit a screenshot every 60 seconds, and get paid. Enable <b>Auto-Validation</b> so the app reminds you every minute automatically. Check the Live Earn tab now to see if anyone is live!',
+        'fab fa-twitch',
+        '#9146FF'
+    );
+    localStorage.setItem('coindrop_twitch_earn_launch_20260706_' + user.id, 'true');
+}
+
+// Twitch flash promo announcement (fires per active promo)
 async function checkTwitchPromoNotification() {
     const user = JSON.parse(localStorage.getItem('coindrop_user') || '{}');
     if (!user.id) return;
@@ -222,4 +237,4 @@ document.addEventListener('DOMContentLoaded', () => {
     syncNotificationsFromServer();
     updateNotifBadge();
 });
-setTimeout(() => { checkWelcomeNotice(); syncNotificationsFromServer(); checkBadgeNotification(); checkHorseRacingNotification(); checkPlayStoreNotification(); checkCommentBoostNotification(); checkTwitchPromoNotification(); updateNotifBadge(); }, 3000);
+setTimeout(() => { checkWelcomeNotice(); syncNotificationsFromServer(); checkBadgeNotification(); checkHorseRacingNotification(); checkPlayStoreNotification(); checkCommentBoostNotification(); checkTwitchEarnLaunchNotification(); checkTwitchPromoNotification(); updateNotifBadge(); }, 3000);
