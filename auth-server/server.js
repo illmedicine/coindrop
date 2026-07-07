@@ -136,6 +136,7 @@ const DISCORD_WEBHOOKS = {
     comments: process.env.DISCORD_WEBHOOK_COMMENTS,
     subscriber: process.env.DISCORD_WEBHOOK_SUBSCRIBER,
     payouts: 'https://discord.com/api/webhooks/1521127897090359366/hZvkQGoEd2PNs-ht4ut1jcyLheM0Ubq95xdSQ9ebxMcooIN9PLnN86glL9qdhIHvTXyQ',
+    flash: process.env.DISCORD_WEBHOOK_FLASH || 'https://discord.com/api/webhooks/1521127897090359366/hZvkQGoEd2PNs-ht4ut1jcyLheM0Ubq95xdSQ9ebxMcooIN9PLnN86glL9qdhIHvTXyQ',
 };
 
 const DISCORD_SERVER_ID = '1517900956849803346';
@@ -1088,6 +1089,10 @@ const cache = {
     refreshing: false,
 };
 
+// Twitch flash promos — in-memory (flash promos are transient by design)
+const twitchPromos = []; // { id, twitchUrl, streamerName, rewardPerMin, createdAt, active, createdBy }
+const twitchSessions = new Map(); // `${userId}:${promoId}` → { lastVerifiedAt: ISO, count: number }
+
 async function loadCacheFromFirestore() {
     console.log('Loading cached data from Firestore...');
     try {
@@ -1241,6 +1246,184 @@ app.get('/api/admin/refresh-cache', async (req, res) => {
     cache.refreshing = false;
     await refreshAllData();
     res.json({ tasks: cache.tasks.length, leaders: cache.leaderboard.leaders.length, stats: cache.platformStats });
+});
+
+// ===== TWITCH FLASH PROMOS =====
+
+// Admin: create a flash promo
+app.post('/api/admin/create-twitch-promo', async (req, res) => {
+    const { email, twitchUrl, streamerName, rewardPerMin } = req.body;
+    if (!ADMIN_EMAILS.includes((email || '').toLowerCase())) return res.status(403).json({ error: 'Unauthorized' });
+    if (!twitchUrl || !streamerName) return res.status(400).json({ error: 'twitchUrl and streamerName required' });
+
+    const promo = {
+        id: Date.now().toString(),
+        twitchUrl: twitchUrl.trim(),
+        streamerName: streamerName.trim(),
+        rewardPerMin: parseFloat(rewardPerMin) || 0.02,
+        createdAt: new Date().toISOString(),
+        active: true,
+        createdBy: email,
+    };
+    twitchPromos.unshift(promo);
+
+    // Discord flash alert
+    try {
+        await postToDiscord(DISCORD_WEBHOOKS.flash, {
+            username: 'CoinDrop Flash Alert',
+            avatar_url: 'https://coindrop.in/assets/logo.svg',
+            content: '🔴 **FLASH EARN EVENT — LIVE NOW!**',
+            embeds: [{
+                color: 0x9146FF, // Twitch purple
+                title: `⚡ Flash Earn: ${streamerName} is LIVE on Twitch!`,
+                description: `Earn **$${promo.rewardPerMin.toFixed(2)}/min** just for watching the live stream! Submit a screenshot every minute to earn.`,
+                fields: [
+                    { name: '📺 Stream', value: `[Watch Now](${promo.twitchUrl})`, inline: true },
+                    { name: '💰 Rate', value: `$${promo.rewardPerMin.toFixed(2)} per minute`, inline: true },
+                    { name: '📱 How to Earn', value: 'Login to CoinDrop → Live Earn tab → Start Watching', inline: false },
+                ],
+                url: promo.twitchUrl,
+                timestamp: new Date().toISOString(),
+                footer: { text: 'CoinDrop Flash Earn • Limited Time' },
+            }],
+        });
+    } catch(e) { console.warn('Discord flash alert failed:', e.message); }
+
+    console.log(`TWITCH PROMO CREATED: ${streamerName} (${twitchUrl}) @ $${promo.rewardPerMin}/min`);
+    res.json({ success: true, promo });
+});
+
+// All users: get active promos
+app.get('/api/twitch-promos/active', (req, res) => {
+    res.json({ promos: twitchPromos.filter(p => p.active) });
+});
+
+// Admin: deactivate a promo
+app.post('/api/admin/deactivate-twitch-promo', (req, res) => {
+    const { email, promoId } = req.body;
+    if (!ADMIN_EMAILS.includes((email || '').toLowerCase())) return res.status(403).json({ error: 'Unauthorized' });
+    const promo = twitchPromos.find(p => p.id === promoId);
+    if (promo) promo.active = false;
+    res.json({ success: true });
+});
+
+// All users: verify a Twitch screenshot (per-minute submission)
+app.post('/api/verify-twitch', async (req, res) => {
+    try {
+        const { screenshot, promoId, userId, username } = req.body;
+        if (!screenshot || !promoId || !userId) return res.status(400).json({ success: false, error: 'Missing fields' });
+
+        const promo = twitchPromos.find(p => p.id === promoId && p.active);
+        if (!promo) return res.json({ success: false, verified: false, reason: 'This flash promo is no longer active.' });
+
+        // Rate-limit: enforce minimum 50s between submissions per user per promo
+        const sessionKey = `${userId}:${promoId}`;
+        const session = twitchSessions.get(sessionKey) || { lastVerifiedAt: null, count: 0 };
+        if (session.lastVerifiedAt) {
+            const elapsed = Date.now() - new Date(session.lastVerifiedAt).getTime();
+            if (elapsed < 50000) {
+                const wait = Math.ceil((50000 - elapsed) / 1000);
+                return res.json({ success: false, verified: false, reason: `Please wait ${wait} more seconds before your next submission.` });
+            }
+        }
+
+        // Extract streamer handle from URL (e.g. twitch.tv/streamer → streamer)
+        const expectedHandle = promo.streamerName.toLowerCase().replace(/^@/, '');
+        const lastVerifiedAt = session.lastVerifiedAt;
+        const submissionNum = session.count + 1;
+
+        const base64Data = screenshot.replace(/^data:image\/\w+;base64,/, '');
+        const mediaType = screenshot.match(/^data:(image\/\w+);base64,/)?.[1] || 'image/png';
+
+        const prompt = `You are verifying a CoinDrop Twitch live stream screenshot. The user "${username || userId}" claims to be watching a live Twitch stream.
+
+STREAMER: ${promo.streamerName} (twitch.tv/${expectedHandle})
+SUBMISSION: #${submissionNum}${lastVerifiedAt ? `\nPREVIOUS VERIFIED TIME: ${new Date(lastVerifiedAt).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' })} UTC` : '\nPREVIOUS VERIFIED TIME: None (first submission)'}
+
+CHECK ALL 4 CONDITIONS — ALL must pass:
+
+1. TWITCH PLATFORM VISIBLE: The screenshot must clearly show the Twitch interface. Look for: twitch.tv URL in the browser address bar, the Twitch logo/wordmark, Twitch chat panel, or the characteristic Twitch dark player interface. FAIL if this is YouTube, a local file, or another platform.
+
+2. CORRECT STREAMER: The channel name "${promo.streamerName}" or handle "${expectedHandle}" must be visible somewhere on screen — in the URL bar (twitch.tv/${expectedHandle}), in the channel header, in the stream title area, or in the chat. FAIL if a different streamer is clearly shown.
+
+3. STREAM IS LIVE NOW: Look for ANY of these live indicators:
+   - A red "LIVE" badge on the player
+   - A red buffering/loading bar at the top of the browser or player
+   - A live viewer count visible (e.g. "1.2K viewers")
+   - The Twitch chat actively visible alongside the stream
+   - The stream player showing video (not an offline/ended screen)
+   FAIL if the stream clearly shows "Stream Ended", "Offline", or no live indicators at all.
+
+4. SYSTEM CLOCK VISIBLE: The user's device clock must be visible anywhere in the screenshot:
+   - Windows taskbar clock (bottom-right corner)
+   - Mac menu bar clock (top-right)
+   - Phone status bar time (top of screen)
+   - Any other clearly readable clock showing current time
+   ${lastVerifiedAt ? `The time shown MUST be AFTER ${new Date(lastVerifiedAt).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })} (the previous submission time). If the clock shows the same or earlier time, FAIL — each screenshot must be from a newer moment.` : 'Since this is the first submission, any current time is acceptable.'}
+   FAIL if no clock is visible anywhere in the screenshot.
+
+IMPORTANT: This is a LIVE stream verification. Brief buffering, loading spinners, or a momentarily blank frame are all normal — do not fail for these. Only fail if the stream is definitively offline/ended.
+
+Respond with EXACTLY this JSON (no other text):
+{"verified": true/false, "confidence": 0.0-1.0, "reason": "brief explanation", "clockTime": "HH:MM visible in screenshot or null if not found"}`;
+
+        const claudeResponse = await anthropicRequest({
+            model: 'claude-sonnet-4-6',
+            max_tokens: 200,
+            messages: [{ role: 'user', content: [
+                { type: 'image', source: { type: 'base64', media_type: mediaType, data: base64Data } },
+                { type: 'text', text: prompt },
+            ]}],
+        });
+
+        let result;
+        try { result = JSON.parse(claudeResponse.content[0].text.trim()); }
+        catch(e) { return res.json({ success: false, verified: false, reason: 'Verification parsing error. Please try again.' }); }
+
+        if (result.verified) {
+            // Update session
+            const now = new Date().toISOString();
+            twitchSessions.set(sessionKey, { lastVerifiedAt: now, count: submissionNum });
+
+            // Attempt SOL payout
+            let txSignature = null, payoutSuccess = false, rewardSOL = 0;
+            const rewardUSD = promo.rewardPerMin;
+            try {
+                const solPrice = await getSolPrice();
+                rewardSOL = parseFloat((rewardUSD / solPrice).toFixed(9));
+                const userDoc = await getUserProfileCached(userId);
+                const wallet = userDoc?.walletAddress;
+                if (wallet) {
+                    const treasuryKey = decryptPrivateKey(TREASURY_PRIVATE_KEY_ENCRYPTED, TREASURY_ENCRYPTION_KEY);
+                    txSignature = await Promise.race([
+                        sendSolPayment(treasuryKey, wallet, rewardSOL),
+                        new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 25000)),
+                    ]);
+                    payoutSuccess = true;
+                }
+            } catch(e) { console.warn('Twitch payout error:', e.message); }
+
+            // Log to Firestore tasks collection (reuses existing task infrastructure)
+            try {
+                const taskDoc = {
+                    userId, username: username || '', taskType: 'twitch_live',
+                    videoTitle: `${promo.streamerName} Live Stream (min #${submissionNum})`,
+                    creatorName: promo.streamerName, videoId: promoId,
+                    platform: 'twitch', rewardUSD, rewardSOL,
+                    txSignature: txSignature || '', payoutSuccess,
+                    walletAddress: '', timestamp: new Date().toISOString(),
+                };
+                await firestore.addDoc('tasks', taskDoc);
+            } catch(e) { console.warn('Twitch task log error:', e.message); }
+
+            res.json({ success: true, verified: true, confidence: result.confidence, reason: result.reason, rewardUSD, rewardSOL, payoutSuccess, txSignature, submissionNum });
+        } else {
+            res.json({ success: false, verified: false, confidence: result.confidence || 0, reason: result.reason });
+        }
+    } catch(err) {
+        console.error('verify-twitch error:', err.message);
+        res.status(500).json({ success: false, error: 'Verification server error' });
+    }
 });
 
 app.get('/api/platform-stats', async (req, res) => {

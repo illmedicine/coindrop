@@ -43,6 +43,9 @@
             <a href="#" class="sidebar-link" data-tab="earnings">
                 <i class="fas fa-chart-line"></i> Earnings
             </a>
+            <a href="#" class="sidebar-link" data-tab="live-earn" id="live-earn-nav">
+                <i class="fab fa-twitch" style="color:#9146FF;"></i> Live Earn ⚡
+            </a>
             <a href="#" class="sidebar-link" data-tab="analytics" id="analytics-nav" style="display:none">
                 <i class="fas fa-chart-bar"></i> Creator Analytics
             </a>
@@ -51,6 +54,9 @@
             </a>
             <a href="#" class="sidebar-link" data-tab="admin-audit" id="admin-audit-nav" style="display:none">
                 <i class="fas fa-shield-alt"></i> Leaderboard Audit
+            </a>
+            <a href="#" class="sidebar-link" data-tab="admin-flash" id="admin-flash-nav" style="display:none">
+                <i class="fab fa-twitch" style="color:#9146FF;"></i> Flash Promos
             </a>
         </nav>
         <div class="sidebar-footer">
@@ -368,6 +374,50 @@
             </div>
         </div>
 
+        <!-- Live Earn Tab (All Users) -->
+        <div class="tab-content" id="tab-live-earn">
+            <div class="tab-header">
+                <h2><i class="fab fa-twitch" style="color:#9146FF;"></i> Live Earn — Flash Events</h2>
+                <p class="text-muted">Watch live Twitch streams and earn <strong>$0.02/min</strong> per verified screenshot. New events drop anytime — check back often!</p>
+            </div>
+            <div id="live-earn-promos">
+                <p class="text-muted"><i class="fas fa-spinner fa-spin"></i> Checking for live events...</p>
+            </div>
+            <!-- Twitch Session Modal (injected by JS) -->
+        </div>
+
+        <!-- Admin Flash Promos Tab -->
+        <div class="tab-content" id="tab-admin-flash">
+            <div class="tab-header">
+                <h2><i class="fab fa-twitch" style="color:#9146FF;"></i> Flash Promo Manager</h2>
+                <p class="text-muted">Create a Twitch flash earn event. Users are instantly notified and earn $0.02/min per verified screenshot.</p>
+            </div>
+            <div style="max-width:520px;">
+                <div class="form-group" style="margin-bottom:16px;">
+                    <label style="font-weight:600;display:block;margin-bottom:6px;">Twitch Stream URL</label>
+                    <input id="flash-twitch-url" type="url" placeholder="https://www.twitch.tv/streamer" style="width:100%;padding:10px 14px;border-radius:8px;border:1px solid var(--gray-200);font-size:0.9rem;" oninput="autoFillStreamerName()">
+                    <small class="text-muted">Paste the full Twitch stream URL — streamer name is extracted automatically.</small>
+                </div>
+                <div class="form-group" style="margin-bottom:16px;">
+                    <label style="font-weight:600;display:block;margin-bottom:6px;">Streamer Name</label>
+                    <input id="flash-streamer-name" type="text" placeholder="Auto-filled from URL" style="width:100%;padding:10px 14px;border-radius:8px;border:1px solid var(--gray-200);font-size:0.9rem;">
+                </div>
+                <div class="form-group" style="margin-bottom:20px;">
+                    <label style="font-weight:600;display:block;margin-bottom:6px;">Reward Per Minute (USD)</label>
+                    <input id="flash-reward" type="number" value="0.02" min="0.01" max="1.00" step="0.01" style="width:160px;padding:10px 14px;border-radius:8px;border:1px solid var(--gray-200);font-size:0.9rem;">
+                </div>
+                <div style="display:flex;gap:12px;flex-wrap:wrap;">
+                    <button class="btn btn-primary" onclick="createFlashPromo()" id="create-promo-btn">
+                        <i class="fab fa-twitch"></i> Launch Flash Event
+                    </button>
+                </div>
+                <div id="flash-promo-result" style="margin-top:16px;"></div>
+            </div>
+            <hr style="margin:32px 0;border-color:var(--gray-100);">
+            <h3 style="margin-bottom:12px;">Active Promos</h3>
+            <div id="admin-active-promos"><p class="text-muted">No active promos.</p></div>
+        </div>
+
         <!-- Leaderboard Audit Tab (Admin Only) -->
         <div class="tab-content" id="tab-admin-audit">
             <div class="tab-header">
@@ -490,6 +540,7 @@
     <script src="js/analytics.js"></script>
     <script src="js/admin-payouts.js"></script>
     <script src="js/admin-audit.js"></script>
+    <script src="js/twitch-earn.js"></script>
     <script src="js/notifications.js"></script>
     <script src="js/dashboard.js"></script>
 </body>

@@ -27,7 +27,7 @@ async function checkIsAdmin() {
 async function showAdminPayoutsNav() {
     const isAdmin = await checkIsAdmin();
     if (isAdmin) {
-        ['admin-payouts-nav', 'analytics-nav', 'admin-audit-nav'].forEach(id => {
+        ['admin-payouts-nav', 'analytics-nav', 'admin-audit-nav', 'admin-flash-nav'].forEach(id => {
             const el = document.getElementById(id);
             if (el) el.style.display = '';
         });

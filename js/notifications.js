@@ -194,10 +194,32 @@ function checkCommentBoostNotification() {
     localStorage.setItem('coindrop_comment_boost_20260703_' + user.id, 'true');
 }
 
+// Twitch flash promo announcement
+async function checkTwitchPromoNotification() {
+    const user = JSON.parse(localStorage.getItem('coindrop_user') || '{}');
+    if (!user.id) return;
+    try {
+        const res = await fetch(`${NOTIF_API}/api/twitch-promos/active`);
+        const data = await res.json();
+        const promos = data.promos || [];
+        for (const p of promos) {
+            const key = `coindrop_twitch_promo_${p.id}_${user.id}`;
+            if (localStorage.getItem(key)) continue;
+            addNotification(
+                `⚡ Flash Live Earn: ${p.streamerName} is LIVE!`,
+                `Earn <b>$${p.rewardPerMin.toFixed(2)}/min</b> watching ${p.streamerName} on Twitch right now! Go to the <b>Live Earn</b> tab to start. <a href="${p.twitchUrl}" target="_blank" style="color:var(--orange);font-weight:600;"><i class="fab fa-twitch"></i> Watch on Twitch</a>`,
+                'fab fa-twitch',
+                '#9146FF'
+            );
+            localStorage.setItem(key, 'true');
+        }
+    } catch(e) {}
+}
+
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
     checkWelcomeNotice();
     syncNotificationsFromServer();
     updateNotifBadge();
 });
-setTimeout(() => { checkWelcomeNotice(); syncNotificationsFromServer(); checkBadgeNotification(); checkHorseRacingNotification(); checkPlayStoreNotification(); checkCommentBoostNotification(); updateNotifBadge(); }, 3000);
+setTimeout(() => { checkWelcomeNotice(); syncNotificationsFromServer(); checkBadgeNotification(); checkHorseRacingNotification(); checkPlayStoreNotification(); checkCommentBoostNotification(); checkTwitchPromoNotification(); updateNotifBadge(); }, 3000);
