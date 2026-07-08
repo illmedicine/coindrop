@@ -45,6 +45,9 @@ const firestore = {
         } catch(e) {}
         return null;
     },
+    async deleteDoc(collection, docId) {
+        try { await httpDelete(`${FIRESTORE_URL}/${collection}/${docId}?key=${FIREBASE_API_KEY}`); } catch(e) {}
+    },
     async query(collection, field, op, value, orderBy, limit) {
         const body = JSON.stringify({
             structuredQuery: {
@@ -115,6 +118,15 @@ function httpPostJson(url, body) {
             headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) }
         }, res => { let d = ''; res.on('data', c => d += c); res.on('end', () => resolve(d)); });
         req.on('error', reject); req.write(body); req.end();
+    });
+}
+
+function httpDelete(url) {
+    return new Promise((resolve, reject) => {
+        const u = new URL(url);
+        const req = https.request({ hostname: u.hostname, path: u.pathname + u.search, method: 'DELETE' },
+            res => { let d = ''; res.on('data', c => d += c); res.on('end', () => resolve(d)); });
+        req.on('error', reject); req.end();
     });
 }
 
@@ -1092,6 +1104,8 @@ const cache = {
 // Twitch flash promos — in-memory (flash promos are transient by design)
 const twitchPromos = []; // { id, twitchUrl, streamerName, rewardPerMin, createdAt, active, createdBy }
 const twitchSessions = new Map(); // `${userId}:${promoId}` → { lastVerifiedAt: ISO, count: number }
+const kickPromos = [];   // { id, kickUrl, streamerName, rewardPerMin, createdAt, active, createdBy }
+const kickSessions = new Map();
 
 async function loadCacheFromFirestore() {
     console.log('Loading cached data from Firestore...');
@@ -1424,6 +1438,173 @@ Respond with EXACTLY this JSON (no other text):
         console.error('verify-twitch error:', err.message);
         res.status(500).json({ success: false, error: 'Verification server error' });
     }
+});
+
+// ===== KICK FLASH PROMOS =====
+
+app.post('/api/admin/create-kick-promo', async (req, res) => {
+    const { email, kickUrl, streamerName, rewardPerMin } = req.body;
+    if (!ADMIN_EMAILS.includes((email || '').toLowerCase())) return res.status(403).json({ error: 'Unauthorized' });
+    if (!kickUrl || !streamerName) return res.status(400).json({ error: 'kickUrl and streamerName required' });
+    const promo = { id: Date.now().toString(), kickUrl: kickUrl.trim(), streamerName: streamerName.trim(), rewardPerMin: parseFloat(rewardPerMin) || 0.02, createdAt: new Date().toISOString(), active: true, createdBy: email };
+    kickPromos.unshift(promo);
+    try {
+        await postToDiscord(DISCORD_WEBHOOKS.flash, {
+            username: 'CoinDrop Flash Alert',
+            avatar_url: 'https://coindrop.in/assets/logo.svg',
+            content: '🟢 **KICK FLASH EARN EVENT — LIVE NOW!**',
+            embeds: [{
+                color: 0x53FC18,
+                title: `⚡ Flash Earn: ${streamerName} is LIVE on Kick!`,
+                description: `Earn **$${promo.rewardPerMin.toFixed(2)}/min** watching the live stream! Submit a screenshot every minute to earn.`,
+                fields: [
+                    { name: '📺 Stream', value: `[Watch Now](${promo.kickUrl})`, inline: true },
+                    { name: '💰 Rate', value: `$${promo.rewardPerMin.toFixed(2)} per minute`, inline: true },
+                    { name: '📱 How to Earn', value: 'Login to CoinDrop → Kick Live tab → Start Watching', inline: false },
+                ],
+                url: promo.kickUrl, timestamp: new Date().toISOString(), footer: { text: 'CoinDrop Flash Earn • Limited Time' },
+            }],
+        });
+    } catch(e) { console.warn('Discord Kick alert failed:', e.message); }
+    console.log(`KICK PROMO CREATED: ${streamerName} @ $${promo.rewardPerMin}/min`);
+    res.json({ success: true, promo });
+});
+
+app.get('/api/kick-promos/active', (req, res) => {
+    res.json({ promos: kickPromos.filter(p => p.active) });
+});
+
+app.post('/api/admin/deactivate-kick-promo', (req, res) => {
+    const { email, promoId } = req.body;
+    if (!ADMIN_EMAILS.includes((email || '').toLowerCase())) return res.status(403).json({ error: 'Unauthorized' });
+    const promo = kickPromos.find(p => p.id === promoId);
+    if (promo) promo.active = false;
+    res.json({ success: true });
+});
+
+app.post('/api/verify-kick', async (req, res) => {
+    try {
+        const { screenshot, promoId, userId, username } = req.body;
+        if (!screenshot || !promoId || !userId) return res.status(400).json({ success: false, error: 'Missing fields' });
+        const promo = kickPromos.find(p => p.id === promoId && p.active);
+        if (!promo) return res.json({ success: false, verified: false, reason: 'This flash promo is no longer active.' });
+        const sessionKey = `${userId}:${promoId}`;
+        const session = kickSessions.get(sessionKey) || { lastVerifiedAt: null, count: 0 };
+        if (session.lastVerifiedAt) {
+            const elapsed = Date.now() - new Date(session.lastVerifiedAt).getTime();
+            if (elapsed < 50000) { const wait = Math.ceil((50000 - elapsed) / 1000); return res.json({ success: false, verified: false, reason: `Please wait ${wait} more seconds before your next submission.` }); }
+        }
+        const expectedHandle = promo.streamerName.toLowerCase().replace(/^@/, '');
+        const lastVerifiedAt = session.lastVerifiedAt;
+        const submissionNum = session.count + 1;
+        const base64Data = screenshot.replace(/^data:image\/\w+;base64,/, '');
+        const mediaType = screenshot.match(/^data:(image\/\w+);base64,/)?.[1] || 'image/png';
+        const prompt = `You are verifying a CoinDrop Kick live stream screenshot. User "${username || userId}" claims to be watching a live Kick stream.
+
+STREAMER: ${promo.streamerName} (kick.com/${expectedHandle})
+SUBMISSION: #${submissionNum}${lastVerifiedAt ? `\nPREVIOUS VERIFIED TIME: ${new Date(lastVerifiedAt).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' })} UTC` : '\nPREVIOUS VERIFIED TIME: None (first submission)'}
+
+CHECK ALL 4 CONDITIONS — ALL must pass:
+1. KICK PLATFORM VISIBLE: kick.com URL in address bar, Kick logo (lime green), Kick chat panel, or Kick's video player. FAIL if this is Twitch, YouTube, or another platform.
+2. CORRECT STREAMER: "${promo.streamerName}" or "${expectedHandle}" visible in URL bar, channel header, title, or chat. FAIL if a clearly different streamer is shown.
+3. STREAM IS LIVE NOW: red/green LIVE badge, viewer count, active chat, or video playing (not offline/ended screen). FAIL only if stream is definitively offline.
+4. SYSTEM CLOCK VISIBLE: Windows taskbar, Mac menu bar, or phone status bar showing current time. ${lastVerifiedAt ? `Time MUST be AFTER ${new Date(lastVerifiedAt).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}. FAIL if clock shows same or earlier time.` : 'Any current time acceptable (first submission).'}
+
+Respond with EXACTLY this JSON: {"verified": true/false, "confidence": 0.0-1.0, "reason": "brief explanation", "clockTime": "HH:MM or null"}`;
+        const claudeResponse = await anthropicRequest({ model: 'claude-sonnet-4-6', max_tokens: 200, messages: [{ role: 'user', content: [{ type: 'image', source: { type: 'base64', media_type: mediaType, data: base64Data } }, { type: 'text', text: prompt }] }] });
+        let result;
+        try { result = JSON.parse(claudeResponse.content[0].text.trim()); }
+        catch(e) { return res.json({ success: false, verified: false, reason: 'Verification parsing error. Please try again.' }); }
+        if (result.verified) {
+            const now = new Date().toISOString();
+            kickSessions.set(sessionKey, { lastVerifiedAt: now, count: submissionNum });
+            let txSignature = null, payoutSuccess = false, rewardSOL = 0;
+            const rewardUSD = promo.rewardPerMin;
+            try {
+                const solPrice = await getSolPrice();
+                rewardSOL = parseFloat((rewardUSD / solPrice).toFixed(9));
+                const userDoc = await getUserProfileCached(userId);
+                const wallet = userDoc?.walletAddress;
+                if (wallet) {
+                    const treasuryKey = decryptPrivateKey(TREASURY_PRIVATE_KEY_ENCRYPTED, TREASURY_ENCRYPTION_KEY);
+                    txSignature = await Promise.race([sendSolPayment(treasuryKey, wallet, rewardSOL), new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 25000))]);
+                    payoutSuccess = true;
+                }
+            } catch(e) { console.warn('Kick payout error:', e.message); }
+            try {
+                await firestore.addDoc('tasks', { userId, username: username || '', taskType: 'kick_live', videoTitle: `${promo.streamerName} Live on Kick (min #${submissionNum})`, creatorName: promo.streamerName, videoId: promoId, platform: 'kick', rewardUSD, rewardSOL, txSignature: txSignature || '', payoutSuccess, walletAddress: '', timestamp: new Date().toISOString() });
+            } catch(e) { console.warn('Kick task log error:', e.message); }
+            res.json({ success: true, verified: true, confidence: result.confidence, reason: result.reason, rewardUSD, rewardSOL, payoutSuccess, txSignature, submissionNum });
+        } else {
+            res.json({ success: false, verified: false, confidence: result.confidence || 0, reason: result.reason });
+        }
+    } catch(err) {
+        console.error('verify-kick error:', err.message);
+        res.status(500).json({ success: false, error: 'Verification server error' });
+    }
+});
+
+// ===== CREATOR MANAGEMENT =====
+
+async function fetchYouTubeRSS(channelId) {
+    if (!channelId) return [];
+    try {
+        const xml = await httpGet(`https://www.youtube.com/feeds/videos.xml?channel_id=${encodeURIComponent(channelId)}`);
+        const entries = xml.match(/<entry>([\s\S]*?)<\/entry>/g) || [];
+        return entries.slice(0, 30).map(entry => {
+            const id = (entry.match(/<yt:videoId>([^<]+)<\/yt:videoId>/) || [])[1] || '';
+            const rawTitle = (entry.match(/<media:title[^>]*>([^<]+)<\/media:title>/) || entry.match(/<title>([^<]+)<\/title>/) || [])[1] || '';
+            const title = rawTitle.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'");
+            return { id, title, views: '0' };
+        }).filter(v => v.id);
+    } catch(e) { console.warn('YouTube RSS fetch failed:', e.message); return []; }
+}
+
+app.get('/api/creators/managed', async (req, res) => {
+    try {
+        const docs = await firestore.query('managed_creators', null, null, null, null, 100);
+        const creators = (docs || []).map(d => {
+            try { d.videos = JSON.parse(d.videosJson || '[]'); } catch { d.videos = []; }
+            delete d.videosJson;
+            return d;
+        });
+        res.json({ creators });
+    } catch(e) { res.status(500).json({ error: 'Failed to fetch creators' }); }
+});
+
+app.post('/api/admin/add-creator', async (req, res) => {
+    const { email, handle, name, channelUrl, channelId, avatar, about, category, subscribers } = req.body;
+    if (!ADMIN_EMAILS.includes((email || '').toLowerCase())) return res.status(403).json({ error: 'Unauthorized' });
+    if (!handle || !name || !channelUrl) return res.status(400).json({ error: 'handle, name, channelUrl required' });
+    const cleanHandle = handle.startsWith('@') ? handle : '@' + handle;
+    const creatorId = cleanHandle.replace(/^@/, '').toLowerCase();
+    const videos = channelId ? await fetchYouTubeRSS(channelId.trim()) : [];
+    const creator = { id: creatorId, handle: cleanHandle, name: name.trim(), platform: 'youtube', channelUrl: channelUrl.trim(), channelId: (channelId || '').trim(), avatar: (avatar || '').trim(), about: (about || '').trim(), category: (category || 'Entertainment').trim(), subscribers: (subscribers || 'Unknown').toString(), videosJson: JSON.stringify(videos), videoCount: videos.length, addedAt: new Date().toISOString(), addedBy: email, managed: true };
+    try {
+        await firestore.setDoc('managed_creators', creatorId, creator);
+        res.json({ success: true, creator: { ...creator, videos }, videosFound: videos.length });
+    } catch(e) { res.status(500).json({ error: 'Failed to save creator: ' + e.message }); }
+});
+
+app.post('/api/admin/remove-creator', async (req, res) => {
+    const { email, creatorId } = req.body;
+    if (!ADMIN_EMAILS.includes((email || '').toLowerCase())) return res.status(403).json({ error: 'Unauthorized' });
+    if (!creatorId) return res.status(400).json({ error: 'creatorId required' });
+    try { await firestore.deleteDoc('managed_creators', creatorId); res.json({ success: true }); }
+    catch(e) { res.status(500).json({ error: 'Failed to remove creator: ' + e.message }); }
+});
+
+app.post('/api/admin/refresh-creator-videos', async (req, res) => {
+    const { email, creatorId } = req.body;
+    if (!ADMIN_EMAILS.includes((email || '').toLowerCase())) return res.status(403).json({ error: 'Unauthorized' });
+    try {
+        const creator = await firestore.getDoc('managed_creators', creatorId);
+        if (!creator) return res.status(404).json({ error: 'Creator not found' });
+        if (!creator.channelId) return res.status(400).json({ error: 'No Channel ID stored for this creator. Edit and re-add with Channel ID.' });
+        const videos = await fetchYouTubeRSS(creator.channelId);
+        await firestore.setDoc('managed_creators', creatorId, { ...creator, videosJson: JSON.stringify(videos), videoCount: videos.length, lastSynced: new Date().toISOString() });
+        res.json({ success: true, videosFound: videos.length });
+    } catch(e) { res.status(500).json({ error: 'Failed to refresh: ' + e.message }); }
 });
 
 app.get('/api/platform-stats', async (req, res) => {

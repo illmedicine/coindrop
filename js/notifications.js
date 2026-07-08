@@ -209,6 +209,43 @@ function checkTwitchEarnLaunchNotification() {
     localStorage.setItem('coindrop_twitch_earn_launch_20260706_' + user.id, 'true');
 }
 
+// Kick Live Earn feature launch announcement (one-time, all users)
+function checkKickEarnLaunchNotification() {
+    const user = JSON.parse(localStorage.getItem('coindrop_user') || '{}');
+    if (!user.id) return;
+    const seen = localStorage.getItem('coindrop_kick_earn_launch_20260708_' + user.id);
+    if (seen) return;
+    addNotification(
+        '🟢 NEW: Earn Money Watching Kick Live Streams!',
+        'CoinDrop now supports <b>Kick Live Earn</b> — earn <b>$0.02 per minute</b> watching featured creators on Kick! Check the <b>Kick Live</b> tab in your dashboard for active flash events. Enable Auto-Validation to get reminded every 60 seconds to submit a screenshot.',
+        'fas fa-video',
+        '#53FC18'
+    );
+    localStorage.setItem('coindrop_kick_earn_launch_20260708_' + user.id, 'true');
+}
+
+// Kick flash promo announcement (fires per active promo)
+async function checkKickPromoNotification() {
+    const user = JSON.parse(localStorage.getItem('coindrop_user') || '{}');
+    if (!user.id) return;
+    try {
+        const res = await fetch(`${NOTIF_API}/api/kick-promos/active`);
+        const data = await res.json();
+        const promos = data.promos || [];
+        for (const p of promos) {
+            const key = `coindrop_kick_promo_${p.id}_${user.id}`;
+            if (localStorage.getItem(key)) continue;
+            addNotification(
+                `🟢 Flash Live Earn: ${p.streamerName} is LIVE on Kick!`,
+                `Earn <b>$${p.rewardPerMin.toFixed(2)}/min</b> watching ${p.streamerName} on Kick right now! Go to the <b>Kick Live</b> tab to start. <a href="${p.kickUrl}" target="_blank" style="color:var(--orange);font-weight:600;">▶ Watch on Kick</a>`,
+                'fas fa-video',
+                '#53FC18'
+            );
+            localStorage.setItem(key, 'true');
+        }
+    } catch(e) {}
+}
+
 // Twitch flash promo announcement (fires per active promo)
 async function checkTwitchPromoNotification() {
     const user = JSON.parse(localStorage.getItem('coindrop_user') || '{}');
@@ -237,4 +274,4 @@ document.addEventListener('DOMContentLoaded', () => {
     syncNotificationsFromServer();
     updateNotifBadge();
 });
-setTimeout(() => { checkWelcomeNotice(); syncNotificationsFromServer(); checkBadgeNotification(); checkHorseRacingNotification(); checkPlayStoreNotification(); checkCommentBoostNotification(); checkTwitchEarnLaunchNotification(); checkTwitchPromoNotification(); updateNotifBadge(); }, 3000);
+setTimeout(() => { checkWelcomeNotice(); syncNotificationsFromServer(); checkBadgeNotification(); checkHorseRacingNotification(); checkPlayStoreNotification(); checkCommentBoostNotification(); checkTwitchEarnLaunchNotification(); checkTwitchPromoNotification(); checkKickEarnLaunchNotification(); checkKickPromoNotification(); updateNotifBadge(); }, 3000);

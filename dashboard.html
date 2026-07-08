@@ -44,7 +44,10 @@
                 <i class="fas fa-chart-line"></i> Earnings
             </a>
             <a href="#" class="sidebar-link" data-tab="live-earn" id="live-earn-nav">
-                <i class="fab fa-twitch" style="color:#9146FF;"></i> Live Earn ⚡
+                <i class="fab fa-twitch" style="color:#9146FF;"></i> Twitch Live ⚡
+            </a>
+            <a href="#" class="sidebar-link" data-tab="kick-live" id="kick-live-nav">
+                <span style="color:#53FC18;font-weight:900;font-size:.95rem;">K</span> Kick Live ⚡
             </a>
             <a href="#" class="sidebar-link" data-tab="analytics" id="analytics-nav" style="display:none">
                 <i class="fas fa-chart-bar"></i> Creator Analytics
@@ -56,7 +59,13 @@
                 <i class="fas fa-shield-alt"></i> Leaderboard Audit
             </a>
             <a href="#" class="sidebar-link" data-tab="admin-flash" id="admin-flash-nav" style="display:none">
-                <i class="fab fa-twitch" style="color:#9146FF;"></i> Flash Promos
+                <i class="fab fa-twitch" style="color:#9146FF;"></i> Twitch Promos
+            </a>
+            <a href="#" class="sidebar-link" data-tab="admin-kick" id="admin-kick-nav" style="display:none">
+                <span style="color:#53FC18;font-weight:900;">K</span> Kick Promos
+            </a>
+            <a href="#" class="sidebar-link" data-tab="admin-creators" id="admin-creators-nav" style="display:none">
+                <i class="fas fa-users-cog"></i> Creator Mgmt
             </a>
         </nav>
         <div class="sidebar-footer">
@@ -374,22 +383,32 @@
             </div>
         </div>
 
-        <!-- Live Earn Tab (All Users) -->
+        <!-- Twitch Live Earn Tab (All Users) -->
         <div class="tab-content" id="tab-live-earn">
             <div class="tab-header">
-                <h2><i class="fab fa-twitch" style="color:#9146FF;"></i> Live Earn — Flash Events</h2>
+                <h2><i class="fab fa-twitch" style="color:#9146FF;"></i> Twitch Live Earn — Flash Events</h2>
                 <p class="text-muted">Watch live Twitch streams and earn <strong>$0.02/min</strong> per verified screenshot. New events drop anytime — check back often!</p>
             </div>
             <div id="live-earn-promos">
                 <p class="text-muted"><i class="fas fa-spinner fa-spin"></i> Checking for live events...</p>
             </div>
-            <!-- Twitch Session Modal (injected by JS) -->
         </div>
 
-        <!-- Admin Flash Promos Tab -->
+        <!-- Kick Live Earn Tab (All Users) -->
+        <div class="tab-content" id="tab-kick-live">
+            <div class="tab-header">
+                <h2><span style="color:#53FC18;font-weight:900;font-size:1.4rem;">K</span> Kick Live Earn — Flash Events</h2>
+                <p class="text-muted">Watch live Kick streams and earn <strong>$0.02/min</strong> per verified screenshot. New events drop anytime — check back often!</p>
+            </div>
+            <div id="kick-earn-promos">
+                <p class="text-muted"><i class="fas fa-spinner fa-spin"></i> Checking for live Kick events...</p>
+            </div>
+        </div>
+
+        <!-- Admin Twitch Flash Promos Tab -->
         <div class="tab-content" id="tab-admin-flash">
             <div class="tab-header">
-                <h2><i class="fab fa-twitch" style="color:#9146FF;"></i> Flash Promo Manager</h2>
+                <h2><i class="fab fa-twitch" style="color:#9146FF;"></i> Twitch Flash Promo Manager</h2>
                 <p class="text-muted">Create a Twitch flash earn event. Users are instantly notified and earn $0.02/min per verified screenshot.</p>
             </div>
             <div style="max-width:520px;">
@@ -414,8 +433,97 @@
                 <div id="flash-promo-result" style="margin-top:16px;"></div>
             </div>
             <hr style="margin:32px 0;border-color:var(--gray-100);">
-            <h3 style="margin-bottom:12px;">Active Promos</h3>
+            <h3 style="margin-bottom:12px;">Active Twitch Promos</h3>
             <div id="admin-active-promos"><p class="text-muted">No active promos.</p></div>
+        </div>
+
+        <!-- Admin Kick Flash Promos Tab -->
+        <div class="tab-content" id="tab-admin-kick">
+            <div class="tab-header">
+                <h2><span style="color:#53FC18;font-weight:900;font-size:1.4rem;">K</span> Kick Flash Promo Manager</h2>
+                <p class="text-muted">Create a Kick flash earn event. Users are instantly notified and earn $0.02/min per verified screenshot.</p>
+            </div>
+            <div style="max-width:520px;">
+                <div class="form-group" style="margin-bottom:16px;">
+                    <label style="font-weight:600;display:block;margin-bottom:6px;">Kick Stream URL</label>
+                    <input id="flash-kick-url" type="url" placeholder="https://kick.com/streamer" style="width:100%;padding:10px 14px;border-radius:8px;border:1px solid var(--gray-200);font-size:0.9rem;" oninput="autoFillKickStreamerName()">
+                    <small class="text-muted">Paste the full Kick stream URL — streamer name is extracted automatically.</small>
+                </div>
+                <div class="form-group" style="margin-bottom:16px;">
+                    <label style="font-weight:600;display:block;margin-bottom:6px;">Streamer Name</label>
+                    <input id="flash-kick-streamer-name" type="text" placeholder="Auto-filled from URL" style="width:100%;padding:10px 14px;border-radius:8px;border:1px solid var(--gray-200);font-size:0.9rem;">
+                </div>
+                <div class="form-group" style="margin-bottom:20px;">
+                    <label style="font-weight:600;display:block;margin-bottom:6px;">Reward Per Minute (USD)</label>
+                    <input id="flash-kick-reward" type="number" value="0.02" min="0.01" max="1.00" step="0.01" style="width:160px;padding:10px 14px;border-radius:8px;border:1px solid var(--gray-200);font-size:0.9rem;">
+                </div>
+                <button class="btn btn-primary" onclick="createKickFlashPromo()" id="create-kick-promo-btn" style="background:#0e0e10;border-color:#53FC18;color:#53FC18;">
+                    ▶ Launch Kick Flash Event
+                </button>
+                <div id="flash-kick-promo-result" style="margin-top:16px;"></div>
+            </div>
+            <hr style="margin:32px 0;border-color:var(--gray-100);">
+            <h3 style="margin-bottom:12px;">Active Kick Promos</h3>
+            <div id="admin-active-kick-promos"><p class="text-muted">No active Kick promos.</p></div>
+        </div>
+
+        <!-- Admin Creator Management Tab -->
+        <div class="tab-content" id="tab-admin-creators">
+            <div class="tab-header">
+                <h2><i class="fas fa-users-cog text-orange"></i> Creator Channel Management</h2>
+                <p class="text-muted">Add YouTube creator channels to the platform. Each channel's videos automatically become earn tasks for members.</p>
+            </div>
+            <!-- Add Creator Form -->
+            <div style="background:var(--navy-dark);border-radius:12px;padding:24px;margin-bottom:28px;max-width:640px;">
+                <h3 style="color:white;margin:0 0 18px;">Add New Creator</h3>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
+                    <div class="form-group">
+                        <label style="color:rgba(255,255,255,.8);font-size:.85rem;font-weight:600;display:block;margin-bottom:6px;">Handle <span style="color:#ef4444;">*</span></label>
+                        <input id="new-creator-handle" type="text" placeholder="@handle" style="width:100%;padding:9px 12px;border-radius:8px;border:1px solid rgba(255,255,255,.15);background:rgba(255,255,255,.08);color:white;font-size:.9rem;">
+                    </div>
+                    <div class="form-group">
+                        <label style="color:rgba(255,255,255,.8);font-size:.85rem;font-weight:600;display:block;margin-bottom:6px;">Display Name <span style="color:#ef4444;">*</span></label>
+                        <input id="new-creator-name" type="text" placeholder="Creator Name" style="width:100%;padding:9px 12px;border-radius:8px;border:1px solid rgba(255,255,255,.15);background:rgba(255,255,255,.08);color:white;font-size:.9rem;">
+                    </div>
+                    <div class="form-group" style="grid-column:1/-1;">
+                        <label style="color:rgba(255,255,255,.8);font-size:.85rem;font-weight:600;display:block;margin-bottom:6px;">YouTube Channel URL <span style="color:#ef4444;">*</span></label>
+                        <input id="new-creator-url" type="url" placeholder="https://youtube.com/@handle" style="width:100%;padding:9px 12px;border-radius:8px;border:1px solid rgba(255,255,255,.15);background:rgba(255,255,255,.08);color:white;font-size:.9rem;">
+                    </div>
+                    <div class="form-group" style="grid-column:1/-1;">
+                        <label style="color:rgba(255,255,255,.8);font-size:.85rem;font-weight:600;display:block;margin-bottom:6px;">YouTube Channel ID <small style="opacity:.7;">(for auto video import — found in channel About page)</small></label>
+                        <input id="new-creator-channel-id" type="text" placeholder="UCxxxxxxxxxxxxxxxx" style="width:100%;padding:9px 12px;border-radius:8px;border:1px solid rgba(255,255,255,.15);background:rgba(255,255,255,.08);color:white;font-size:.9rem;font-family:monospace;">
+                        <small style="color:rgba(255,255,255,.5);font-size:.75rem;">Optional but needed to auto-import videos. Go to channel → About → Share → Copy channel ID.</small>
+                    </div>
+                    <div class="form-group">
+                        <label style="color:rgba(255,255,255,.8);font-size:.85rem;font-weight:600;display:block;margin-bottom:6px;">Avatar URL <small style="opacity:.7;">(optional)</small></label>
+                        <input id="new-creator-avatar" type="url" placeholder="https://..." style="width:100%;padding:9px 12px;border-radius:8px;border:1px solid rgba(255,255,255,.15);background:rgba(255,255,255,.08);color:white;font-size:.9rem;">
+                    </div>
+                    <div class="form-group">
+                        <label style="color:rgba(255,255,255,.8);font-size:.85rem;font-weight:600;display:block;margin-bottom:6px;">Category</label>
+                        <input id="new-creator-category" type="text" placeholder="Music, Gaming, Comedy..." style="width:100%;padding:9px 12px;border-radius:8px;border:1px solid rgba(255,255,255,.15);background:rgba(255,255,255,.08);color:white;font-size:.9rem;">
+                    </div>
+                    <div class="form-group">
+                        <label style="color:rgba(255,255,255,.8);font-size:.85rem;font-weight:600;display:block;margin-bottom:6px;">Subscribers</label>
+                        <input id="new-creator-subscribers" type="text" placeholder="e.g. 12,500" style="width:100%;padding:9px 12px;border-radius:8px;border:1px solid rgba(255,255,255,.15);background:rgba(255,255,255,.08);color:white;font-size:.9rem;">
+                    </div>
+                    <div class="form-group" style="grid-column:1/-1;">
+                        <label style="color:rgba(255,255,255,.8);font-size:.85rem;font-weight:600;display:block;margin-bottom:6px;">About / Bio <small style="opacity:.7;">(optional)</small></label>
+                        <textarea id="new-creator-about" placeholder="Short description of the creator..." rows="2" style="width:100%;padding:9px 12px;border-radius:8px;border:1px solid rgba(255,255,255,.15);background:rgba(255,255,255,.08);color:white;font-size:.9rem;resize:vertical;"></textarea>
+                    </div>
+                </div>
+                <div style="margin-top:18px;display:flex;align-items:center;gap:14px;flex-wrap:wrap;">
+                    <button class="btn btn-primary" onclick="addCreator()" id="add-creator-btn">
+                        <i class="fas fa-plus"></i> Add Creator
+                    </button>
+                    <small style="color:rgba(255,255,255,.5);">Videos will be auto-imported from YouTube RSS if Channel ID is provided. You can refresh videos anytime.</small>
+                </div>
+                <div id="add-creator-result"></div>
+            </div>
+            <!-- Managed Creators List -->
+            <h3 style="margin-bottom:14px;">Managed Creators</h3>
+            <div id="managed-creators-list">
+                <p class="text-muted"><i class="fas fa-spinner fa-spin"></i> Loading...</p>
+            </div>
         </div>
 
         <!-- Leaderboard Audit Tab (Admin Only) -->
@@ -541,7 +649,9 @@
     <script src="js/admin-payouts.js"></script>
     <script src="js/admin-audit.js"></script>
     <script src="js/twitch-earn.js"></script>
+    <script src="js/kick-earn.js"></script>
     <script src="js/notifications.js"></script>
     <script src="js/dashboard.js"></script>
+    <script src="js/admin-creators.js"></script>
 </body>
 </html>
