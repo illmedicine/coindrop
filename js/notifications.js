@@ -194,6 +194,21 @@ function checkCommentBoostNotification() {
     localStorage.setItem('coindrop_comment_boost_20260703_' + user.id, 'true');
 }
 
+// Mobile verification fix announcement (one-time, all users)
+function checkMobileVerifFixNotification() {
+    const user = JSON.parse(localStorage.getItem('coindrop_user') || '{}');
+    if (!user.id) return;
+    const seen = localStorage.getItem('coindrop_mobile_verif_fix_20260709_' + user.id);
+    if (seen) return;
+    addNotification(
+        '🔧 Fix: Mobile Screenshots Now Work!',
+        'We fixed a bug where mobile screenshots were failing verification because YouTube cuts off long video titles on phone screens. <b>If any of your mobile submissions were rejected</b>, please re-submit — they will pass now. Big shoutout to <b>AlphaDog and Golu</b> for catching this! 🙌',
+        'fas fa-wrench',
+        '#22c55e'
+    );
+    localStorage.setItem('coindrop_mobile_verif_fix_20260709_' + user.id, 'true');
+}
+
 // Twitch Live Earn feature launch announcement (one-time, all users)
 function checkTwitchEarnLaunchNotification() {
     const user = JSON.parse(localStorage.getItem('coindrop_user') || '{}');
@@ -274,4 +289,4 @@ document.addEventListener('DOMContentLoaded', () => {
     syncNotificationsFromServer();
     updateNotifBadge();
 });
-setTimeout(() => { checkWelcomeNotice(); syncNotificationsFromServer(); checkBadgeNotification(); checkHorseRacingNotification(); checkPlayStoreNotification(); checkCommentBoostNotification(); checkTwitchEarnLaunchNotification(); checkTwitchPromoNotification(); checkKickEarnLaunchNotification(); checkKickPromoNotification(); updateNotifBadge(); }, 3000);
+setTimeout(() => { checkWelcomeNotice(); syncNotificationsFromServer(); checkBadgeNotification(); checkHorseRacingNotification(); checkPlayStoreNotification(); checkCommentBoostNotification(); checkMobileVerifFixNotification(); checkTwitchEarnLaunchNotification(); checkTwitchPromoNotification(); checkKickEarnLaunchNotification(); checkKickPromoNotification(); updateNotifBadge(); }, 3000);
