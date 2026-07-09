@@ -1566,6 +1566,7 @@ async function fetchYouTubeRSS(channelId) {
 // ── Channel-ID auto-discovery + view-count cache ───────────────────────────
 let _channelIds = {};          // handle (no @) → channelId, persisted to Firestore
 let _removedCreatorIds = new Set(); // loaded from Firestore on boot
+let _featuredCreatorIds = new Set(); // loaded from Firestore on boot
 const _viewCountCache = { data: {}, updatedAt: 0 };
 let _vcRefreshing = false;
 
@@ -1579,7 +1580,11 @@ let _vcRefreshing = false;
         const rmDoc = await firestore.getDoc('config', 'removedCreators');
         if (rmDoc?.idsJson) _removedCreatorIds = new Set(JSON.parse(rmDoc.idsJson));
     } catch(e) {}
-    console.log(`Loaded ${Object.keys(_channelIds).length} channel IDs, ${_removedCreatorIds.size} removed creators`);
+    try {
+        const ftDoc = await firestore.getDoc('config', 'featuredCreators');
+        if (ftDoc?.idsJson) _featuredCreatorIds = new Set(JSON.parse(ftDoc.idsJson));
+    } catch(e) {}
+    console.log(`Loaded ${Object.keys(_channelIds).length} channel IDs, ${_removedCreatorIds.size} removed, ${_featuredCreatorIds.size} featured creators`);
 })();
 
 // Scrape YouTube channel page once to discover channel ID — result cached forever
@@ -1670,6 +1675,31 @@ app.post('/api/admin/restore-creator', async (req, res) => {
 
 app.get('/api/creators/removed', (req, res) => {
     res.json({ removedIds: [..._removedCreatorIds] });
+});
+
+app.post('/api/admin/feature-creator', async (req, res) => {
+    const { email, creatorId } = req.body;
+    if (!ADMIN_EMAILS.includes((email || '').toLowerCase())) return res.status(403).json({ error: 'Unauthorized' });
+    if (!creatorId) return res.status(400).json({ error: 'creatorId required' });
+    _featuredCreatorIds.add(creatorId);
+    try {
+        await firestore.setDoc('config', 'featuredCreators', { idsJson: JSON.stringify([..._featuredCreatorIds]) });
+        res.json({ success: true, featuredIds: [..._featuredCreatorIds] });
+    } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/admin/unfeature-creator', async (req, res) => {
+    const { email, creatorId } = req.body;
+    if (!ADMIN_EMAILS.includes((email || '').toLowerCase())) return res.status(403).json({ error: 'Unauthorized' });
+    _featuredCreatorIds.delete(creatorId);
+    try {
+        await firestore.setDoc('config', 'featuredCreators', { idsJson: JSON.stringify([..._featuredCreatorIds]) });
+        res.json({ success: true, featuredIds: [..._featuredCreatorIds] });
+    } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/creators/featured', (req, res) => {
+    res.json({ featuredIds: [..._featuredCreatorIds] });
 });
 
 // Returns cached view counts immediately (stale-while-revalidate)
