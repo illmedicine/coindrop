@@ -7,13 +7,28 @@ let _tbAutoShuffleTimer = null;
 let _tbCurrentDetailId = null;
 let _tbInitialized = false;
 
+// ── URL helpers ───────────────────────────────────────────────────────────────
+function _tbCreatorUrl(creatorId) {
+    const u = new URL(location.href);
+    u.searchParams.set('c', creatorId);
+    return u.toString();
+}
+
+function _tbPushCreatorUrl(creatorId) {
+    history.pushState({ c: creatorId }, '', _tbCreatorUrl(creatorId));
+}
+
+function _tbClearCreatorUrl() {
+    const u = new URL(location.href);
+    u.searchParams.delete('c');
+    history.pushState({}, '', u.toString());
+}
+
 // ── Public: initialize the card browser (fetches featured IDs then renders) ──
 async function initTaskBrowser() {
-    // Render immediately with whatever creators we have (no spinner wait)
     _tbShuffledCreators = _tbShuffle([...(CREATORS || [])]);
     _tbRenderCardBrowser();
 
-    // Then fetch featured IDs and re-render with badges
     try {
         const res = await fetch(`${TASKS_BROWSER_API}/api/creators/featured`);
         const data = await res.json();
@@ -25,6 +40,10 @@ async function initTaskBrowser() {
         _tbStartAutoShuffle();
         _tbInitialized = true;
     }
+
+    // If URL already has ?c= when the browser lands on Tasks tab, open that creator
+    const initC = new URLSearchParams(location.search).get('c');
+    if (initC) openCreatorDetail(initC);
 }
 
 // Called by admin-creators.js after CREATORS array changes — always re-renders
@@ -76,6 +95,7 @@ function _tbMakeCard(creator, isFeatured) {
     const aboutSnip = (creator.about || '').substring(0, 88) + ((creator.about || '').length > 88 ? '…' : '');
     const avatar = creator.avatar || 'https://coindrop.in/assets/logo.png';
     const joinBadge = creator.addedAt ? 'Partner' : 'Beta Partner';
+    const shareUrl = _tbCreatorUrl(creator.id);
 
     return `<div class="cc-card${isFeatured ? ' cc-featured' : ''}" onclick="openCreatorDetail('${creator.id}')">
         <div class="cc-bg" style="background-image:url('${avatar}')"></div>
@@ -98,7 +118,10 @@ function _tbMakeCard(creator, isFeatured) {
                 <div class="cc-stat"><span class="cc-stat-n">$${earn}</span><span class="cc-stat-l">Earn</span></div>
             </div>
             <div class="cc-join-badge">${joinBadge}</div>
-            <button class="cc-cta-btn">Explore Tasks <i class="fas fa-arrow-right"></i></button>
+            <a class="cc-cta-btn" href="${shareUrl}"
+               onclick="event.preventDefault(); openCreatorDetail('${creator.id}')">
+                Explore Tasks <i class="fas fa-arrow-right"></i>
+            </a>
         </div>
     </div>`;
 }
@@ -134,6 +157,15 @@ function openCreatorDetail(creatorId) {
     if (!creator) return;
     _tbCurrentDetailId = creatorId;
 
+    // Update URL so the page is shareable / bookmarkable
+    _tbPushCreatorUrl(creatorId);
+
+    // Make sure the Tasks tab is visible
+    const tasksTab = document.getElementById('tab-tasks');
+    if (tasksTab && !tasksTab.classList.contains('active')) {
+        document.querySelector('[data-tab="tasks"]')?.click();
+    }
+
     document.getElementById('creator-card-browser').style.display = 'none';
     document.getElementById('creator-detail-view').style.display = '';
 
@@ -142,6 +174,7 @@ function openCreatorDetail(creatorId) {
         const avatar = creator.avatar || 'https://coindrop.in/assets/logo.png';
         const videos = (creator.videos || []).length;
         const isFeatured = _tbFeaturedIds.has(creator.id);
+        const shareUrl = _tbCreatorUrl(creatorId);
         meta.innerHTML = `
             <div class="cdd-header">
                 <img class="cdd-avatar" src="${avatar}" alt="${creator.name}"
@@ -158,6 +191,10 @@ function openCreatorDetail(creatorId) {
                     <span><strong>${videos}</strong> tasks</span>
                     <span><strong>${creator.subscribers || '?'}</strong> subs</span>
                 </div>
+                <button class="btn btn-ghost cdd-share-btn" title="Copy shareable link"
+                        onclick="tbCopyLink('${shareUrl}', this)">
+                    <i class="fas fa-link"></i> Share
+                </button>
                 <a href="${creator.channelUrl}" target="_blank" class="btn btn-ghost cdd-ch-btn">
                     <i class="fab fa-youtube"></i> Channel
                 </a>
@@ -172,11 +209,24 @@ function openCreatorDetail(creatorId) {
 
 function closeCreatorDetail() {
     _tbCurrentDetailId = null;
+    _tbClearCreatorUrl();
     document.getElementById('creator-card-browser').style.display = '';
     document.getElementById('creator-detail-view').style.display = 'none';
     const list = document.getElementById('creators-list');
     if (list) list.innerHTML = '';
     _tbStartAutoShuffle();
+}
+
+// ── Copy shareable link ───────────────────────────────────────────────────────
+function tbCopyLink(url, btn) {
+    navigator.clipboard.writeText(url).then(() => {
+        const orig = btn.innerHTML;
+        btn.innerHTML = '<i class="fas fa-check"></i> Copied!';
+        btn.style.color = '#22c55e';
+        setTimeout(() => { btn.innerHTML = orig; btn.style.color = ''; }, 2000);
+    }).catch(() => {
+        prompt('Copy this link to share with fans:', url);
+    });
 }
 
 // ── Bootstrap ────────────────────────────────────────────────────────────────
@@ -187,17 +237,48 @@ document.addEventListener('DOMContentLoaded', () => {
         tasksNavBtn.addEventListener('click', () => {
             if (!_tbInitialized) initTaskBrowser();
             else {
-                // Re-render on every tab visit so new creators show up
                 _tbShuffledCreators = _tbShuffle([...(CREATORS || [])]);
                 _tbRenderCardBrowser();
+                // Re-open creator detail if URL still has ?c=
+                const c = new URLSearchParams(location.search).get('c');
+                if (c && !_tbCurrentDetailId) openCreatorDetail(c);
             }
         });
     }
-    // Auto-init if tasks tab is already active on load (deep-link / default tab)
-    setTimeout(() => {
-        const tasksTab = document.getElementById('tab-tasks');
-        if (tasksTab && tasksTab.classList.contains('active')) {
-            if (!_tbInitialized) initTaskBrowser();
+
+    // Browser back/forward: sync detail view with URL
+    window.addEventListener('popstate', () => {
+        const c = new URLSearchParams(location.search).get('c');
+        if (c) {
+            openCreatorDetail(c);
+        } else if (_tbCurrentDetailId) {
+            // Back pressed while in detail view — restore card browser without pushing new state
+            _tbCurrentDetailId = null;
+            document.getElementById('creator-card-browser').style.display = '';
+            document.getElementById('creator-detail-view').style.display = 'none';
+            const list = document.getElementById('creators-list');
+            if (list) list.innerHTML = '';
+            _tbStartAutoShuffle();
         }
-    }, 600);
+    });
+
+    // Auto-init if tasks tab is already active (default tab or deep-link)
+    // If ?c= is in URL, switch to Tasks tab and open the creator
+    const initC = new URLSearchParams(location.search).get('c');
+    if (initC) {
+        setTimeout(() => {
+            // Navigate to Tasks tab first
+            document.querySelector('[data-tab="tasks"]')?.click();
+            // If init didn't fire yet, trigger it and it will auto-open on finish
+            if (!_tbInitialized) initTaskBrowser();
+            else openCreatorDetail(initC);
+        }, 700);
+    } else {
+        setTimeout(() => {
+            const tasksTab = document.getElementById('tab-tasks');
+            if (tasksTab && tasksTab.classList.contains('active')) {
+                if (!_tbInitialized) initTaskBrowser();
+            }
+        }, 600);
+    }
 });
