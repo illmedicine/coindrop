@@ -1687,8 +1687,13 @@ app.post('/api/admin/add-creator', async (req, res) => {
     if (!handle || !name || !channelUrl) return res.status(400).json({ error: 'handle, name, channelUrl required' });
     const cleanHandle = handle.startsWith('@') ? handle : '@' + handle;
     const creatorId = cleanHandle.replace(/^@/, '').toLowerCase();
-    const videos = channelId ? await fetchYouTubeRSS(channelId.trim()) : [];
-    const creator = { id: creatorId, handle: cleanHandle, name: name.trim(), platform: 'youtube', channelUrl: channelUrl.trim(), channelId: (channelId || '').trim(), avatar: (avatar || '').trim(), about: (about || '').trim(), category: (category || 'Entertainment').trim(), subscribers: (subscribers || 'Unknown').toString(), videosJson: JSON.stringify(videos), videoCount: videos.length, addedAt: new Date().toISOString(), addedBy: email, managed: true };
+    // Auto-discover channel ID from @handle if not supplied
+    let resolvedChannelId = (channelId || '').trim();
+    if (!resolvedChannelId) {
+        try { resolvedChannelId = await discoverChannelId(creatorId) || ''; } catch(e) {}
+    }
+    const videos = resolvedChannelId ? await fetchYouTubeRSS(resolvedChannelId) : [];
+    const creator = { id: creatorId, handle: cleanHandle, name: name.trim(), platform: 'youtube', channelUrl: channelUrl.trim(), channelId: resolvedChannelId, avatar: (avatar || '').trim(), about: (about || '').trim(), category: (category || 'Entertainment').trim(), subscribers: (subscribers || 'Unknown').toString(), videosJson: JSON.stringify(videos), videoCount: videos.length, addedAt: new Date().toISOString(), addedBy: email, managed: true };
     try {
         await firestore.setDoc('managed_creators', creatorId, creator);
         res.json({ success: true, creator: { ...creator, videos }, videosFound: videos.length });
@@ -1719,6 +1724,69 @@ app.post('/api/admin/restore-creator', async (req, res) => {
 
 app.get('/api/creators/removed', (req, res) => {
     res.json({ removedIds: [..._removedCreatorIds] });
+});
+
+// Bulk-migrate hardcoded creators into Firestore managed_creators (one-time op from admin)
+app.post('/api/admin/bulk-migrate-creators', async (req, res) => {
+    const { email, creators } = req.body;
+    if (!ADMIN_EMAILS.includes((email || '').toLowerCase())) return res.status(403).json({ error: 'Unauthorized' });
+    const toProcess = Array.isArray(creators) ? creators : [];
+    let migrated = 0, skipped = 0;
+    try {
+        const existing = await firestore.query('managed_creators', null, null, null, null, 200);
+        const existingIds = new Set((existing || []).map(c => c.id));
+        const toRefresh = [];
+        for (const c of toProcess) {
+            const cid = (c.id || '').toLowerCase();
+            if (!cid) continue;
+            if (existingIds.has(cid)) { skipped++; continue; }
+            await firestore.setDoc('managed_creators', cid, {
+                id: cid, handle: c.handle || `@${cid}`, name: c.name || cid,
+                platform: 'youtube', channelUrl: c.channelUrl || `https://youtube.com/${c.handle || `@${cid}`}`,
+                avatar: c.avatar || '', about: c.about || '',
+                category: c.category || 'Content Creator',
+                subscribers: (c.subscribers || 'Unknown').toString(),
+                videosJson: JSON.stringify(c.videos || []),
+                videoCount: (c.videos || []).length,
+                addedAt: new Date().toISOString(), managed: true, migratedFrom: 'hardcoded',
+            });
+            migrated++;
+            toRefresh.push({ id: cid, handle: c.handle || `@${cid}` });
+        }
+        // Clear all removed creators so everything is visible
+        _removedCreatorIds.clear();
+        await firestore.setDoc('config', 'removedCreators', { idsJson: '[]' });
+        res.json({ success: true, migrated, skipped });
+        // Background: discover channel IDs and refresh YouTube videos
+        setImmediate(async () => {
+            for (const { id: cid, handle } of toRefresh) {
+                try {
+                    const h = handle.replace(/^@/, '').toLowerCase();
+                    const channelId = await discoverChannelId(h);
+                    if (channelId) {
+                        const videos = await fetchYouTubeRSS(channelId);
+                        if (videos.length > 0) {
+                            const stored = await firestore.getDoc('managed_creators', cid);
+                            if (stored) await firestore.setDoc('managed_creators', cid, { ...stored, channelId, videosJson: JSON.stringify(videos), videoCount: videos.length, lastSynced: new Date().toISOString() });
+                            console.log(`Migrated+refreshed @${h}: ${videos.length} videos`);
+                        }
+                    }
+                } catch(e) { console.warn(`Migration bg-refresh failed ${handle}:`, e.message); }
+                await new Promise(r => setTimeout(r, 600));
+            }
+        });
+    } catch(e) { res.status(500).json({ error: 'Migration failed: ' + e.message }); }
+});
+
+// Clear all removed-creator IDs so every creator becomes visible again
+app.post('/api/admin/restore-all-creators', async (req, res) => {
+    const { email } = req.body;
+    if (!ADMIN_EMAILS.includes((email || '').toLowerCase())) return res.status(403).json({ error: 'Unauthorized' });
+    _removedCreatorIds.clear();
+    try {
+        await firestore.setDoc('config', 'removedCreators', { idsJson: '[]' });
+        res.json({ success: true });
+    } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
 app.post('/api/admin/feature-creator', async (req, res) => {
@@ -1785,10 +1853,15 @@ app.post('/api/admin/refresh-creator-videos', async (req, res) => {
     if (!ADMIN_EMAILS.includes((email || '').toLowerCase())) return res.status(403).json({ error: 'Unauthorized' });
     try {
         const creator = await firestore.getDoc('managed_creators', creatorId);
-        if (!creator) return res.status(404).json({ error: 'Creator not found' });
-        if (!creator.channelId) return res.status(400).json({ error: 'No Channel ID stored for this creator. Edit and re-add with Channel ID.' });
-        const videos = await fetchYouTubeRSS(creator.channelId);
-        await firestore.setDoc('managed_creators', creatorId, { ...creator, videosJson: JSON.stringify(videos), videoCount: videos.length, lastSynced: new Date().toISOString() });
+        if (!creator) return res.status(404).json({ error: 'Creator not found in managed list. Run "Migrate All" first.' });
+        let channelId = creator.channelId || '';
+        // Auto-discover channel ID from handle if not stored
+        if (!channelId && creator.handle) {
+            channelId = await discoverChannelId(creator.handle) || '';
+        }
+        if (!channelId) return res.status(400).json({ error: 'Could not discover Channel ID for this creator. Try again in a moment.' });
+        const videos = await fetchYouTubeRSS(channelId);
+        await firestore.setDoc('managed_creators', creatorId, { ...creator, channelId, videosJson: JSON.stringify(videos), videoCount: videos.length, lastSynced: new Date().toISOString() });
         res.json({ success: true, videosFound: videos.length });
     } catch(e) { res.status(500).json({ error: 'Failed to refresh: ' + e.message }); }
 });

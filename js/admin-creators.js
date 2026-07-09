@@ -19,20 +19,26 @@ async function fetchAndMergeCreators() {
             if (removedIds.has(window.CREATORS[i].id)) window.CREATORS.splice(i, 1);
         }
 
-        // 2. Merge managed creators that aren't already present and aren't removed
-        const existingIds = new Set(window.CREATORS.map(c => c.id));
-        let added = 0;
-        managed.filter(mc => !removedIds.has(mc.id) && !existingIds.has(mc.id)).forEach(mc => {
-            window.CREATORS.push({
-                id: mc.id, handle: mc.handle, name: mc.name,
-                platform: mc.platform || 'youtube',
-                avatar: mc.avatar || 'https://coindrop.in/assets/logo.png',
-                channelUrl: mc.channelUrl, about: mc.about || '',
-                category: mc.category || 'Entertainment',
-                subscribers: mc.subscribers || 'Unknown',
-                videos: mc.videos || [],
-            });
-            added++;
+        // 2. Merge/update managed creators: update existing entries with fresher Firestore data, push new ones
+        managed.filter(mc => !removedIds.has(mc.id)).forEach(mc => {
+            const existing = window.CREATORS.find(c => c.id === mc.id);
+            if (existing) {
+                if (mc.videos && mc.videos.length > 0) existing.videos = mc.videos;
+                if (mc.avatar && mc.avatar !== 'https://coindrop.in/assets/logo.png') existing.avatar = mc.avatar;
+                if (mc.subscribers && mc.subscribers !== 'Unknown') existing.subscribers = mc.subscribers;
+                if (mc.about) existing.about = mc.about;
+                if (mc.channelId) existing.channelId = mc.channelId;
+            } else {
+                window.CREATORS.push({
+                    id: mc.id, handle: mc.handle, name: mc.name,
+                    platform: mc.platform || 'youtube',
+                    avatar: mc.avatar || 'https://coindrop.in/assets/logo.png',
+                    channelUrl: mc.channelUrl, about: mc.about || '',
+                    category: mc.category || 'Entertainment',
+                    subscribers: mc.subscribers || 'Unknown',
+                    videos: mc.videos || [],
+                });
+            }
         });
 
         // 3. Rebuild filter buttons + re-render task browser
@@ -87,10 +93,14 @@ async function loadManagedCreators() {
         const featuredIds = new Set(((await featuredRes.json()).featuredIds || []));
         const managedIds = new Set(managedCreators.map(c => c.id));
 
-        // Combine: all hardcoded + all managed (deduped by id)
-        const hardcodedWithStatus = _allHardcodedCreators.map(c => ({ ...c, isManaged: false }));
-        const managedOnly = managedCreators.filter(mc => !_allHardcodedCreators.find(h => h.id === mc.id)).map(mc => ({ ...mc, isManaged: true }));
-        const allCreators = [...hardcodedWithStatus, ...managedOnly];
+        // Combine: hardcoded upgraded to managed if also in Firestore, plus purely-managed additions
+        const managedMap = new Map(managedCreators.map(mc => [mc.id, mc]));
+        const hardcodedWithStatus = _allHardcodedCreators.map(c => {
+            const mc = managedMap.get(c.id);
+            return mc ? { ...c, ...mc, isManaged: true } : { ...c, isManaged: false };
+        });
+        const pureManagedOnly = managedCreators.filter(mc => !_allHardcodedCreators.find(h => h.id === mc.id)).map(mc => ({ ...mc, isManaged: true }));
+        const allCreators = [...hardcodedWithStatus, ...pureManagedOnly];
 
         if (!allCreators.length) {
             container.innerHTML = '<p class="text-muted">No creators found.</p>';
@@ -292,6 +302,68 @@ async function refreshCreatorVideos(creatorId, btn) {
     if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-sync"></i> Refresh'; }
 }
 
+// ── Migrate all hardcoded creators to Firestore ──────────────────────────────
+async function migrateAllCreatorsToFirestore(btnEl) {
+    const user = JSON.parse(localStorage.getItem('coindrop_user') || '{}');
+    if (!user.email) return;
+    if (btnEl) { btnEl.disabled = true; btnEl.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Migrating…'; }
+    const resultEl = document.getElementById('migrate-result');
+    if (resultEl) resultEl.innerHTML = '';
+    try {
+        const res = await fetch(`${CREATORS_API}/api/admin/bulk-migrate-creators`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email: user.email, creators: _allHardcodedCreators }),
+        });
+        const data = await res.json();
+        if (data.success) {
+            localStorage.setItem('coindrop_creators_migrated_v1', 'true');
+            if (resultEl) resultEl.innerHTML = `<div style="color:#22c55e;padding:8px;"><i class="fas fa-check-circle"></i> Migrated ${data.migrated} creators (${data.skipped} already existed). Background refresh started.</div>`;
+            return true;
+        } else {
+            if (resultEl) resultEl.innerHTML = `<div style="color:#ef4444;padding:8px;">Migration error: ${data.error}</div>`;
+        }
+    } catch(e) {
+        if (resultEl) resultEl.innerHTML = `<div style="color:#ef4444;padding:8px;">Network error: ${e.message}</div>`;
+    }
+    return false;
+}
+
+// ── Restore all hidden creators ──────────────────────────────────────────────
+async function restoreAllCreators(btnEl) {
+    const user = JSON.parse(localStorage.getItem('coindrop_user') || '{}');
+    if (!user.email) return;
+    if (btnEl) { btnEl.disabled = true; btnEl.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Restoring…'; }
+    const resultEl = document.getElementById('migrate-result');
+    try {
+        const res = await fetch(`${CREATORS_API}/api/admin/restore-all-creators`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email: user.email }),
+        });
+        const data = await res.json();
+        if (data.success) {
+            if (resultEl) resultEl.innerHTML = `<div style="color:#22c55e;padding:8px;"><i class="fas fa-check-circle"></i> All creators restored and visible.</div>`;
+            return true;
+        } else {
+            if (resultEl) resultEl.innerHTML = `<div style="color:#ef4444;padding:8px;">Restore error: ${data.error}</div>`;
+        }
+    } catch(e) {
+        if (resultEl) resultEl.innerHTML = `<div style="color:#ef4444;padding:8px;">Network error: ${e.message}</div>`;
+    }
+    return false;
+}
+
+// ── Combined: migrate + restore (wired to dashboard button) ─────────────────
+async function migrateAndRestoreAll(btnEl) {
+    const ok1 = await migrateAllCreatorsToFirestore(btnEl);
+    if (!ok1) { if (btnEl) { btnEl.disabled = false; btnEl.innerHTML = '<i class="fas fa-magic"></i> Migrate & Restore All'; } return; }
+    const ok2 = await restoreAllCreators(null);
+    if (ok2) {
+        await fetchAndMergeCreators();
+        loadManagedCreators();
+    }
+    if (btnEl) { btnEl.disabled = false; btnEl.innerHTML = '<i class="fas fa-magic"></i> Migrate & Restore All'; }
+}
+
 // ── Boot sequence ────────────────────────────────────────────────────────────
 // 1. Filter removed / merge managed (runs after dashboard.js initial render)
 fetchAndMergeCreators().then(() => {
@@ -299,8 +371,16 @@ fetchAndMergeCreators().then(() => {
     setTimeout(lazyLoadViewCounts, 1500);
 });
 
-// Wire admin tab
+// Wire admin tab — auto-run one-time migration on first open
 document.addEventListener('DOMContentLoaded', () => {
     const creatorsTab = document.querySelector('[data-tab="admin-creators"]');
-    if (creatorsTab) creatorsTab.addEventListener('click', loadManagedCreators);
+    if (creatorsTab) {
+        creatorsTab.addEventListener('click', () => {
+            loadManagedCreators();
+            // One-time auto migration: if never migrated, silently run it in background
+            if (!localStorage.getItem('coindrop_creators_migrated_v1')) {
+                setTimeout(() => migrateAndRestoreAll(null), 800);
+            }
+        });
+    }
 });

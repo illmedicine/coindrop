@@ -528,9 +528,9 @@
                         <input id="new-creator-url" type="url" placeholder="https://youtube.com/@handle" style="width:100%;padding:9px 12px;border-radius:8px;border:1px solid rgba(255,255,255,.15);background:rgba(255,255,255,.08);color:white;font-size:.9rem;">
                     </div>
                     <div class="form-group" style="grid-column:1/-1;">
-                        <label style="color:rgba(255,255,255,.8);font-size:.85rem;font-weight:600;display:block;margin-bottom:6px;">YouTube Channel ID <small style="opacity:.7;">(for auto video import — found in channel About page)</small></label>
-                        <input id="new-creator-channel-id" type="text" placeholder="UCxxxxxxxxxxxxxxxx" style="width:100%;padding:9px 12px;border-radius:8px;border:1px solid rgba(255,255,255,.15);background:rgba(255,255,255,.08);color:white;font-size:.9rem;font-family:monospace;">
-                        <small style="color:rgba(255,255,255,.5);font-size:.75rem;">Optional but needed to auto-import videos. Go to channel → About → Share → Copy channel ID.</small>
+                        <label style="color:rgba(255,255,255,.8);font-size:.85rem;font-weight:600;display:block;margin-bottom:6px;">YouTube Channel ID <small style="opacity:.7;">(optional — auto-discovered from handle)</small></label>
+                        <input id="new-creator-channel-id" type="text" placeholder="UCxxxxxxxxxxxxxxxx (leave blank to auto-discover)" style="width:100%;padding:9px 12px;border-radius:8px;border:1px solid rgba(255,255,255,.15);background:rgba(255,255,255,.08);color:white;font-size:.9rem;font-family:monospace;">
+                        <small style="color:rgba(255,255,255,.5);font-size:.75rem;">Leave blank — the server auto-discovers it from the handle. Only fill if auto-discovery fails.</small>
                     </div>
                     <div class="form-group">
                         <label style="color:rgba(255,255,255,.8);font-size:.85rem;font-weight:600;display:block;margin-bottom:6px;">Avatar URL <small style="opacity:.7;">(optional)</small></label>
@@ -553,12 +553,19 @@
                     <button class="btn btn-primary" onclick="addCreator()" id="add-creator-btn">
                         <i class="fas fa-plus"></i> Add Creator
                     </button>
-                    <small style="color:rgba(255,255,255,.5);">Videos will be auto-imported from YouTube RSS if Channel ID is provided. You can refresh videos anytime.</small>
+                    <small style="color:rgba(255,255,255,.5);">Videos auto-imported from YouTube — no Channel ID needed.</small>
                 </div>
                 <div id="add-creator-result"></div>
             </div>
             <!-- Managed Creators List -->
-            <h3 style="margin-bottom:14px;">Managed Creators</h3>
+            <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:14px;">
+                <h3 style="margin:0;">Managed Creators</h3>
+                <button class="btn btn-ghost" style="color:#F7931A;border-color:#F7931A;padding:7px 14px;font-size:.82rem;" onclick="migrateAndRestoreAll(this)">
+                    <i class="fas fa-magic"></i> Migrate &amp; Restore All
+                </button>
+                <small style="color:rgba(255,255,255,.45);font-size:.76rem;">Migrates built-in creators to Firestore and restores any hidden ones</small>
+            </div>
+            <div id="migrate-result"></div>
             <div id="managed-creators-list">
                 <p class="text-muted"><i class="fas fa-spinner fa-spin"></i> Loading...</p>
             </div>

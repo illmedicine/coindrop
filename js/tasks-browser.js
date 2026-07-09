@@ -7,39 +7,49 @@ let _tbAutoShuffleTimer = null;
 let _tbCurrentDetailId = null;
 let _tbInitialized = false;
 
-// ── Public: initialize or re-render the card browser ────────────────────────
+// ── Public: initialize the card browser (fetches featured IDs then renders) ──
 async function initTaskBrowser() {
+    // Render immediately with whatever creators we have (no spinner wait)
+    _tbShuffledCreators = _tbShuffle([...(window.CREATORS || [])]);
+    _tbRenderCardBrowser();
+
+    // Then fetch featured IDs and re-render with badges
     try {
         const res = await fetch(`${TASKS_BROWSER_API}/api/creators/featured`);
         const data = await res.json();
         _tbFeaturedIds = new Set(data.featuredIds || []);
+        _tbRenderCardBrowser();
     } catch(e) {}
-    _tbShuffledCreators = _tbShuffle([...(window.CREATORS || [])]);
-    _tbRenderCardBrowser();
-    _tbStartAutoShuffle();
-    _tbInitialized = true;
+
+    if (!_tbInitialized) {
+        _tbStartAutoShuffle();
+        _tbInitialized = true;
+    }
 }
 
-// Called by admin-creators.js after CREATORS array changes
+// Called by admin-creators.js after CREATORS array changes — always re-renders
 function refreshTaskBrowser() {
     const detailView = document.getElementById('creator-detail-view');
     const detailVisible = detailView && detailView.style.display !== 'none';
     if (detailVisible && _tbCurrentDetailId) {
-        // Re-render the current creator's task list
         if (typeof renderCreators === 'function') renderCreators(_tbCurrentDetailId);
-    } else if (_tbInitialized) {
-        // Refresh the card browser rows
-        _tbShuffledCreators = _tbShuffle([...(window.CREATORS || [])]);
-        _tbRenderCardBrowser();
+        return;
+    }
+    const creators = window.CREATORS || [];
+    if (!creators.length) return;
+    _tbShuffledCreators = _tbShuffle([...creators]);
+    _tbRenderCardBrowser();
+    if (!_tbInitialized) {
+        _tbStartAutoShuffle();
+        _tbInitialized = true;
     }
 }
 
 // ── Card browser rendering ───────────────────────────────────────────────────
 function _tbRenderCardBrowser() {
     const featured = (window.CREATORS || []).filter(c => _tbFeaturedIds.has(c.id));
-    const all = _tbShuffledCreators;
+    const all = _tbShuffledCreators.length ? _tbShuffledCreators : (window.CREATORS || []);
 
-    // Featured row
     const featuredSection = document.getElementById('featured-row-section');
     const featuredScroll = document.getElementById('featured-creators-scroll');
     if (featuredSection && featuredScroll) {
@@ -51,12 +61,13 @@ function _tbRenderCardBrowser() {
         }
     }
 
-    // All creators row
     const allScroll = document.getElementById('all-creators-scroll');
     const countLabel = document.getElementById('creator-count-label');
     const totalTasks = (window.CREATORS || []).reduce((n, c) => n + (c.videos || []).length, 0);
     if (countLabel) countLabel.textContent = `${all.length} creator${all.length !== 1 ? 's' : ''} · ${totalTasks} tasks`;
-    if (allScroll) allScroll.innerHTML = all.map(c => _tbMakeCard(c, _tbFeaturedIds.has(c.id))).join('');
+    if (allScroll) allScroll.innerHTML = all.length
+        ? all.map(c => _tbMakeCard(c, _tbFeaturedIds.has(c.id))).join('')
+        : '<div style="padding:40px;color:var(--gray-400);text-align:center;width:100%;"><i class="fas fa-spinner fa-spin" style="font-size:1.5rem;"></i><p style="margin-top:12px;">Loading creators…</p></div>';
 }
 
 function _tbMakeCard(creator, isFeatured) {
@@ -78,7 +89,7 @@ function _tbMakeCard(creator, isFeatured) {
             <div class="cc-name">${creator.name}</div>
             <div class="cc-handle">${creator.handle}</div>
             <div class="cc-cat">${creator.category || 'Content Creator'}</div>
-            <p class="cc-about">${aboutSnip}</p>
+            <p class="cc-about">${aboutSnip || 'YouTube content creator on CoinDrop.'}</p>
             <div class="cc-stats-row">
                 <div class="cc-stat"><span class="cc-stat-n">${videos}</span><span class="cc-stat-l">Tasks</span></div>
                 <div class="cc-stat-sep"></div>
@@ -101,7 +112,6 @@ function _tbShuffle(arr) {
     return arr;
 }
 
-// Public — wired to Shuffle button in HTML
 function shuffleAllCreators() {
     _tbShuffledCreators = _tbShuffle([...(window.CREATORS || [])]);
     const allScroll = document.getElementById('all-creators-scroll');
@@ -125,10 +135,8 @@ function openCreatorDetail(creatorId) {
     _tbCurrentDetailId = creatorId;
 
     document.getElementById('creator-card-browser').style.display = 'none';
-    const detailView = document.getElementById('creator-detail-view');
-    detailView.style.display = '';
+    document.getElementById('creator-detail-view').style.display = '';
 
-    // Render mini header
     const meta = document.getElementById('creator-detail-meta');
     if (meta) {
         const avatar = creator.avatar || 'https://coindrop.in/assets/logo.png';
@@ -158,7 +166,6 @@ function openCreatorDetail(creatorId) {
 
     if (typeof renderCreators === 'function') renderCreators(creatorId);
 
-    // Scroll main content to top
     const main = document.querySelector('.main-content');
     if (main) main.scrollTo({ top: 0, behavior: 'smooth' });
 }
@@ -174,17 +181,23 @@ function closeCreatorDetail() {
 
 // ── Bootstrap ────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
+    // Wire Tasks tab click
     const tasksNavBtn = document.querySelector('[data-tab="tasks"]');
     if (tasksNavBtn) {
         tasksNavBtn.addEventListener('click', () => {
             if (!_tbInitialized) initTaskBrowser();
+            else {
+                // Re-render on every tab visit so new creators show up
+                _tbShuffledCreators = _tbShuffle([...(window.CREATORS || [])]);
+                _tbRenderCardBrowser();
+            }
         });
     }
-    // Auto-init if tasks tab is already active on load (e.g. deep link)
+    // Auto-init if tasks tab is already active on load (deep-link / default tab)
     setTimeout(() => {
         const tasksTab = document.getElementById('tab-tasks');
-        if (tasksTab && tasksTab.classList.contains('active') && !_tbInitialized) {
-            initTaskBrowser();
+        if (tasksTab && tasksTab.classList.contains('active')) {
+            if (!_tbInitialized) initTaskBrowser();
         }
-    }, 500);
+    }, 600);
 });
