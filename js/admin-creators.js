@@ -37,7 +37,9 @@ async function fetchAndMergeCreators() {
 
         // 3. Rebuild filter buttons + re-render task browser
         if (typeof buildFilterButtons === 'function') buildFilterButtons();
-        if (typeof renderCreators === 'function') {
+        if (typeof refreshTaskBrowser === 'function') {
+            refreshTaskBrowser();
+        } else if (typeof renderCreators === 'function') {
             const activeBtn = document.querySelector('.filter-btn.active');
             renderCreators(activeBtn?.dataset.filter || 'all');
         }
@@ -75,12 +77,14 @@ async function loadManagedCreators() {
     if (!container) return;
     container.innerHTML = '<p class="text-muted"><i class="fas fa-spinner fa-spin"></i> Loading creators...</p>';
     try {
-        const [managedRes, removedRes] = await Promise.all([
+        const [managedRes, removedRes, featuredRes] = await Promise.all([
             fetch(`${CREATORS_API}/api/creators/managed`),
             fetch(`${CREATORS_API}/api/creators/removed`),
+            fetch(`${CREATORS_API}/api/creators/featured`),
         ]);
         const managedCreators = ((await managedRes.json()).creators || []);
         const removedIds = new Set(((await removedRes.json()).removedIds || []));
+        const featuredIds = new Set(((await featuredRes.json()).featuredIds || []));
         const managedIds = new Set(managedCreators.map(c => c.id));
 
         // Combine: all hardcoded + all managed (deduped by id)
@@ -115,6 +119,10 @@ async function loadManagedCreators() {
                 </div>
                 <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
                     ${c.isManaged && !isRemoved ? `<button class="btn btn-ghost" style="padding:5px 10px;font-size:.78rem;" onclick="refreshCreatorVideos('${c.id}',this)"><i class="fas fa-sync"></i> Refresh</button>` : ''}
+                    ${!isRemoved ? (featuredIds.has(c.id)
+                        ? `<button class="btn btn-ghost" style="color:#F7931A;border-color:#F7931A;padding:5px 10px;font-size:.78rem;" onclick="unfeatureCreator('${c.id}',this)"><i class="fas fa-star"></i> Unfeature</button>`
+                        : `<button class="btn btn-ghost" style="color:#F7931A;border-color:rgba(247,147,26,.3);padding:5px 10px;font-size:.78rem;" onclick="featureCreator('${c.id}',this)"><i class="far fa-star"></i> Feature</button>`
+                    ) : ''}
                     ${isRemoved
                         ? `<button class="btn btn-ghost" style="color:#22c55e;border-color:#22c55e;padding:5px 10px;font-size:.78rem;" onclick="restoreCreator('${c.id}',this)"><i class="fas fa-undo"></i> Restore</button>`
                         : `<button class="btn btn-ghost" style="color:#ef4444;border-color:#ef4444;padding:5px 10px;font-size:.78rem;" onclick="removeCreatorAdmin('${c.id}',${c.isManaged},this)"><i class="fas fa-eye-slash"></i> Remove</button>`
@@ -181,7 +189,10 @@ async function removeCreatorAdmin(creatorId, isManaged, btn) {
                 if (window.CREATORS[i].id === creatorId) window.CREATORS.splice(i, 1);
             }
             if (typeof buildFilterButtons === 'function') buildFilterButtons();
-            if (typeof renderCreators === 'function') renderCreators('all');
+            // If user is viewing this creator's detail, go back to browser
+            if (typeof closeCreatorDetail === 'function' && typeof _tbCurrentDetailId !== 'undefined' && _tbCurrentDetailId === creatorId) closeCreatorDetail();
+            if (typeof refreshTaskBrowser === 'function') refreshTaskBrowser();
+            else if (typeof renderCreators === 'function') renderCreators('all');
             if (typeof updateEarningsBanner === 'function') updateEarningsBanner();
             loadManagedCreators();
         } else {
@@ -214,6 +225,51 @@ async function restoreCreator(creatorId, btn) {
     } catch(e) {
         alert('Network error: ' + e.message);
         if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-undo"></i> Restore'; }
+    }
+}
+
+// ── Feature / Unfeature a creator ───────────────────────────────────────────
+async function featureCreator(creatorId, btn) {
+    const user = JSON.parse(localStorage.getItem('coindrop_user') || '{}');
+    if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>'; }
+    try {
+        const res = await fetch(`${CREATORS_API}/api/admin/feature-creator`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email: user.email, creatorId }),
+        });
+        const data = await res.json();
+        if (data.success) {
+            loadManagedCreators();
+            if (typeof refreshTaskBrowser === 'function') refreshTaskBrowser();
+        } else {
+            alert('Error: ' + data.error);
+            if (btn) { btn.disabled = false; btn.innerHTML = '<i class="far fa-star"></i> Feature'; }
+        }
+    } catch(e) {
+        alert('Network error: ' + e.message);
+        if (btn) { btn.disabled = false; btn.innerHTML = '<i class="far fa-star"></i> Feature'; }
+    }
+}
+
+async function unfeatureCreator(creatorId, btn) {
+    const user = JSON.parse(localStorage.getItem('coindrop_user') || '{}');
+    if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>'; }
+    try {
+        const res = await fetch(`${CREATORS_API}/api/admin/unfeature-creator`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email: user.email, creatorId }),
+        });
+        const data = await res.json();
+        if (data.success) {
+            loadManagedCreators();
+            if (typeof refreshTaskBrowser === 'function') refreshTaskBrowser();
+        } else {
+            alert('Error: ' + data.error);
+            if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-star"></i> Unfeature'; }
+        }
+    } catch(e) {
+        alert('Network error: ' + e.message);
+        if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-star"></i> Unfeature'; }
     }
 }
 

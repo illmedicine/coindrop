@@ -302,16 +302,54 @@
 
         <!-- Available Tasks Tab -->
         <div class="tab-content" id="tab-tasks">
-            <div class="tab-header">
-                <h2>Available Tasks</h2>
-                <p class="text-muted">Browse earning opportunities by creator. Watch, like, comment, and subscribe to earn SOL.</p>
-                <div class="task-filters" id="creator-filters">
-                    <!-- Populated by JS from CREATORS array -->
+
+            <!-- ── Card Browser (default view) ── -->
+            <div id="creator-card-browser">
+
+                <!-- Featured Creators row (hidden if none featured) -->
+                <div class="creator-row-section" id="featured-row-section" style="display:none;">
+                    <div class="creator-row-hdr">
+                        <div class="creator-row-hdr-left">
+                            <i class="fas fa-star" style="color:var(--orange);font-size:1rem;"></i>
+                            <h2>Featured Creators</h2>
+                            <span class="creator-row-subtitle">Hand-picked partnerships</span>
+                        </div>
+                    </div>
+                    <div class="creator-card-scroll" id="featured-creators-scroll"></div>
                 </div>
+
+                <!-- All Creators row -->
+                <div class="creator-row-section">
+                    <div class="creator-row-hdr">
+                        <div class="creator-row-hdr-left">
+                            <i class="fas fa-fire" style="color:var(--orange);font-size:1rem;"></i>
+                            <h2>All Creators</h2>
+                            <span class="creator-row-subtitle" id="creator-count-label">Browse all opportunities</span>
+                        </div>
+                        <button class="shuffle-btn" onclick="shuffleAllCreators()">
+                            <i class="fas fa-random"></i> Shuffle
+                        </button>
+                    </div>
+                    <div class="creator-card-scroll" id="all-creators-scroll">
+                        <div style="padding:40px 0;color:var(--gray-400);text-align:center;width:100%;">
+                            <i class="fas fa-spinner fa-spin" style="font-size:1.5rem;"></i>
+                        </div>
+                    </div>
+                </div>
+
             </div>
-            <div class="creators-list" id="creators-list">
-                <!-- Populated by JS -->
+
+            <!-- ── Creator Detail View (shown on card click) ── -->
+            <div id="creator-detail-view" style="display:none;">
+                <div class="creator-detail-top">
+                    <button class="cdd-back-btn" onclick="closeCreatorDetail()">
+                        <i class="fas fa-arrow-left"></i> Back to Browse
+                    </button>
+                    <div id="creator-detail-meta"></div>
+                </div>
+                <div class="creators-list" id="creators-list"></div>
             </div>
+
         </div>
 
         <!-- Subscriptions & Follows Tab -->
@@ -652,6 +690,7 @@
     <script src="js/kick-earn.js"></script>
     <script src="js/notifications.js"></script>
     <script src="js/dashboard.js"></script>
+    <script src="js/tasks-browser.js"></script>
     <script src="js/admin-creators.js"></script>
 </body>
 </html>
