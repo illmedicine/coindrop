@@ -10,7 +10,7 @@ let _tbInitialized = false;
 // ── Public: initialize the card browser (fetches featured IDs then renders) ──
 async function initTaskBrowser() {
     // Render immediately with whatever creators we have (no spinner wait)
-    _tbShuffledCreators = _tbShuffle([...(window.CREATORS || [])]);
+    _tbShuffledCreators = _tbShuffle([...(CREATORS || [])]);
     _tbRenderCardBrowser();
 
     // Then fetch featured IDs and re-render with badges
@@ -35,7 +35,7 @@ function refreshTaskBrowser() {
         if (typeof renderCreators === 'function') renderCreators(_tbCurrentDetailId);
         return;
     }
-    const creators = window.CREATORS || [];
+    const creators = CREATORS || [];
     if (!creators.length) return;
     _tbShuffledCreators = _tbShuffle([...creators]);
     _tbRenderCardBrowser();
@@ -47,8 +47,8 @@ function refreshTaskBrowser() {
 
 // ── Card browser rendering ───────────────────────────────────────────────────
 function _tbRenderCardBrowser() {
-    const featured = (window.CREATORS || []).filter(c => _tbFeaturedIds.has(c.id));
-    const all = _tbShuffledCreators.length ? _tbShuffledCreators : (window.CREATORS || []);
+    const featured = (CREATORS || []).filter(c => _tbFeaturedIds.has(c.id));
+    const all = _tbShuffledCreators.length ? _tbShuffledCreators : (CREATORS || []);
 
     const featuredSection = document.getElementById('featured-row-section');
     const featuredScroll = document.getElementById('featured-creators-scroll');
@@ -63,7 +63,7 @@ function _tbRenderCardBrowser() {
 
     const allScroll = document.getElementById('all-creators-scroll');
     const countLabel = document.getElementById('creator-count-label');
-    const totalTasks = (window.CREATORS || []).reduce((n, c) => n + (c.videos || []).length, 0);
+    const totalTasks = (CREATORS || []).reduce((n, c) => n + (c.videos || []).length, 0);
     if (countLabel) countLabel.textContent = `${all.length} creator${all.length !== 1 ? 's' : ''} · ${totalTasks} tasks`;
     if (allScroll) allScroll.innerHTML = all.length
         ? all.map(c => _tbMakeCard(c, _tbFeaturedIds.has(c.id))).join('')
@@ -113,7 +113,7 @@ function _tbShuffle(arr) {
 }
 
 function shuffleAllCreators() {
-    _tbShuffledCreators = _tbShuffle([...(window.CREATORS || [])]);
+    _tbShuffledCreators = _tbShuffle([...(CREATORS || [])]);
     const allScroll = document.getElementById('all-creators-scroll');
     if (!allScroll) return;
     allScroll.style.opacity = '0';
@@ -130,7 +130,7 @@ function _tbStartAutoShuffle() {
 
 // ── Detail view ──────────────────────────────────────────────────────────────
 function openCreatorDetail(creatorId) {
-    const creator = (window.CREATORS || []).find(c => c.id === creatorId);
+    const creator = (CREATORS || []).find(c => c.id === creatorId);
     if (!creator) return;
     _tbCurrentDetailId = creatorId;
 
@@ -188,7 +188,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (!_tbInitialized) initTaskBrowser();
             else {
                 // Re-render on every tab visit so new creators show up
-                _tbShuffledCreators = _tbShuffle([...(window.CREATORS || [])]);
+                _tbShuffledCreators = _tbShuffle([...(CREATORS || [])]);
                 _tbRenderCardBrowser();
             }
         });

@@ -2,7 +2,7 @@
 const CREATORS_API = 'https://coindrop-auth.up.railway.app';
 
 // Snapshot of hardcoded creators BEFORE any filtering (taken at script load time)
-const _allHardcodedCreators = window.CREATORS ? [...window.CREATORS] : [];
+const _allHardcodedCreators = (typeof CREATORS !== 'undefined' && CREATORS) ? [...CREATORS] : [];
 
 // ── Boot: filter removed creators, merge managed ones, prime view-count cache ─
 async function fetchAndMergeCreators() {
@@ -15,13 +15,13 @@ async function fetchAndMergeCreators() {
         const removedIds = new Set(((await removedRes.json()).removedIds || []));
 
         // 1. Remove hidden creators from the live CREATORS array (mutate in place)
-        for (let i = window.CREATORS.length - 1; i >= 0; i--) {
-            if (removedIds.has(window.CREATORS[i].id)) window.CREATORS.splice(i, 1);
+        for (let i = CREATORS.length - 1; i >= 0; i--) {
+            if (removedIds.has(CREATORS[i].id)) CREATORS.splice(i, 1);
         }
 
         // 2. Merge/update managed creators: update existing entries with fresher Firestore data, push new ones
         managed.filter(mc => !removedIds.has(mc.id)).forEach(mc => {
-            const existing = window.CREATORS.find(c => c.id === mc.id);
+            const existing = CREATORS.find(c => c.id === mc.id);
             if (existing) {
                 if (mc.videos && mc.videos.length > 0) existing.videos = mc.videos;
                 if (mc.avatar && mc.avatar !== 'https://coindrop.in/assets/logo.png') existing.avatar = mc.avatar;
@@ -29,7 +29,7 @@ async function fetchAndMergeCreators() {
                 if (mc.about) existing.about = mc.about;
                 if (mc.channelId) existing.channelId = mc.channelId;
             } else {
-                window.CREATORS.push({
+                CREATORS.push({
                     id: mc.id, handle: mc.handle, name: mc.name,
                     platform: mc.platform || 'youtube',
                     avatar: mc.avatar || 'https://coindrop.in/assets/logo.png',
@@ -51,7 +51,7 @@ async function fetchAndMergeCreators() {
         }
 
         // 4. Tell server which handles we have (so it can auto-discover channel IDs + prime cache)
-        const handles = window.CREATORS.map(c => c.handle);
+        const handles = CREATORS.map(c => c.handle);
         fetch(`${CREATORS_API}/api/creators/register-handles`, {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ handles }),
@@ -195,8 +195,8 @@ async function removeCreatorAdmin(creatorId, isManaged, btn) {
         const data = await res.json();
         if (data.success) {
             // Remove from live CREATORS array in place
-            for (let i = window.CREATORS.length - 1; i >= 0; i--) {
-                if (window.CREATORS[i].id === creatorId) window.CREATORS.splice(i, 1);
+            for (let i = CREATORS.length - 1; i >= 0; i--) {
+                if (CREATORS[i].id === creatorId) CREATORS.splice(i, 1);
             }
             if (typeof buildFilterButtons === 'function') buildFilterButtons();
             // If user is viewing this creator's detail, go back to browser
