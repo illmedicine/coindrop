@@ -483,7 +483,7 @@ function renderCreators(filter) {
                 </a>
                 <div class="video-task-info">
                     <div class="video-task-title">${v.title}</div>
-                    <div class="video-task-meta">${v.views} views</div>
+                    <div class="video-task-meta" data-video-id="${v.id}">${v.views} views</div>
                 </div>
                 <div class="video-task-actions">
                     <div class="vta-row">
@@ -549,12 +549,29 @@ function renderCreators(filter) {
     });
 }
 
-// Build filter buttons dynamically from CREATORS
-const filtersContainer = document.getElementById('creator-filters');
-if (filtersContainer) {
+// Build (or rebuild) filter buttons — called at load time and after creator list changes
+function buildFilterButtons() {
+    const filtersContainer = document.getElementById('creator-filters');
+    if (!filtersContainer) return;
     filtersContainer.innerHTML = '<button class="filter-btn active" data-filter="all">All Creators</button>' +
         CREATORS.map(c => `<button class="filter-btn" data-filter="${c.id}" data-handle="${c.handle}"><i class="fab fa-youtube"></i> ${c.handle}</button>`).join('');
+    filtersContainer.querySelectorAll('.filter-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            const filterId = btn.dataset.filter;
+            renderCreators(filterId);
+            if (filterId === 'all') {
+                window.history.pushState({}, '', '/dashboard');
+            } else {
+                const handle = btn.dataset.handle || filterId;
+                window.history.pushState({}, '', '/' + handle);
+            }
+        });
+    });
 }
+
+buildFilterButtons();
 
 // Resolve initial creator from URL path (e.g. coindrop.in/@illmedicine)
 function getCreatorFromUrl() {
@@ -571,25 +588,8 @@ const _initialFilter = _urlCreator ? _urlCreator.id : 'all';
 renderCreators(_initialFilter);
 
 if (_urlCreator) {
-    // Switch to tasks tab if we landed via a creator URL
     switchTab('tasks');
 }
-
-document.querySelectorAll('.filter-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-        document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-        const filterId = btn.dataset.filter;
-        renderCreators(filterId);
-        // Update URL — /@handle for specific creator, clean /dashboard for All
-        if (filterId === 'all') {
-            window.history.pushState({}, '', '/dashboard');
-        } else {
-            const handle = btn.dataset.handle || filterId;
-            window.history.pushState({}, '', '/' + handle);
-        }
-    });
-});
 
 // ===== Earnings Potential Banner (server-side, highest value persists) =====
 async function updateEarningsBanner() {

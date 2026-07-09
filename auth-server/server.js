@@ -1555,9 +1555,69 @@ async function fetchYouTubeRSS(channelId) {
             const id = (entry.match(/<yt:videoId>([^<]+)<\/yt:videoId>/) || [])[1] || '';
             const rawTitle = (entry.match(/<media:title[^>]*>([^<]+)<\/media:title>/) || entry.match(/<title>([^<]+)<\/title>/) || [])[1] || '';
             const title = rawTitle.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'");
-            return { id, title, views: '0' };
+            // YouTube RSS includes <media:statistics views="N"/> — grab real view count for free
+            const rawViews = (entry.match(/<media:statistics\s+views="(\d+)"/) || entry.match(/<yt:statistics\s+viewCount="(\d+)"/) || [])[1] || '0';
+            const views = parseInt(rawViews, 10) > 0 ? parseInt(rawViews, 10).toLocaleString() : '0';
+            return { id, title, views };
         }).filter(v => v.id);
     } catch(e) { console.warn('YouTube RSS fetch failed:', e.message); return []; }
+}
+
+// ── Channel-ID auto-discovery + view-count cache ───────────────────────────
+let _channelIds = {};          // handle (no @) → channelId, persisted to Firestore
+let _removedCreatorIds = new Set(); // loaded from Firestore on boot
+const _viewCountCache = { data: {}, updatedAt: 0 };
+let _vcRefreshing = false;
+
+// Load persisted state on boot (non-blocking)
+(async () => {
+    try {
+        const chDoc = await firestore.getDoc('config', 'channelIds');
+        if (chDoc?.idsJson) _channelIds = JSON.parse(chDoc.idsJson);
+    } catch(e) {}
+    try {
+        const rmDoc = await firestore.getDoc('config', 'removedCreators');
+        if (rmDoc?.idsJson) _removedCreatorIds = new Set(JSON.parse(rmDoc.idsJson));
+    } catch(e) {}
+    console.log(`Loaded ${Object.keys(_channelIds).length} channel IDs, ${_removedCreatorIds.size} removed creators`);
+})();
+
+// Scrape YouTube channel page once to discover channel ID — result cached forever
+async function discoverChannelId(handle) {
+    const h = (handle || '').replace(/^@/, '').toLowerCase();
+    if (!h) return null;
+    if (_channelIds[h]) return _channelIds[h];
+    try {
+        const html = await httpGet(`https://www.youtube.com/@${h}`);
+        const match = html.match(/"channelId":"(UC[a-zA-Z0-9_-]{22})"/);
+        if (match) {
+            _channelIds[h] = match[1];
+            firestore.setDoc('config', 'channelIds', { idsJson: JSON.stringify(_channelIds) }).catch(() => {});
+            console.log(`Discovered channel ID for @${h}: ${match[1]}`);
+            return match[1];
+        }
+    } catch(e) { console.warn(`discoverChannelId(@${h}): ${e.message}`); }
+    return null;
+}
+
+// Background: refresh view counts for all provided handles (throttled, non-blocking)
+async function refreshViewCounts(handles) {
+    if (_vcRefreshing || !handles.length) return;
+    _vcRefreshing = true;
+    console.log(`Refreshing view counts for ${handles.length} creators...`);
+    let updated = 0;
+    for (const handle of handles) {
+        try {
+            const channelId = await discoverChannelId(handle);
+            if (!channelId) { await new Promise(r => setTimeout(r, 150)); continue; }
+            const videos = await fetchYouTubeRSS(channelId);
+            videos.forEach(v => { if (v.id && v.views !== '0') { _viewCountCache.data[v.id] = v.views; updated++; } });
+        } catch(e) { console.warn(`viewCount refresh(${handle}): ${e.message}`); }
+        await new Promise(r => setTimeout(r, 200)); // 200ms throttle between channels
+    }
+    _viewCountCache.updatedAt = Date.now();
+    _vcRefreshing = false;
+    console.log(`View count refresh done — ${updated} videos updated, ${Object.keys(_viewCountCache.data).length} total cached`);
 }
 
 app.get('/api/creators/managed', async (req, res) => {
@@ -1587,11 +1647,63 @@ app.post('/api/admin/add-creator', async (req, res) => {
 });
 
 app.post('/api/admin/remove-creator', async (req, res) => {
-    const { email, creatorId } = req.body;
+    const { email, creatorId, isManaged } = req.body;
     if (!ADMIN_EMAILS.includes((email || '').toLowerCase())) return res.status(403).json({ error: 'Unauthorized' });
     if (!creatorId) return res.status(400).json({ error: 'creatorId required' });
-    try { await firestore.deleteDoc('managed_creators', creatorId); res.json({ success: true }); }
-    catch(e) { res.status(500).json({ error: 'Failed to remove creator: ' + e.message }); }
+    try {
+        if (isManaged) await firestore.deleteDoc('managed_creators', creatorId);
+        _removedCreatorIds.add(creatorId);
+        await firestore.setDoc('config', 'removedCreators', { idsJson: JSON.stringify([..._removedCreatorIds]) });
+        res.json({ success: true });
+    } catch(e) { res.status(500).json({ error: 'Failed to remove creator: ' + e.message }); }
+});
+
+app.post('/api/admin/restore-creator', async (req, res) => {
+    const { email, creatorId } = req.body;
+    if (!ADMIN_EMAILS.includes((email || '').toLowerCase())) return res.status(403).json({ error: 'Unauthorized' });
+    _removedCreatorIds.delete(creatorId);
+    try {
+        await firestore.setDoc('config', 'removedCreators', { idsJson: JSON.stringify([..._removedCreatorIds]) });
+        res.json({ success: true });
+    } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/creators/removed', (req, res) => {
+    res.json({ removedIds: [..._removedCreatorIds] });
+});
+
+// Returns cached view counts immediately (stale-while-revalidate)
+app.get('/api/creators/view-counts', async (req, res) => {
+    res.json({ counts: _viewCountCache.data, updatedAt: _viewCountCache.updatedAt });
+    const FOUR_HOURS = 4 * 60 * 60 * 1000;
+    if (Date.now() - _viewCountCache.updatedAt > FOUR_HOURS && !_vcRefreshing) {
+        setImmediate(async () => {
+            try {
+                const docs = await firestore.query('managed_creators', null, null, null, null, 100) || [];
+                const handles = docs.filter(d => d.handle).map(d => d.handle);
+                await refreshViewCounts(handles);
+            } catch(e) { _vcRefreshing = false; }
+        });
+    }
+});
+
+// Frontend registers its creator handles so server can discover channel IDs + prime view-count cache
+app.post('/api/creators/register-handles', (req, res) => {
+    const { handles } = req.body;
+    res.json({ ok: true }); // Always respond immediately
+    if (!Array.isArray(handles) || handles.length === 0) return;
+    setImmediate(async () => {
+        const FOUR_HOURS = 4 * 60 * 60 * 1000;
+        if (Date.now() - _viewCountCache.updatedAt > FOUR_HOURS && !_vcRefreshing) {
+            await refreshViewCounts(handles);
+        } else {
+            // Just discover IDs for unknown handles (future refreshes will use them)
+            for (const h of handles.filter(h => !_channelIds[(h || '').replace(/^@/, '').toLowerCase()])) {
+                await discoverChannelId(h);
+                await new Promise(r => setTimeout(r, 150));
+            }
+        }
+    });
 });
 
 app.post('/api/admin/refresh-creator-videos', async (req, res) => {
