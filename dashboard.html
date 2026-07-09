@@ -512,49 +512,19 @@
                 <p class="text-muted">Add YouTube creator channels to the platform. Each channel's videos automatically become earn tasks for members.</p>
             </div>
             <!-- Add Creator Form -->
-            <div style="background:var(--navy-dark);border-radius:12px;padding:24px;margin-bottom:28px;max-width:640px;">
-                <h3 style="color:white;margin:0 0 18px;">Add New Creator</h3>
-                <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
-                    <div class="form-group">
-                        <label style="color:rgba(255,255,255,.8);font-size:.85rem;font-weight:600;display:block;margin-bottom:6px;">Handle <span style="color:#ef4444;">*</span></label>
-                        <input id="new-creator-handle" type="text" placeholder="@handle" style="width:100%;padding:9px 12px;border-radius:8px;border:1px solid rgba(255,255,255,.15);background:rgba(255,255,255,.08);color:white;font-size:.9rem;">
-                    </div>
-                    <div class="form-group">
-                        <label style="color:rgba(255,255,255,.8);font-size:.85rem;font-weight:600;display:block;margin-bottom:6px;">Display Name <span style="color:#ef4444;">*</span></label>
-                        <input id="new-creator-name" type="text" placeholder="Creator Name" style="width:100%;padding:9px 12px;border-radius:8px;border:1px solid rgba(255,255,255,.15);background:rgba(255,255,255,.08);color:white;font-size:.9rem;">
-                    </div>
-                    <div class="form-group" style="grid-column:1/-1;">
-                        <label style="color:rgba(255,255,255,.8);font-size:.85rem;font-weight:600;display:block;margin-bottom:6px;">YouTube Channel URL <span style="color:#ef4444;">*</span></label>
-                        <input id="new-creator-url" type="url" placeholder="https://youtube.com/@handle" style="width:100%;padding:9px 12px;border-radius:8px;border:1px solid rgba(255,255,255,.15);background:rgba(255,255,255,.08);color:white;font-size:.9rem;">
-                    </div>
-                    <div class="form-group" style="grid-column:1/-1;">
-                        <label style="color:rgba(255,255,255,.8);font-size:.85rem;font-weight:600;display:block;margin-bottom:6px;">YouTube Channel ID <small style="opacity:.7;">(optional — auto-discovered from handle)</small></label>
-                        <input id="new-creator-channel-id" type="text" placeholder="UCxxxxxxxxxxxxxxxx (leave blank to auto-discover)" style="width:100%;padding:9px 12px;border-radius:8px;border:1px solid rgba(255,255,255,.15);background:rgba(255,255,255,.08);color:white;font-size:.9rem;font-family:monospace;">
-                        <small style="color:rgba(255,255,255,.5);font-size:.75rem;">Leave blank — the server auto-discovers it from the handle. Only fill if auto-discovery fails.</small>
-                    </div>
-                    <div class="form-group">
-                        <label style="color:rgba(255,255,255,.8);font-size:.85rem;font-weight:600;display:block;margin-bottom:6px;">Avatar URL <small style="opacity:.7;">(optional)</small></label>
-                        <input id="new-creator-avatar" type="url" placeholder="https://..." style="width:100%;padding:9px 12px;border-radius:8px;border:1px solid rgba(255,255,255,.15);background:rgba(255,255,255,.08);color:white;font-size:.9rem;">
-                    </div>
-                    <div class="form-group">
-                        <label style="color:rgba(255,255,255,.8);font-size:.85rem;font-weight:600;display:block;margin-bottom:6px;">Category</label>
-                        <input id="new-creator-category" type="text" placeholder="Music, Gaming, Comedy..." style="width:100%;padding:9px 12px;border-radius:8px;border:1px solid rgba(255,255,255,.15);background:rgba(255,255,255,.08);color:white;font-size:.9rem;">
-                    </div>
-                    <div class="form-group">
-                        <label style="color:rgba(255,255,255,.8);font-size:.85rem;font-weight:600;display:block;margin-bottom:6px;">Subscribers</label>
-                        <input id="new-creator-subscribers" type="text" placeholder="e.g. 12,500" style="width:100%;padding:9px 12px;border-radius:8px;border:1px solid rgba(255,255,255,.15);background:rgba(255,255,255,.08);color:white;font-size:.9rem;">
-                    </div>
-                    <div class="form-group" style="grid-column:1/-1;">
-                        <label style="color:rgba(255,255,255,.8);font-size:.85rem;font-weight:600;display:block;margin-bottom:6px;">About / Bio <small style="opacity:.7;">(optional)</small></label>
-                        <textarea id="new-creator-about" placeholder="Short description of the creator..." rows="2" style="width:100%;padding:9px 12px;border-radius:8px;border:1px solid rgba(255,255,255,.15);background:rgba(255,255,255,.08);color:white;font-size:.9rem;resize:vertical;"></textarea>
-                    </div>
-                </div>
-                <div style="margin-top:18px;display:flex;align-items:center;gap:14px;flex-wrap:wrap;">
-                    <button class="btn btn-primary" onclick="addCreator()" id="add-creator-btn">
-                        <i class="fas fa-plus"></i> Add Creator
+            <div style="background:var(--navy-dark);border-radius:12px;padding:24px;margin-bottom:28px;max-width:560px;">
+                <h3 style="color:white;margin:0 0 6px;">Add New Creator</h3>
+                <p style="color:rgba(255,255,255,.45);font-size:.83rem;margin:0 0 18px;">Enter a YouTube handle — avatar, name, bio &amp; videos are auto-imported.</p>
+                <div style="display:flex;gap:10px;align-items:center;">
+                    <input id="new-creator-handle" type="text" placeholder="@handle or handle"
+                           style="flex:1;padding:11px 14px;border-radius:8px;border:1px solid rgba(255,255,255,.2);background:rgba(255,255,255,.08);color:white;font-size:1rem;"
+                           onkeydown="if(event.key==='Enter')lookupCreator()">
+                    <button class="btn btn-ghost" id="lookup-creator-btn" onclick="lookupCreator()"
+                            style="padding:10px 18px;flex-shrink:0;border-color:rgba(247,147,26,.5);color:#F7931A;">
+                        <i class="fas fa-search"></i> Lookup
                     </button>
-                    <small style="color:rgba(255,255,255,.5);">Videos auto-imported from YouTube — no Channel ID needed.</small>
                 </div>
+                <div id="creator-lookup-preview" style="display:none;margin-top:14px;"></div>
                 <div id="add-creator-result"></div>
             </div>
             <!-- Managed Creators List -->

@@ -189,6 +189,28 @@ function httpGet(url) {
     });
 }
 
+function httpGetPage(url) {
+    return new Promise((resolve, reject) => {
+        const u = new URL(url);
+        const req = https.get({
+            hostname: u.hostname, path: u.pathname + u.search,
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                'Accept-Language': 'en-US,en;q=0.9',
+            }
+        }, (res) => {
+            if ((res.statusCode === 301 || res.statusCode === 302) && res.headers.location) {
+                return resolve(httpGetPage(res.headers.location));
+            }
+            let data = '';
+            res.on('data', c => data += c);
+            res.on('end', () => resolve(data));
+        });
+        req.on('error', reject);
+    });
+}
+
 // SOL price endpoint for frontend
 app.get('/api/sol-price', async (req, res) => {
     const price = await getSolPrice();
@@ -1637,7 +1659,7 @@ async function discoverChannelId(handle) {
     if (!h) return null;
     if (_channelIds[h]) return _channelIds[h];
     try {
-        const html = await httpGet(`https://www.youtube.com/@${h}`);
+        const html = await httpGetPage(`https://www.youtube.com/@${h}`);
         const match = html.match(/"channelId":"(UC[a-zA-Z0-9_-]{22})"/);
         if (match) {
             _channelIds[h] = match[1];
@@ -1647,6 +1669,47 @@ async function discoverChannelId(handle) {
         }
     } catch(e) { console.warn(`discoverChannelId(@${h}): ${e.message}`); }
     return null;
+}
+
+// Scrape all channel metadata in one shot: name, avatar, about, subscribers, channelId
+async function fetchChannelMetadata(handle) {
+    const h = (handle || '').replace(/^@/, '').toLowerCase();
+    if (!h) return null;
+    try {
+        const html = await httpGetPage(`https://www.youtube.com/@${h}`);
+
+        const idMatch = html.match(/"channelId":"(UC[a-zA-Z0-9_-]{22})"/);
+        const channelId = idMatch ? idMatch[1] : (_channelIds[h] || '');
+        if (channelId && !_channelIds[h]) {
+            _channelIds[h] = channelId;
+            firestore.setDoc('config', 'channelIds', { idsJson: JSON.stringify(_channelIds) }).catch(() => {});
+        }
+
+        const ogTitleMatch = html.match(/<meta property="og:title" content="([^"]+)"/);
+        const titleTagMatch = html.match(/<title>([^<]+)<\/title>/);
+        let name = '';
+        if (ogTitleMatch) name = ogTitleMatch[1].trim();
+        else if (titleTagMatch) name = titleTagMatch[1].replace(/\s*[-–|]\s*YouTube\s*$/, '').trim();
+        if (!name) name = h;
+
+        const ogImageMatch = html.match(/<meta property="og:image" content="([^"]+)"/);
+        const avatar = ogImageMatch ? ogImageMatch[1] : '';
+
+        const descMatch = html.match(/<meta name="description" content="([^"]+)"/) ||
+                          html.match(/<meta property="og:description" content="([^"]+)"/);
+        let about = descMatch ? descMatch[1] : '';
+        about = about.replace(/&#39;/g, "'").replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&lt;/g, '<').replace(/&gt;/g, '>');
+
+        const subSimple = html.match(/"subscriberCountText":\{"simpleText":"([^"]+)"\}/);
+        const subA11y   = html.match(/"subscriberCountText":\{"accessibility":\{"accessibilityData":\{"label":"([^"]+)"\}\}/);
+        const rawSubs   = subSimple ? subSimple[1] : (subA11y ? subA11y[1] : '');
+        const subscribers = rawSubs ? rawSubs.replace(/\s*subscribers?\s*$/i, '').trim() : '';
+
+        return { id: h, handle: '@' + h, name, avatar, about, channelId, channelUrl: `https://youtube.com/@${h}`, subscribers, platform: 'youtube', category: 'Content Creator' };
+    } catch(e) {
+        console.warn(`fetchChannelMetadata(@${h}): ${e.message}`);
+        return null;
+    }
 }
 
 // Background: refresh view counts for all provided handles (throttled, non-blocking)
@@ -1681,19 +1744,52 @@ app.get('/api/creators/managed', async (req, res) => {
     } catch(e) { res.status(500).json({ error: 'Failed to fetch creators' }); }
 });
 
+// Lookup endpoint — returns YouTube metadata without saving anything
+app.get('/api/admin/lookup-creator', async (req, res) => {
+    const { handle, email } = req.query;
+    if (!ADMIN_EMAILS.includes((email || '').toLowerCase())) return res.status(403).json({ error: 'Unauthorized' });
+    if (!handle) return res.status(400).json({ error: 'handle required' });
+    const meta = await fetchChannelMetadata(handle.replace(/^@/, ''));
+    if (!meta) return res.status(404).json({ error: `Could not find YouTube channel for @${handle.replace(/^@/, '')}` });
+    res.json({ success: true, creator: meta });
+});
+
 app.post('/api/admin/add-creator', async (req, res) => {
     const { email, handle, name, channelUrl, channelId, avatar, about, category, subscribers } = req.body;
     if (!ADMIN_EMAILS.includes((email || '').toLowerCase())) return res.status(403).json({ error: 'Unauthorized' });
-    if (!handle || !name || !channelUrl) return res.status(400).json({ error: 'handle, name, channelUrl required' });
+    if (!handle) return res.status(400).json({ error: 'handle required' });
     const cleanHandle = handle.startsWith('@') ? handle : '@' + handle;
     const creatorId = cleanHandle.replace(/^@/, '').toLowerCase();
-    // Auto-discover channel ID from @handle if not supplied
+
+    // Auto-fetch all missing metadata from YouTube in one scrape
+    let resolvedName = (name || '').trim();
+    let resolvedChannelUrl = (channelUrl || '').trim();
+    let resolvedAvatar = (avatar || '').trim();
+    let resolvedAbout = (about || '').trim();
+    let resolvedSubscribers = (subscribers || '').trim();
     let resolvedChannelId = (channelId || '').trim();
+
+    if (!resolvedName || !resolvedChannelUrl || !resolvedAvatar) {
+        const meta = await fetchChannelMetadata(creatorId);
+        if (meta) {
+            if (!resolvedName) resolvedName = meta.name;
+            if (!resolvedChannelUrl) resolvedChannelUrl = meta.channelUrl;
+            if (!resolvedAvatar) resolvedAvatar = meta.avatar;
+            if (!resolvedAbout) resolvedAbout = meta.about;
+            if (!resolvedSubscribers) resolvedSubscribers = meta.subscribers;
+            if (!resolvedChannelId) resolvedChannelId = meta.channelId;
+        }
+    }
+
+    if (!resolvedName) resolvedName = creatorId;
+    if (!resolvedChannelUrl) resolvedChannelUrl = `https://youtube.com/@${creatorId}`;
+
     if (!resolvedChannelId) {
         try { resolvedChannelId = await discoverChannelId(creatorId) || ''; } catch(e) {}
     }
+
     const videos = resolvedChannelId ? await fetchYouTubeRSS(resolvedChannelId) : [];
-    const creator = { id: creatorId, handle: cleanHandle, name: name.trim(), platform: 'youtube', channelUrl: channelUrl.trim(), channelId: resolvedChannelId, avatar: (avatar || '').trim(), about: (about || '').trim(), category: (category || 'Entertainment').trim(), subscribers: (subscribers || 'Unknown').toString(), videosJson: JSON.stringify(videos), videoCount: videos.length, addedAt: new Date().toISOString(), addedBy: email, managed: true };
+    const creator = { id: creatorId, handle: cleanHandle, name: resolvedName, platform: 'youtube', channelUrl: resolvedChannelUrl, channelId: resolvedChannelId, avatar: resolvedAvatar, about: resolvedAbout, category: (category || 'Content Creator').trim(), subscribers: resolvedSubscribers || 'Unknown', videosJson: JSON.stringify(videos), videoCount: videos.length, addedAt: new Date().toISOString(), addedBy: email, managed: true };
     try {
         await firestore.setDoc('managed_creators', creatorId, creator);
         res.json({ success: true, creator: { ...creator, videos }, videosFound: videos.length });

@@ -145,32 +145,89 @@ async function loadManagedCreators() {
     }
 }
 
-// ── Add creator ──────────────────────────────────────────────────────────────
-async function addCreator() {
-    const handle      = document.getElementById('new-creator-handle')?.value?.trim();
-    const name        = document.getElementById('new-creator-name')?.value?.trim();
-    const channelUrl  = document.getElementById('new-creator-url')?.value?.trim();
-    const channelId   = document.getElementById('new-creator-channel-id')?.value?.trim();
-    const avatar      = document.getElementById('new-creator-avatar')?.value?.trim();
-    const about       = document.getElementById('new-creator-about')?.value?.trim();
-    const category    = document.getElementById('new-creator-category')?.value?.trim();
-    const subscribers = document.getElementById('new-creator-subscribers')?.value?.trim();
-    const btn    = document.getElementById('add-creator-btn');
-    const result = document.getElementById('add-creator-result');
-    if (!handle || !name || !channelUrl) { alert('Handle, Name, and Channel URL are required.'); return; }
+// ── Lookup creator metadata from YouTube (populates preview before saving) ───
+async function lookupCreator() {
+    const handleInput = document.getElementById('new-creator-handle');
+    const lookupBtn   = document.getElementById('lookup-creator-btn');
+    const preview     = document.getElementById('creator-lookup-preview');
+    const result      = document.getElementById('add-creator-result');
+
+    const handle = (handleInput?.value || '').trim().replace(/^@/, '');
+    if (!handle) { handleInput?.focus(); return; }
+
     const user = JSON.parse(localStorage.getItem('coindrop_user') || '{}');
-    if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Adding...'; }
+    if (!user.email) return;
+
+    if (lookupBtn) { lookupBtn.disabled = true; lookupBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>'; }
+    if (preview) preview.style.display = 'none';
     if (result) result.innerHTML = '';
+
+    try {
+        const res = await fetch(`${CREATORS_API}/api/admin/lookup-creator?handle=${encodeURIComponent(handle)}&email=${encodeURIComponent(user.email)}`);
+        const data = await res.json();
+        if (!data.success) {
+            if (result) result.innerHTML = `<div style="color:#ef4444;padding:10px;margin-top:10px;border-radius:8px;background:rgba(239,68,68,.08);">Error: ${data.error}</div>`;
+        } else {
+            const c = data.creator;
+            window._pendingCreator = c;
+            if (preview) {
+                preview.style.display = '';
+                preview.innerHTML = `
+                    <div style="display:flex;align-items:center;gap:14px;padding:14px;background:rgba(247,147,26,.07);border-radius:10px;border:1px solid rgba(247,147,26,.3);">
+                        <img src="${c.avatar || 'https://coindrop.in/assets/logo.png'}"
+                             style="width:60px;height:60px;border-radius:50%;object-fit:cover;flex-shrink:0;border:2px solid rgba(247,147,26,.5);"
+                             onerror="this.src='https://coindrop.in/assets/logo.png'">
+                        <div style="flex:1;min-width:0;">
+                            <strong style="color:white;font-size:1rem;display:block;">${c.name}</strong>
+                            <div style="color:rgba(255,255,255,.55);font-size:.82rem;">${c.handle}${c.subscribers ? ' · ' + c.subscribers + ' subs' : ''}</div>
+                            <div style="color:rgba(255,255,255,.38);font-size:.76rem;margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${(c.about||'').substring(0,90)}${(c.about||'').length>90?'…':''}</div>
+                        </div>
+                        <button class="btn btn-primary" onclick="addCreator()" id="add-creator-btn"
+                                style="flex-shrink:0;padding:9px 18px;font-size:.88rem;">
+                            <i class="fas fa-plus"></i> Add
+                        </button>
+                    </div>`;
+            }
+        }
+    } catch(e) {
+        if (result) result.innerHTML = `<div style="color:#ef4444;padding:10px;margin-top:10px;border-radius:8px;background:rgba(239,68,68,.08);">Network error: ${e.message}</div>`;
+    }
+    if (lookupBtn) { lookupBtn.disabled = false; lookupBtn.innerHTML = '<i class="fas fa-search"></i> Lookup'; }
+}
+
+// ── Add creator — saves pending lookup data to Firestore, imports videos ─────
+async function addCreator() {
+    const handleInput = document.getElementById('new-creator-handle');
+    const btn         = document.getElementById('add-creator-btn');
+    const result      = document.getElementById('add-creator-result');
+    const preview     = document.getElementById('creator-lookup-preview');
+
+    const handle = (handleInput?.value || '').trim();
+    if (!handle) { alert('Enter a YouTube handle first.'); return; }
+
+    const user = JSON.parse(localStorage.getItem('coindrop_user') || '{}');
+    if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Adding…'; }
+    if (result) result.innerHTML = '';
+
+    const pending = window._pendingCreator || {};
     try {
         const res = await fetch(`${CREATORS_API}/api/admin/add-creator`, {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ email: user.email, handle, name, channelUrl, channelId, avatar, about, category, subscribers }),
+            body: JSON.stringify({
+                email: user.email, handle,
+                name: pending.name || '', channelUrl: pending.channelUrl || '',
+                avatar: pending.avatar || '', about: pending.about || '',
+                subscribers: pending.subscribers || '', channelId: pending.channelId || '',
+                category: pending.category || '',
+            }),
         });
         const data = await res.json();
         if (data.success) {
-            const videoMsg = data.videosFound > 0 ? ` ${data.videosFound} videos imported!` : channelId ? ' No videos found — check Channel ID.' : ' Add a Channel ID to auto-import videos.';
-            if (result) result.innerHTML = `<div style="background:rgba(34,197,94,.1);border:1px solid #22c55e;border-radius:8px;padding:12px 16px;color:#15803d;margin-top:12px;"><i class="fas fa-check-circle"></i> <strong>Creator added!</strong>${videoMsg}</div>`;
-            ['new-creator-handle','new-creator-name','new-creator-url','new-creator-channel-id','new-creator-avatar','new-creator-about','new-creator-subscribers'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+            const videoMsg = data.videosFound > 0 ? ` ${data.videosFound} videos imported.` : ' Videos will be discovered in the background.';
+            if (result) result.innerHTML = `<div style="background:rgba(34,197,94,.1);border:1px solid #22c55e;border-radius:8px;padding:12px 16px;color:#15803d;margin-top:12px;"><i class="fas fa-check-circle"></i> <strong>${data.creator?.name || handle} added!</strong>${videoMsg}</div>`;
+            if (handleInput) handleInput.value = '';
+            if (preview) preview.style.display = 'none';
+            window._pendingCreator = null;
             loadManagedCreators();
             fetchAndMergeCreators();
         } else {
@@ -179,7 +236,7 @@ async function addCreator() {
     } catch(e) {
         if (result) result.innerHTML = `<div style="color:#dc2626;padding:10px;background:rgba(239,68,68,.08);border-radius:8px;margin-top:10px;">Network error: ${e.message}</div>`;
     }
-    if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-plus"></i> Add Creator'; }
+    if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-plus"></i> Add'; }
 }
 
 // ── Remove creator (hardcoded or managed) ────────────────────────────────────
