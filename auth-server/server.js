@@ -315,16 +315,31 @@ app.post('/api/verify-task', async (req, res) => {
         const base64Data = screenshot.replace(/^data:image\/\w+;base64,/, '');
         const mediaType = screenshot.match(/^data:(image\/\w+);base64,/)?.[1] || 'image/png';
 
+        // Build a short title key (first ~35 chars) so the AI has a clear truncation match target
+        const titleKey = videoTitle.length > 35 ? videoTitle.substring(0, 35) : videoTitle;
+
+        const mobileTitleRule = `TITLE MATCH RULE (applies to all task types):
+Expected title: "${videoTitle}"
+Short match key (first ~35 chars): "${titleKey}"
+
+MOBILE TRUNCATION — CRITICAL: YouTube on mobile devices ALWAYS cuts off long titles and replaces the end with "..." or "…". This is normal and expected. When you see a truncated title ending in "..." in a screenshot:
+  • ONLY compare what is visible BEFORE the "..." against the beginning of the expected title.
+  • If the visible portion matches the start of the expected title (even partially), this is a PASS.
+  • Do NOT require the full title to be visible. Do NOT fail because content after the "..." is missing.
+  • Example: Expected = "MINDS THROUGH TIME : EPISODE 4 : CARDI B | AYN RANDT | SEXXY REDD | DR RUTH"
+             Screenshot shows "MINDS THROUGH TIME : EPISODE 4 :..." → this is a PASS.
+  • Minimum: Any 4+ consecutive words from the expected title visible on screen = PASS for the title check.`;
+
         const taskRules = {
             watch: `WATCH VERIFICATION — ALL 3 conditions must be met:
-1. VIDEO TITLE MATCH: The video title "${videoTitle}" (or a recognizable portion of it) must be visible on screen. Partial matches are OK (e.g. "MINDS THROUGH TIME" matching "MINDS THROUGH TIME : EPISODE 4 : CARDI B...").
-2. CHANNEL NAME VISIBLE: The creator/channel name ${creatorIdentity} (the display name and the @handle both refer to the SAME creator and either one being visible is sufficient — they do not need to resemble each other textually) must be visible somewhere on screen — below the video, in the header, or in the URL.
-3. ACTIVE PLAYBACK: Evidence the video was watched — look for ANY of: a red progress bar on the video timeline showing elapsed time, a pause button visible (meaning video is playing), visible timestamp showing elapsed time (e.g. "0:15 / 7:55"), or the video player in fullscreen/theater mode.
+1. VIDEO TITLE MATCH: ${mobileTitleRule}
+2. CHANNEL NAME VISIBLE: The creator/channel name ${creatorIdentity} (the display name and the @handle both refer to the SAME creator and either one being visible is sufficient — they do not need to resemble each other textually) must be visible somewhere on screen — below the video title in small text, in the header, or in the URL.
+3. ACTIVE PLAYBACK: Evidence the video was watched — look for ANY of: a red/orange progress bar on the video timeline showing elapsed time, a pause button (⏸) visible meaning video is playing, a visible playback timestamp like "1:05 / 7:55" anywhere on screen, or the video player in fullscreen/theater mode with controls visible.
 
 PASS if all 3 conditions are met. FAIL if the title doesn't match, channel name isn't visible, or there's no evidence of playback.`,
 
             like: `LIKE VERIFICATION — ALL 3 conditions must be met:
-1. VIDEO TITLE MATCH: The video title "${videoTitle}" (or a recognizable portion) must be visible.
+1. VIDEO TITLE MATCH: ${mobileTitleRule}
 2. CHANNEL NAME VISIBLE: The creator ${creatorIdentity} (display name or @handle — either is sufficient, they refer to the same creator) must be visible.
 3. LIKE BUTTON ACTIVE: The thumbs-up/like button must appear FILLED or SOLID, OR an "Unlike" label is visible. Specific rules:
    - If the word "Unlike" appears anywhere near the like button, the content IS liked — PASS immediately.
@@ -339,7 +354,7 @@ PASS if all 3 conditions are met. FAIL if the title doesn't match, channel name 
 PASS if: "Unlike" button visible, OR like count > 0 next to thumb, OR thumb has any solid fill. FAIL ONLY if thumb is clearly hollow/outline with zero count and no Unlike label.`,
 
             comment: `COMMENT VERIFICATION — ALL 4 conditions must be met:
-1. VIDEO TITLE MATCH: The video title "${videoTitle}" (or a recognizable portion) must be visible on screen.
+1. VIDEO TITLE MATCH: ${mobileTitleRule}
 2. CHANNEL NAME VISIBLE: The creator/channel ${creatorIdentity} (display name or @handle — either is sufficient, they refer to the same creator) must be visible on screen.
 3. FRESH COMMENT VISIBLE: The comments section must be visible and show a recently posted comment with a timestamp of "0 seconds ago", "just now", "1 minute ago", OR "2 minutes ago". Comments showing "3 minutes ago" or older FAIL. The comment must contain actual text (not empty). A timestamp is required — if no timestamp is visible, FAIL.
 4. COMMENTER NAME MATCH: The display name shown next to the most recent comment (the one with the freshest timestamp) must match or closely resemble the CoinDrop username "${username}". The match does not need to be perfect — YouTube display names may differ slightly from usernames (e.g. capitalization, spaces). However if the commenter name is completely unrelated to "${username}", FAIL. If you cannot read the commenter name at all, FAIL.
@@ -376,6 +391,8 @@ ${taskRules[taskType] || taskRules.watch}
 
 IMPORTANT RULES:
 - Check EACH condition independently. Do not assume — look carefully at the actual screenshot.
+- MOBILE SCREENSHOTS: Mobile YouTube has a specific layout — the title appears in large bold text below the video player and is COMMONLY TRUNCATED with "..." because the screen is narrow. The channel @handle appears in smaller gray text directly below the title (e.g. "@illmedicine"). A timestamp like "1:05 / 7:55" appearing anywhere confirms active playback. ALL of these mobile-specific layouts are valid and should PASS their respective conditions.
+- TRUNCATED TITLES: A title ending with "..." or "…" means the screenshot was taken on a mobile device. ONLY match the visible text before the ellipsis against the beginning of the expected title. Never fail a screenshot solely because the end of a long title is cut off.
 - IGNORE ALL WATERMARKS: Videos may contain AI-generation watermarks (Sora, Runway, Kling, Pika, Midjourney, OpenAI, Google DeepMind, Stability AI, HiDream, Seedance, Higgsfield, etc.). These watermarks are part of the video content itself and are NOT relevant to verification. Do NOT fail or reduce confidence because of watermarks visible in the video player or on the video content.
 - IGNORE overlays, badges, or text burned into the video content — only evaluate the YouTube/Instagram UI elements (title, channel name, like button state, comments, progress bar).
 - CREATOR NAME MATCHING: Creators often have a display/persona name that is different from their @handle (e.g. display name "Aysha" with handle "@Sage_elohi"). This is normal and expected — do NOT fail verification just because the on-screen name doesn't textually resemble the other name. Seeing EITHER the display name OR the @handle on screen satisfies the channel name condition.
@@ -1585,6 +1602,33 @@ let _vcRefreshing = false;
         if (ftDoc?.idsJson) _featuredCreatorIds = new Set(JSON.parse(ftDoc.idsJson));
     } catch(e) {}
     console.log(`Loaded ${Object.keys(_channelIds).length} channel IDs, ${_removedCreatorIds.size} removed, ${_featuredCreatorIds.size} featured creators`);
+
+    // One-time announcement: mobile verification fix
+    try {
+        const ann = await firestore.getDoc('config', 'announcements');
+        if (!ann?.mobile_verif_fix_20260709) {
+            const msg = {
+                username: 'CoinDrop Updates',
+                avatar_url: 'https://coindrop.in/assets/logo.svg',
+                embeds: [{
+                    color: 0xF7931A,
+                    title: '🔧 Verification Fix — Mobile Screenshots Now Work!',
+                    description: `We discovered a bug where screenshots taken on **mobile devices** were failing verification even though they showed valid proof. This was caused by our AI engine being too strict about video titles that are **cut off** (truncated with "...") on narrow mobile screens.\n\n**The fix is live now.** Mobile screenshots that clearly show the beginning of the title, the channel handle, and playback evidence will now pass correctly.\n\n**Big shoutout to AlphaDog and Golu** for catching this and reporting it — you helped make CoinDrop better for everyone! 🙌\n\nIf any of your mobile submissions were rejected unfairly in the last few days, please **re-submit** your screenshots — they should pass now.`,
+                    fields: [
+                        { name: 'What was broken', value: 'Mobile titles like "MINDS THROUGH TIME : EPISODE 4 :..." were failing because the AI required the FULL title to be visible', inline: false },
+                        { name: 'What\'s fixed', value: 'AI now accepts truncated titles — matching the visible portion is enough to pass', inline: false },
+                        { name: 'What to do', value: 'Re-submit any mobile screenshots that were rejected. Cooldowns on failed submissions are NOT charged.', inline: false }
+                    ],
+                    footer: { text: 'CoinDrop · coindrop.in' },
+                    timestamp: new Date().toISOString()
+                }]
+            };
+            await postToDiscord(DISCORD_WEBHOOKS.flash, msg);
+            await postToDiscord(DISCORD_WEBHOOKS.payouts, msg);
+            await firestore.setDoc('config', 'announcements', { ...(ann || {}), mobile_verif_fix_20260709: true });
+            console.log('Mobile fix announcement sent to Discord');
+        }
+    } catch(e) { console.warn('Announcement send failed:', e.message); }
 })();
 
 // Scrape YouTube channel page once to discover channel ID — result cached forever
