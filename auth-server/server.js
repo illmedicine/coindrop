@@ -320,16 +320,27 @@ app.post('/api/verify-task', async (req, res) => {
         // Subscribe tasks: only allowed once per creator per user (permanent, no repeat)
         if (taskType === 'subscribe') {
             try {
-                const listData = await httpGet(`${FIRESTORE_URL}/tasks?key=${FIREBASE_API_KEY}&pageSize=500`);
-                const parsed = JSON.parse(listData);
-                if (parsed.documents) {
-                    const alreadySubscribed = parsed.documents.some(doc => {
-                        const d = parseFirestoreDoc(doc.fields || {});
-                        return d.userId === userId && d.taskType === 'subscribe' && d.creatorName === creatorName;
-                    });
-                    if (alreadySubscribed) {
-                        return res.json({ success: false, verified: false, reason: `You have already subscribed to ${creatorName}. Subscribe tasks can only be completed once per creator.` });
+                const subCheckBody = JSON.stringify({
+                    structuredQuery: {
+                        from: [{ collectionId: 'tasks' }],
+                        where: {
+                            compositeFilter: {
+                                op: 'AND',
+                                filters: [
+                                    { fieldFilter: { field: { fieldPath: 'userId' }, op: 'EQUAL', value: { stringValue: userId } } },
+                                    { fieldFilter: { field: { fieldPath: 'taskType' }, op: 'EQUAL', value: { stringValue: 'subscribe' } } },
+                                    { fieldFilter: { field: { fieldPath: 'creatorName' }, op: 'EQUAL', value: { stringValue: creatorName } } },
+                                ]
+                            }
+                        },
+                        limit: 1,
                     }
+                });
+                const subCheckData = await httpPostJson(`${FIRESTORE_URL.replace('/documents', '')}:runQuery?key=${FIREBASE_API_KEY}`, subCheckBody);
+                const subCheckParsed = JSON.parse(subCheckData);
+                const alreadySubscribed = Array.isArray(subCheckParsed) && subCheckParsed.some(r => r.document);
+                if (alreadySubscribed) {
+                    return res.json({ success: false, verified: false, alreadyClaimed: true, reason: `You already earned a reward for subscribing to ${creatorName}. Each creator can only be claimed once.` });
                 }
             } catch(e) { console.warn('Subscribe dup check skipped:', e.message); }
         }

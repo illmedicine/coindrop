@@ -194,6 +194,16 @@ async function submitVerification(videoId, videoTitleEnc, creatorNameEnc, taskTy
             user.tasksCompleted = (user.tasksCompleted || 0) + 1;
             user.totalEarned = (user.totalEarned || 0) + (result.rewardUSD || 0.01);
             localStorage.setItem('coindrop_user', JSON.stringify(user));
+        } else if (result.alreadyClaimed) {
+            resultDiv.innerHTML = `
+                <div class="verify-success" style="border-color:var(--navy);">
+                    <div class="verify-icon success" style="color:var(--navy);"><i class="fas fa-check-double"></i></div>
+                    <h3 style="color:var(--navy);">Already Claimed</h3>
+                    <p class="verify-reason" style="color:var(--gray-600);">${result.reason}</p>
+                    <p style="font-size:0.85rem;color:var(--gray-400);margin-top:8px;"><i class="fas fa-info-circle"></i> Your original reward is still in your account.</p>
+                    <button class="btn btn-primary btn-block" onclick="closeTaskModal()">Got It</button>
+                </div>
+            `;
         } else {
             resultDiv.innerHTML = `
                 <div class="verify-fail">
