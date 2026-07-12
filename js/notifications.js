@@ -261,6 +261,21 @@ async function checkKickPromoNotification() {
     } catch(e) {}
 }
 
+// Illy Social creator referral program announcement (one-time, all users)
+function checkIllySocialNotification() {
+    const user = JSON.parse(localStorage.getItem('coindrop_user') || '{}');
+    if (!user.id) return;
+    const seen = localStorage.getItem('coindrop_illysocial_ref_20260711_' + user.id);
+    if (seen) return;
+    addNotification(
+        '💰 Know a Creator? Earn $1 Per Referral',
+        'CoinDrop partners with Illy Social to help creators advertise their content. Refer a creator and earn $1 SOL in your next payout. <a href="https://www.illyrobotic-ai.com/isocial/" target="_blank" style="color:var(--orange);font-weight:600;">Tell them about CoinDrop →</a>',
+        'fas fa-megaphone',
+        '#F7931A'
+    );
+    localStorage.setItem('coindrop_illysocial_ref_20260711_' + user.id, 'true');
+}
+
 // Twitch flash promo announcement (fires per active promo)
 async function checkTwitchPromoNotification() {
     const user = JSON.parse(localStorage.getItem('coindrop_user') || '{}');
@@ -289,4 +304,4 @@ document.addEventListener('DOMContentLoaded', () => {
     syncNotificationsFromServer();
     updateNotifBadge();
 });
-setTimeout(() => { checkWelcomeNotice(); syncNotificationsFromServer(); checkBadgeNotification(); checkHorseRacingNotification(); checkPlayStoreNotification(); checkCommentBoostNotification(); checkMobileVerifFixNotification(); checkTwitchEarnLaunchNotification(); checkTwitchPromoNotification(); checkKickEarnLaunchNotification(); checkKickPromoNotification(); updateNotifBadge(); }, 3000);
+setTimeout(() => { checkWelcomeNotice(); syncNotificationsFromServer(); checkBadgeNotification(); checkHorseRacingNotification(); checkPlayStoreNotification(); checkCommentBoostNotification(); checkMobileVerifFixNotification(); checkIllySocialNotification(); checkTwitchEarnLaunchNotification(); checkTwitchPromoNotification(); checkKickEarnLaunchNotification(); checkKickPromoNotification(); updateNotifBadge(); }, 3000);

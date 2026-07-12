@@ -23,6 +23,7 @@ document.querySelectorAll('.sidebar-link[data-tab]').forEach(link => {
 // Handle OAuth callback — auth server redirects here with ?auth= param
 const urlParams = new URLSearchParams(window.location.search);
 const authData = urlParams.get('auth');
+const referralCode = urlParams.get('ref');
 if (authData) {
     try {
         const discordUser = JSON.parse(decodeURIComponent(authData));
@@ -35,7 +36,18 @@ if (authData) {
         discordUser.authProvider = 'discord';
         // Save immediately to localStorage so dashboard loads
         localStorage.setItem('coindrop_user', JSON.stringify(discordUser));
-        window.history.replaceState({}, '', '/dashboard');
+
+        // Track referral signup if ?ref= was in the URL
+        if (referralCode) {
+            localStorage.setItem('coindrop_referral_code', referralCode);
+            fetch('https://coindrop-auth.up.railway.app/api/referrals/signup', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ code: referralCode, userId: discordUser.id, email: discordUser.email }),
+            }).catch(() => {});
+        }
+
+        const cleanUrl = '/dashboard' + (referralCode ? '' : '');
+        window.history.replaceState({}, '', cleanUrl);
     } catch (e) {
         console.error('Failed to parse auth data:', e);
     }

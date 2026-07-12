@@ -2443,6 +2443,136 @@ async function notifyPayout(userId, username, taskType, videoTitle, rewardUSD, r
     }
 }
 
+// ===== Creator Referral Program =====
+// Generate unique referral code for each creator
+function _tbGenerateRefCode(creatorId) {
+    const ts = Date.now().toString(36);
+    const rand = Math.random().toString(36).substring(2, 8);
+    return `ref_${creatorId}_${ts}_${rand}`;
+}
+
+// Get or create referral link for a creator
+app.get('/api/creators/referral-link/:creatorId', async (req, res) => {
+    const { creatorId } = req.params;
+    if (!creatorId) return res.status(400).json({ error: 'creatorId required' });
+
+    try {
+        const creator = await firestore.getDoc('managed_creators', creatorId);
+        if (!creator) return res.status(404).json({ error: 'Creator not found' });
+
+        let refCode = creator.referralCode;
+        if (!refCode) {
+            refCode = _tbGenerateRefCode(creatorId);
+            await firestore.setDoc('managed_creators', creatorId, { ...creator, referralCode: refCode });
+        }
+
+        const refUrl = `${req.protocol}://${req.hostname}/?ref=${refCode}`;
+        res.json({ success: true, referralCode: refCode, referralUrl: refUrl, creatorName: creator.name, creatorHandle: creator.handle });
+    } catch(e) {
+        res.status(500).json({ error: 'Failed to get referral link: ' + e.message });
+    }
+});
+
+// Track referral click + initial data
+app.get('/api/referrals/track/:code', async (req, res) => {
+    const { code } = req.params;
+    if (!code) return res.status(400).json({ error: 'code required' });
+
+    try {
+        const creator = await firestore.getDoc('managed_creators', code.split('_')[1]);
+        if (!creator) return res.status(404).json({ error: 'Invalid referral code' });
+
+        const refEvent = {
+            code,
+            creatorId: creator.id,
+            timestamp: new Date().toISOString(),
+            ip: req.ip || req.connection.remoteAddress || 'unknown',
+            userAgent: req.headers['user-agent'] || 'unknown',
+            status: 'clicked',
+        };
+
+        await firestore.addDoc('referrals', refEvent);
+        res.json({ success: true, creatorId: creator.id });
+    } catch(e) {
+        res.status(500).json({ error: 'Failed to track referral: ' + e.message });
+    }
+});
+
+// Record referral signup (called when new user signs up with ref code)
+app.post('/api/referrals/signup', async (req, res) => {
+    const { code, userId, email, timestamp } = req.body;
+    if (!code || !userId) return res.status(400).json({ error: 'code and userId required' });
+
+    try {
+        const creator = await firestore.getDoc('managed_creators', code.split('_')[1]);
+        if (!creator) return res.status(404).json({ error: 'Invalid referral code' });
+
+        const signupDoc = {
+            code,
+            creatorId: creator.id,
+            userId,
+            email: email || '',
+            signupTimestamp: new Date().toISOString(),
+            recordedAt: new Date().toISOString(),
+            status: 'signed_up',
+            payoutIssued: false,
+        };
+
+        const docId = await firestore.addDoc('referrals', signupDoc);
+        res.json({ success: true, docId, creatorId: creator.id });
+    } catch(e) {
+        res.status(500).json({ error: 'Failed to record signup: ' + e.message });
+    }
+});
+
+// Admin: get all referrals + signup stats
+app.get('/api/admin/referrals', async (req, res) => {
+    const { email } = req.query;
+    if (!ADMIN_EMAILS.includes((email || '').toLowerCase())) return res.status(403).json({ error: 'Unauthorized' });
+
+    try {
+        const referrals = await firestore.query('referrals', null, null, null, 'timestamp', 500);
+        const creators = await firestore.query('managed_creators', null, null, null, null, 200);
+
+        const stats = {};
+        creators.forEach(c => {
+            if (c.referralCode) {
+                stats[c.id] = { name: c.name, handle: c.handle, code: c.referralCode, clicks: 0, signups: 0, payoutIssued: 0 };
+            }
+        });
+
+        referrals.forEach(r => {
+            if (r.creatorId && stats[r.creatorId]) {
+                if (r.status === 'clicked') stats[r.creatorId].clicks++;
+                else if (r.status === 'signed_up') {
+                    stats[r.creatorId].signups++;
+                    if (r.payoutIssued) stats[r.creatorId].payoutIssued++;
+                }
+            }
+        });
+
+        res.json({ success: true, stats, allReferrals: referrals });
+    } catch(e) {
+        res.status(500).json({ error: 'Failed to fetch referrals: ' + e.message });
+    }
+});
+
+// Admin: mark referral as payout-issued
+app.post('/api/admin/referrals/mark-payout', async (req, res) => {
+    const { email, referralId } = req.body;
+    if (!ADMIN_EMAILS.includes((email || '').toLowerCase())) return res.status(403).json({ error: 'Unauthorized' });
+    if (!referralId) return res.status(400).json({ error: 'referralId required' });
+
+    try {
+        const ref = await firestore.getDoc('referrals', referralId);
+        if (!ref) return res.status(404).json({ error: 'Referral not found' });
+        await firestore.setDoc('referrals', referralId, { ...ref, payoutIssued: true, payoutIssuedAt: new Date().toISOString() });
+        res.json({ success: true });
+    } catch(e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
 app.get('/health', (req, res) => res.json({ status: 'ok', features: { verification: !!ANTHROPIC_API_KEY, payouts: !!TREASURY_PRIVATE_KEY_ENCRYPTED, discord: !!DISCORD_WEBHOOKS.views } }));
 
 const PORT = process.env.PORT || 3001;
