@@ -434,6 +434,11 @@ IMPORTANT RULES:
 Respond with EXACTLY this JSON (no other text):
 {"verified": true/false, "confidence": 0.0-1.0, "reason": "brief explanation of what you found/didn't find"}`;
 
+        if (!ANTHROPIC_API_KEY) {
+            console.error('CRITICAL: ANTHROPIC_API_KEY not set in environment');
+            return res.json({ success: false, error: 'Verification service is not configured. Contact admin.' });
+        }
+
         let claudeResponse;
         try {
             claudeResponse = await anthropicRequest({
@@ -1573,10 +1578,22 @@ CHECK ALL 4 CONDITIONS — ALL must pass:
 4. SYSTEM CLOCK VISIBLE: Windows taskbar, Mac menu bar, or phone status bar showing current time. ${lastVerifiedAt ? `Time MUST be AFTER ${new Date(lastVerifiedAt).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}. FAIL if clock shows same or earlier time.` : 'Any current time acceptable (first submission).'}
 
 Respond with EXACTLY this JSON: {"verified": true/false, "confidence": 0.0-1.0, "reason": "brief explanation", "clockTime": "HH:MM or null"}`;
-        const claudeResponse = await anthropicRequest({ model: 'claude-sonnet-4-6', max_tokens: 200, messages: [{ role: 'user', content: [{ type: 'image', source: { type: 'base64', media_type: mediaType, data: base64Data } }, { type: 'text', text: prompt }] }] });
+        if (!ANTHROPIC_API_KEY) {
+            console.error('CRITICAL: ANTHROPIC_API_KEY not set in environment');
+            return res.json({ success: false, verified: false, reason: 'Verification service is not configured. Contact admin.' });
+        }
+
+        let claudeResponse;
+        try {
+            claudeResponse = await anthropicRequest({ model: 'claude-sonnet-4-6', max_tokens: 200, messages: [{ role: 'user', content: [{ type: 'image', source: { type: 'base64', media_type: mediaType, data: base64Data } }, { type: 'text', text: prompt }] }] });
+        } catch (apiErr) {
+            console.error('Twitch/Kick verification API error:', apiErr.message);
+            return res.json({ success: false, verified: false, reason: 'Verification service temporarily unavailable. Please try again in a moment.' });
+        }
+
         let result;
         try { result = JSON.parse(claudeResponse.content[0].text.trim()); }
-        catch(e) { return res.json({ success: false, verified: false, reason: 'Verification parsing error. Please try again.' }); }
+        catch(e) { console.error('Parse error:', e.message, 'Response:', claudeResponse.content[0].text); return res.json({ success: false, verified: false, reason: 'Verification parsing error. Please try again.' }); }
         if (result.verified) {
             const now = new Date().toISOString();
             kickSessions.set(sessionKey, { lastVerifiedAt: now, count: submissionNum });
