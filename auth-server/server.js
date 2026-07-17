@@ -434,26 +434,38 @@ IMPORTANT RULES:
 Respond with EXACTLY this JSON (no other text):
 {"verified": true/false, "confidence": 0.0-1.0, "reason": "brief explanation of what you found/didn't find"}`;
 
-        const claudeResponse = await anthropicRequest({
-            model: 'claude-sonnet-4-6',
-            max_tokens: 200,
-            messages: [{
-                role: 'user',
-                content: [
-                    { type: 'image', source: { type: 'base64', media_type: mediaType, data: base64Data } },
-                    { type: 'text', text: verificationPrompt }
-                ]
-            }]
-        });
+        let claudeResponse;
+        try {
+            claudeResponse = await anthropicRequest({
+                model: 'claude-sonnet-4-6',
+                max_tokens: 200,
+                messages: [{
+                    role: 'user',
+                    content: [
+                        { type: 'image', source: { type: 'base64', media_type: mediaType, data: base64Data } },
+                        { type: 'text', text: verificationPrompt }
+                    ]
+                }]
+            });
+        } catch (apiErr) {
+            console.error('Claude Vision API error:', apiErr.message);
+            return res.json({ success: false, error: 'Verification service temporarily unavailable. Please try again in a moment.', apiError: apiErr.message });
+        }
+
+        if (!claudeResponse || !claudeResponse.content || !claudeResponse.content[0]) {
+            console.error('Invalid Claude response structure:', JSON.stringify(claudeResponse).substring(0, 200));
+            return res.json({ success: false, error: 'Verification service error. Please try again.' });
+        }
 
         const responseText = claudeResponse.content[0].text.trim();
         let verification;
         try {
             const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+            if (!jsonMatch) throw new Error('No JSON found in response');
             verification = JSON.parse(jsonMatch[0]);
-        } catch {
-            console.error('Failed to parse Claude response:', responseText);
-            return res.json({ success: false, error: 'Verification service error. Please try again.', raw: responseText });
+        } catch (parseErr) {
+            console.error('Failed to parse Claude response:', responseText, 'Error:', parseErr.message);
+            return res.json({ success: false, error: 'Verification service error. Please try again.', parseError: parseErr.message });
         }
 
         if (!verification.verified) {
