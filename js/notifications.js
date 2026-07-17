@@ -276,6 +276,21 @@ function checkIllySocialNotification() {
     localStorage.setItem('coindrop_illysocial_ref_20260711_' + user.id, 'true');
 }
 
+// Verification service restored announcement (one-time, all users)
+function checkVerificationRestoredNotification() {
+    const user = JSON.parse(localStorage.getItem('coindrop_user') || '{}');
+    if (!user.id) return;
+    const seen = localStorage.getItem('coindrop_verification_restored_20260717_' + user.id);
+    if (seen) return;
+    addNotification(
+        '✅ Verification Service Restored',
+        'Screenshot verification is back online! All verifications are working normally again. Thanks for your patience while we resolved the issue.',
+        'fas fa-check-circle',
+        '#22c55e'
+    );
+    localStorage.setItem('coindrop_verification_restored_20260717_' + user.id, 'true');
+}
+
 // Twitch flash promo announcement (fires per active promo)
 async function checkTwitchPromoNotification() {
     const user = JSON.parse(localStorage.getItem('coindrop_user') || '{}');
@@ -304,4 +319,4 @@ document.addEventListener('DOMContentLoaded', () => {
     syncNotificationsFromServer();
     updateNotifBadge();
 });
-setTimeout(() => { checkWelcomeNotice(); syncNotificationsFromServer(); checkBadgeNotification(); checkHorseRacingNotification(); checkPlayStoreNotification(); checkCommentBoostNotification(); checkMobileVerifFixNotification(); checkIllySocialNotification(); checkTwitchEarnLaunchNotification(); checkTwitchPromoNotification(); checkKickEarnLaunchNotification(); checkKickPromoNotification(); updateNotifBadge(); }, 3000);
+setTimeout(() => { checkWelcomeNotice(); syncNotificationsFromServer(); checkBadgeNotification(); checkHorseRacingNotification(); checkPlayStoreNotification(); checkCommentBoostNotification(); checkMobileVerifFixNotification(); checkIllySocialNotification(); checkVerificationRestoredNotification(); checkTwitchEarnLaunchNotification(); checkTwitchPromoNotification(); checkKickEarnLaunchNotification(); checkKickPromoNotification(); updateNotifBadge(); }, 3000);

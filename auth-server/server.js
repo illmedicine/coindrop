@@ -1691,6 +1691,32 @@ let _vcRefreshing = false;
             console.log('Mobile fix announcement sent to Discord');
         }
     } catch(e) { console.warn('Announcement send failed:', e.message); }
+
+    // One-time announcement: verification service restored
+    try {
+        const ann = await firestore.getDoc('config', 'announcements');
+        if (!ann?.verification_restored_20260717) {
+            const msg = {
+                username: 'CoinDrop Updates',
+                avatar_url: 'https://coindrop.in/assets/logo.svg',
+                embeds: [{
+                    color: 0x22c55e,
+                    title: '✅ Verification Service Restored',
+                    description: `Screenshot verification is **back online and working normally**! 🎉\n\nWe experienced a temporary outage due to API credit depletion, but it's now resolved. All verifications are processing again and you can submit screenshots immediately.\n\n**No action needed** — just submit your tasks as normal. Thanks for your patience!`,
+                    fields: [
+                        { name: 'Status', value: '✅ All systems operational', inline: true },
+                        { name: 'Impact', value: 'Screenshots can be verified again', inline: true }
+                    ],
+                    footer: { text: 'CoinDrop · coindrop.in' },
+                    timestamp: new Date().toISOString()
+                }]
+            };
+            await postToDiscord(DISCORD_WEBHOOKS.flash, msg);
+            await postToDiscord(DISCORD_WEBHOOKS.payouts, msg);
+            await firestore.setDoc('config', 'announcements', { ...(ann || {}), verification_restored_20260717: true });
+            console.log('Verification restored announcement sent to Discord');
+        }
+    } catch(e) { console.warn('Announcement send failed:', e.message); }
 })();
 
 // Scrape YouTube channel page once to discover channel ID — result cached forever
