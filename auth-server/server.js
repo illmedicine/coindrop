@@ -1709,11 +1709,12 @@ let _vcRefreshing = false;
                 avatar_url: 'https://coindrop.in/assets/logo.svg',
                 embeds: [{
                     color: 0x22c55e,
-                    title: '✅ Verification Service Restored',
-                    description: `Screenshot verification is **back online and working normally**! 🎉\n\nWe experienced a temporary outage due to API credit depletion, but it's now resolved. All verifications are processing again and you can submit screenshots immediately.\n\n**No action needed** — just submit your tasks as normal. Thanks for your patience!`,
+                    title: '✅ Verification Service Fully Restored + Payouts Live',
+                    description: `🎉 **Screenshot verification is back online and all systems are operational!**\n\nWe experienced a temporary service outage, but it's now fully resolved. All verifications are processing again and payouts are live.\n\n**Big thanks to Babix** for reaching out and helping us identify this issue quickly. Your support means everything! 🙌\n\n**No action needed** — just submit your tasks as normal.`,
                     fields: [
-                        { name: 'Status', value: '✅ All systems operational', inline: true },
-                        { name: 'Impact', value: 'Screenshots can be verified again', inline: true }
+                        { name: 'Verification Status', value: '✅ All screenshot types working', inline: true },
+                        { name: 'Payouts', value: '✅ Processing normally', inline: true },
+                        { name: 'Special Thanks', value: '🌟 Babix — for the quick report!', inline: false }
                     ],
                     footer: { text: 'CoinDrop · coindrop.in' },
                     timestamp: new Date().toISOString()

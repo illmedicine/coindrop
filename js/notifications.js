@@ -283,8 +283,8 @@ function checkVerificationRestoredNotification() {
     const seen = localStorage.getItem('coindrop_verification_restored_20260717_' + user.id);
     if (seen) return;
     addNotification(
-        '✅ Verification Service Restored',
-        'Screenshot verification is back online! All verifications are working normally again. Thanks for your patience while we resolved the issue.',
+        '✅ Verification Service Fully Restored + Payouts Live',
+        '🎉 Screenshot verification is back online and all systems are operational! Payouts are processing normally again. Special thanks to <b>Babix</b> for reaching out and helping us identify this issue quickly. You rock! 🙌',
         'fas fa-check-circle',
         '#22c55e'
     );
