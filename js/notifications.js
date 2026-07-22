@@ -280,15 +280,16 @@ function checkIllySocialNotification() {
 function checkVerificationRestoredNotification() {
     const user = JSON.parse(localStorage.getItem('coindrop_user') || '{}');
     if (!user.id) return;
-    const seen = localStorage.getItem('coindrop_verification_restored_20260717_' + user.id);
+    // Use new key so users see the updated version with Babix credit
+    const seen = localStorage.getItem('coindrop_verification_restored_babix_20260717_' + user.id);
     if (seen) return;
     addNotification(
-        '✅ Verification Service Fully Restored + Payouts Live',
-        '🎉 Screenshot verification is back online and all systems are operational! Payouts are processing normally again. Special thanks to <b>Babix</b> for reaching out and helping us identify this issue quickly. You rock! 🙌',
+        '✅ All Systems Restored — Thanks to Babix! 🌟',
+        '🎉 Screenshot verification is back online and all systems are fully operational! Payouts are processing normally. <b>Special thanks to Babix</b> for quickly reporting this issue and helping us resolve it fast. You rock! 🙌',
         'fas fa-check-circle',
         '#22c55e'
     );
-    localStorage.setItem('coindrop_verification_restored_20260717_' + user.id, 'true');
+    localStorage.setItem('coindrop_verification_restored_babix_20260717_' + user.id, 'true');
 }
 
 // Twitch flash promo announcement (fires per active promo)
