@@ -288,6 +288,9 @@ app.get('/auth/discord/callback', async (req, res) => {
     }
 });
 
+// ===== API Usage Monitor =====
+let _apiCallCount = { verification: 0, twitch: 0, kick: 0, timestamp: Date.now() };
+
 // ===== Screenshot Verification =====
 app.post('/api/verify-task', async (req, res) => {
     try {
@@ -441,6 +444,8 @@ Respond with EXACTLY this JSON (no other text):
 
         let claudeResponse;
         try {
+            _apiCallCount.verification++;
+            console.log(`[API USAGE] Verification call #${_apiCallCount.verification} | Task: ${taskType} | User: ${userId}`);
             claudeResponse = await anthropicRequest({
                 model: 'claude-sonnet-4-6',
                 max_tokens: 200,
@@ -1585,6 +1590,9 @@ Respond with EXACTLY this JSON: {"verified": true/false, "confidence": 0.0-1.0, 
 
         let claudeResponse;
         try {
+            const callType = req.path.includes('twitch') ? 'twitch' : 'kick';
+            _apiCallCount[callType]++;
+            console.log(`[API USAGE] ${callType.toUpperCase()} verification #${_apiCallCount[callType]} | Promo: ${promoId || 'N/A'} | User: ${userId}`);
             claudeResponse = await anthropicRequest({ model: 'claude-sonnet-4-6', max_tokens: 200, messages: [{ role: 'user', content: [{ type: 'image', source: { type: 'base64', media_type: mediaType, data: base64Data } }, { type: 'text', text: prompt }] }] });
         } catch (apiErr) {
             console.error('Twitch/Kick verification API error:', apiErr.message);
@@ -2628,7 +2636,25 @@ app.post('/api/admin/referrals/mark-payout', async (req, res) => {
     }
 });
 
-app.get('/health', (req, res) => res.json({ status: 'ok', features: { verification: !!ANTHROPIC_API_KEY, payouts: !!TREASURY_PRIVATE_KEY_ENCRYPTED, discord: !!DISCORD_WEBHOOKS.views } }));
+app.get('/health', (req, res) => res.json({ status: 'ok', features: { verification: !!ANTHROPIC_API_KEY, payouts: !!TREASURY_PRIVATE_KEY_ENCRYPTED, discord: !!DISCORD_WEBHOOKS.views }, apiUsage: _apiCallCount }));
+
+// Admin: check API usage stats (for monitoring credits)
+app.get('/api/admin/api-usage', (req, res) => {
+    const { email } = req.query;
+    if (!ADMIN_EMAILS.includes((email || '').toLowerCase())) return res.status(403).json({ error: 'Unauthorized' });
+    const uptimeHours = (Date.now() - _apiCallCount.timestamp) / 3600000;
+    res.json({
+        usage: _apiCallCount,
+        uptimeHours: uptimeHours.toFixed(2),
+        estimatedCost: {
+            verification: (_apiCallCount.verification * 0.0015).toFixed(4),
+            twitch: (_apiCallCount.twitch * 0.0015).toFixed(4),
+            kick: (_apiCallCount.kick * 0.0015).toFixed(4),
+            totalUSD: ((_apiCallCount.verification + _apiCallCount.twitch + _apiCallCount.kick) * 0.0015).toFixed(4)
+        },
+        note: 'Estimates based on ~200 tokens per call at $0.003/1K input tokens'
+    });
+});
 
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, '0.0.0.0', () => console.log(`CoinDrop Auth running on port ${PORT}`));
