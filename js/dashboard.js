@@ -873,16 +873,25 @@ async function pollPresenceEvents() {
         const res = await fetch(`${API_URL}/api/presence/events?since=${_presenceEventsSince}`);
         const data = await res.json();
         _presenceEventsSince = data.now || Date.now();
-        (data.events || []).forEach(enqueuePresencePopup);
+        const events = data.events || [];
+        events.forEach(enqueuePresencePopup);
+        // Someone joined/left — refresh the counter right away instead of
+        // waiting for the next 15s tick, so it reflects reality immediately.
+        if (events.length) loadLiveCounters();
     } catch(e) {}
 }
 
-sendPresenceHeartbeat();
-loadLiveCounters();
-pollPresenceEvents();
+// Send our own heartbeat first and wait for it to land before reading the
+// counter — otherwise the first /count read can race ahead of our own
+// heartbeat reaching the server and under-report by one.
+(async () => {
+    await sendPresenceHeartbeat();
+    loadLiveCounters();
+    pollPresenceEvents();
+})();
 setInterval(sendPresenceHeartbeat, 60000);
-setInterval(loadLiveCounters, 30000);
-setInterval(pollPresenceEvents, 8000);
+setInterval(loadLiveCounters, 15000);
+setInterval(pollPresenceEvents, 5000);
 
 // ===== Platform Stats Ticker =====
 async function loadPlatformStats() {

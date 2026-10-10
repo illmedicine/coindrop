@@ -154,8 +154,26 @@ function httpDelete(url) {
     });
 }
 
+// Every real hostname the site is actually reachable on. Missing one here
+// silently breaks that visitor's requests (CORS failures throw in fetch and
+// get swallowed by callers' try/catch), which is why presence/online counts
+// could look right for one person and stuck at 0 for another on a different
+// URL to the same site.
+const ALLOWED_ORIGINS = [
+    'https://coindrop.in',
+    'https://www.coindrop.in',
+    'https://coindrop-e39de.web.app',
+    'https://coindrop-e39de.firebaseapp.com',
+    'http://localhost:4200',
+];
 const app = express();
-app.use(cors({ origin: ['https://coindrop.in', 'http://localhost:4200'], credentials: true }));
+app.use(cors({
+    origin(origin, cb) {
+        if (!origin || ALLOWED_ORIGINS.includes(origin)) return cb(null, true);
+        cb(new Error(`Origin not allowed: ${origin}`));
+    },
+    credentials: true,
+}));
 app.use(express.json({ limit: '10mb' }));
 
 const CLIENT_ID = process.env.DISCORD_CLIENT_ID;
