@@ -1,10 +1,12 @@
-const CACHE_NAME = 'coindrop-v4';
+const CACHE_NAME = 'coindrop-v5';
 const PRECACHE = [
   '/',
   '/login',
   '/register',
   '/dashboard',
   '/privacy',
+  '/faq',
+  '/terms',
   '/css/style.css',
   '/css/dashboard.css',
   '/css/landing.css',
