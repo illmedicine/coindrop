@@ -1382,7 +1382,8 @@ app.post('/api/admin/create-twitch-promo', async (req, res) => {
 
     // Discord flash alert
     try {
-        await postToDiscord(DISCORD_WEBHOOKS.flash, {
+        if (!announcementsWebhook()) throw new Error('no announcements webhook configured');
+        await postToDiscord(announcementsWebhook(), {
             username: 'CoinDrop Flash Alert',
             avatar_url: 'https://coindrop.in/assets/logo.svg',
             content: '🔴 **FLASH EARN EVENT — LIVE NOW!**',
@@ -1548,7 +1549,8 @@ app.post('/api/admin/create-kick-promo', async (req, res) => {
     const promo = { id: Date.now().toString(), kickUrl: kickUrl.trim(), streamerName: streamerName.trim(), rewardPerMin: parseFloat(rewardPerMin) || 0.02, createdAt: new Date().toISOString(), active: true, createdBy: email };
     kickPromos.unshift(promo);
     try {
-        await postToDiscord(DISCORD_WEBHOOKS.flash, {
+        if (!announcementsWebhook()) throw new Error('no announcements webhook configured');
+        await postToDiscord(announcementsWebhook(), {
             username: 'CoinDrop Flash Alert',
             avatar_url: 'https://coindrop.in/assets/logo.svg',
             content: '🟢 **KICK FLASH EARN EVENT — LIVE NOW!**',
@@ -1808,7 +1810,7 @@ let _vcRefreshing = false;
     // One-time announcement: mobile verification fix
     try {
         const ann = await firestore.getDoc('config', 'announcements');
-        if (ann && !ann.mobile_verif_fix_20260709) { // ann is null when Firestore read fails (e.g. quota) — never announce blind
+        if (ann && announcementsWebhook() && !ann.mobile_verif_fix_20260709) { // ann is null when Firestore read fails (e.g. quota) — never announce blind
             const msg = {
                 username: 'CoinDrop Updates',
                 avatar_url: 'https://coindrop.in/assets/logo.svg',
@@ -1834,7 +1836,7 @@ let _vcRefreshing = false;
     // One-time announcement: verification service restored
     try {
         const ann = await firestore.getDoc('config', 'announcements');
-        if (ann && !ann.verification_restored_20260717) { // ann is null when Firestore read fails (e.g. quota) — never announce blind
+        if (ann && announcementsWebhook() && !ann.verification_restored_20260717) { // ann is null when Firestore read fails (e.g. quota) — never announce blind
             const msg = {
                 username: 'CoinDrop Updates',
                 avatar_url: 'https://coindrop.in/assets/logo.svg',
@@ -2375,8 +2377,10 @@ function discordPost(path, body, contentType) {
     });
 }
 
-// Where public announcements go: the announcements channel, else the flash channel
-function announcementsWebhook() { return DISCORD_WEBHOOKS.announcements || DISCORD_WEBHOOKS.flash; }
+// Where public announcements and flash alerts go. NOTE: DISCORD_WEBHOOKS.flash defaults to the
+// payouts webhook URL, so it is only used here when DISCORD_WEBHOOK_FLASH is explicitly set.
+// Returns null when nothing is configured; callers skip posting rather than land in payouts.
+function announcementsWebhook() { return DISCORD_WEBHOOKS.announcements || process.env.DISCORD_WEBHOOK_FLASH || null; }
 
 function postToDiscord(webhookUrl, payload) {
     return new Promise((resolve, reject) => {
@@ -2996,7 +3000,7 @@ app.post('/api/admin/migrate-storage', async (req, res) => {
     res.json({ success: Object.values(report).every(x => !x.error), report });
 });
 
-app.get('/health', (req, res) => res.json({ status: 'ok', features: { verification: !!ANTHROPIC_API_KEY, payouts: !!TREASURY_PRIVATE_KEY_ENCRYPTED, discord: !!DISCORD_WEBHOOKS.views }, apiUsage: _apiCallCount, youtubeApi: { configured: !!YOUTUBE_API_KEY, active: ytEnabled() }, storage: { postgres: !!pgStore } }));
+app.get('/health', (req, res) => res.json({ status: 'ok', features: { verification: !!ANTHROPIC_API_KEY, payouts: !!TREASURY_PRIVATE_KEY_ENCRYPTED, discord: !!DISCORD_WEBHOOKS.views }, apiUsage: _apiCallCount, youtubeApi: { configured: !!YOUTUBE_API_KEY, active: ytEnabled() }, storage: { postgres: !!pgStore }, discordChannels: { announcements: !!DISCORD_WEBHOOKS.announcements } }));
 
 // Admin: check API usage stats (for monitoring credits)
 app.get('/api/admin/api-usage', (req, res) => {
