@@ -89,6 +89,22 @@ function create(databaseUrl, Pool) {
             return r.rows.map(row => ({ id: row.id, ...row.data }));
         },
 
+        // Every doc in a collection, paginated internally — unlike query(), not capped at 1000.
+        async listAll(collection, batchSize = 500) {
+            await init();
+            const out = [];
+            let offset = 0;
+            for (;;) {
+                const r = await pool.query(
+                    'SELECT id, data FROM docs WHERE collection = $1 ORDER BY updated_at DESC LIMIT $2 OFFSET $3',
+                    [collection, batchSize, offset]);
+                for (const row of r.rows) out.push({ id: row.id, ...row.data });
+                if (r.rows.length < batchSize) break;
+                offset += batchSize;
+            }
+            return out;
+        },
+
         // Insert only if missing (used by the Firestore -> Postgres copy; never clobbers newer data)
         async insertIfMissing(collection, id, fields) {
             await init();
