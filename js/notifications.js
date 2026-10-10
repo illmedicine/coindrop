@@ -51,8 +51,21 @@ function renderNotifications() {
     `).join('');
 }
 
+// Site-wide notifications (ids start with "g-"): remember dismissals so they don't come back on next sync
+function getDismissedGlobal() {
+    try { return new Set(JSON.parse(localStorage.getItem('coindrop_dismissed_global') || '[]')); } catch { return new Set(); }
+}
+function rememberDismissedGlobal(ids) {
+    const ids2 = ids.filter(id => typeof id === 'string' && id.startsWith('g-'));
+    if (!ids2.length) return;
+    const set = getDismissedGlobal();
+    ids2.forEach(id => set.add(id));
+    try { localStorage.setItem('coindrop_dismissed_global', JSON.stringify([...set].slice(-100))); } catch(e) {}
+}
+
 function dismissNotification(index, notifId) {
     const notifs = getNotifications();
+    rememberDismissedGlobal([notifId]);
     notifs.splice(index, 1);
     saveNotificationsLocal(notifs);
     renderNotifications();
@@ -67,6 +80,7 @@ function dismissNotification(index, notifId) {
 }
 
 function clearAllNotifications() {
+    rememberDismissedGlobal(getNotifications().map(n => n.id));
     saveNotificationsLocal([]);
     renderNotifications();
     const user = JSON.parse(localStorage.getItem('coindrop_user') || '{}');
@@ -90,9 +104,33 @@ function addNotification(title, message, icon, color) {
     }
 }
 
+async function syncSiteNotifications() {
+    try {
+        const res = await fetch(`${NOTIF_API}/api/announcements`);
+        const items = ((await res.json()).items || []);
+        if (!items.length) return;
+        const dismissed = getDismissedGlobal();
+        const local = getNotifications();
+        const have = new Set(local.map(n => n.id).filter(Boolean));
+        const weekAgo = Date.now() - 7 * 24 * 3600 * 1000;
+        let changed = false;
+        for (const it of items) {
+            if (!it.id || have.has(it.id) || dismissed.has(it.id)) continue;
+            if (it.time && new Date(it.time).getTime() < weekAgo) continue;
+            local.push(it); changed = true;
+        }
+        if (changed) {
+            local.sort((a, b) => new Date(b.time || 0) - new Date(a.time || 0));
+            if (local.length > 50) local.length = 50;
+            saveNotificationsLocal(local);
+        }
+    } catch(e) {}
+}
+
 async function syncNotificationsFromServer() {
     const user = JSON.parse(localStorage.getItem('coindrop_user') || '{}');
     if (!user.id) return;
+    await syncSiteNotifications();
     try {
         const res = await fetch(`${NOTIF_API}/api/notifications/${user.id}`);
         const data = await res.json();

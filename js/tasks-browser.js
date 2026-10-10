@@ -29,12 +29,8 @@ async function initTaskBrowser() {
     _tbShuffledCreators = _tbShuffle([...(CREATORS || [])]);
     _tbRenderCardBrowser();
 
-    try {
-        const res = await fetch(`${TASKS_BROWSER_API}/api/creators/featured`);
-        const data = await res.json();
-        _tbFeaturedIds = new Set(data.featuredIds || []);
-        _tbRenderCardBrowser();
-    } catch(e) {}
+    await _tbLoadFeatured();
+    _tbRenderCardBrowser();
 
     if (!_tbInitialized) {
         _tbStartAutoShuffle();
@@ -46,8 +42,26 @@ async function initTaskBrowser() {
     if (initC) openCreatorDetail(initC);
 }
 
+async function _tbLoadFeatured() {
+    try {
+        const res = await fetch(`${TASKS_BROWSER_API}/api/creators/featured`);
+        const data = await res.json();
+        _tbFeaturedIds = new Set(data.featuredIds || []);
+    } catch(e) {}
+}
+
+// Featured creators always lead the list; the rest keep their shuffled order
+function _tbFeaturedFirst(list) {
+    return [...list.filter(c => _tbFeaturedIds.has(c.id)), ...list.filter(c => !_tbFeaturedIds.has(c.id))];
+}
+
 // Called by admin-creators.js after CREATORS array changes — always re-renders
 function refreshTaskBrowser() {
+    // Pull the latest featured list too, so Feature/Unfeature shows up immediately
+    _tbLoadFeatured().then(() => {
+        const dv = document.getElementById('creator-detail-view');
+        if (!(dv && dv.style.display !== 'none' && _tbCurrentDetailId)) _tbRenderCardBrowser();
+    });
     const detailView = document.getElementById('creator-detail-view');
     const detailVisible = detailView && detailView.style.display !== 'none';
     if (detailVisible && _tbCurrentDetailId) {
@@ -67,7 +81,7 @@ function refreshTaskBrowser() {
 // ── Card browser rendering ───────────────────────────────────────────────────
 function _tbRenderCardBrowser() {
     const featured = (CREATORS || []).filter(c => _tbFeaturedIds.has(c.id));
-    const all = _tbShuffledCreators.length ? _tbShuffledCreators : (CREATORS || []);
+    const all = _tbFeaturedFirst(_tbShuffledCreators.length ? _tbShuffledCreators : (CREATORS || []));
 
     const featuredSection = document.getElementById('featured-row-section');
     const featuredScroll = document.getElementById('featured-creators-scroll');
@@ -141,7 +155,7 @@ function shuffleAllCreators() {
     if (!allScroll) return;
     allScroll.style.opacity = '0';
     setTimeout(() => {
-        allScroll.innerHTML = _tbShuffledCreators.map(c => _tbMakeCard(c, _tbFeaturedIds.has(c.id))).join('');
+        allScroll.innerHTML = _tbFeaturedFirst(_tbShuffledCreators).map(c => _tbMakeCard(c, _tbFeaturedIds.has(c.id))).join('');
         allScroll.style.opacity = '1';
     }, 180);
 }

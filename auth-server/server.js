@@ -2145,11 +2145,79 @@ app.post('/api/admin/feature-creator', async (req, res) => {
     const { email, creatorId } = req.body;
     if (!ADMIN_EMAILS.includes((email || '').toLowerCase())) return res.status(403).json({ error: 'Unauthorized' });
     if (!creatorId) return res.status(400).json({ error: 'creatorId required' });
+    const wasFeatured = _featuredCreatorIds.has(creatorId);
     _featuredCreatorIds.add(creatorId);
     try {
         await firestore.setDoc('config', 'featuredCreators', { idsJson: JSON.stringify([..._featuredCreatorIds]) });
-        res.json({ success: true, featuredIds: [..._featuredCreatorIds] });
+        res.json({ success: true, featuredIds: [..._featuredCreatorIds], announced: !wasFeatured });
+        // Newly featured only: tell every user (in-app) and Discord. Never blocks the response.
+        if (!wasFeatured) announceFeaturedCreator(creatorId).catch(e => console.warn('Feature announcement failed:', e.message));
     } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── Site-wide notifications (shown to every user) ───────────────────────────
+// Stored as one config doc; clients merge new items into their local notification list.
+const SITE_NOTIF_MAX = 20;
+let _siteNotifs = null; // lazy-loaded array, newest first
+
+async function loadSiteNotifs() {
+    if (_siteNotifs) return _siteNotifs;
+    try {
+        const doc = await firestore.getDoc('config', 'siteNotifications');
+        _siteNotifs = doc && doc.itemsJson ? JSON.parse(doc.itemsJson) : [];
+    } catch { _siteNotifs = []; }
+    return _siteNotifs;
+}
+
+async function pushSiteNotification(item) {
+    const items = await loadSiteNotifs();
+    items.unshift(item);
+    if (items.length > SITE_NOTIF_MAX) items.length = SITE_NOTIF_MAX;
+    await firestore.setDoc('config', 'siteNotifications', { itemsJson: JSON.stringify(items), updatedAt: new Date().toISOString() });
+}
+
+function escapeHtml(str) {
+    return String(str == null ? '' : str).replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+}
+
+async function announceFeaturedCreator(creatorId) {
+    let creator = null;
+    try { creator = (await getManagedCreators()).find(c => c.id === creatorId) || null; } catch {}
+    const name = (creator && creator.name) || creatorId;
+    const handle = (creator && creator.handle) || ('@' + creatorId);
+    const when = new Date().toISOString();
+
+    try {
+        await pushSiteNotification({
+            id: `g-feature-${creatorId}-${Date.now()}`,
+            title: `⭐ New Featured Creator: ${escapeHtml(name)}`,
+            message: `<b>${escapeHtml(name)}</b> (${escapeHtml(handle)}) is now a <b>Featured Creator</b> on CoinDrop! Open the <b>Tasks</b> tab — they're at the top — and earn rewards on their videos.`,
+            icon: 'fas fa-star', color: '#F7931A', time: when,
+        });
+    } catch (e) { console.warn('Site notification save failed:', e.message); }
+
+    if (DISCORD_WEBHOOKS.flash) {
+        const avatar = creator && /^https?:\/\//.test(creator.avatar || '') ? creator.avatar : null;
+        try {
+            await postToDiscord(DISCORD_WEBHOOKS.flash, {
+                username: 'CoinDrop Updates',
+                avatar_url: 'https://coindrop.in/assets/logo.svg',
+                embeds: [{
+                    color: 0xF7931A,
+                    title: `⭐ New Featured Creator: ${name}`.slice(0, 256),
+                    description: `**${name}** (${handle}) is now featured on CoinDrop and sits at the top of the Tasks tab.\n\nWatch, like, comment and subscribe to earn rewards: https://coindrop.in/dashboard?c=${encodeURIComponent(creatorId)}`.slice(0, 2000),
+                    ...(avatar ? { thumbnail: { url: avatar } } : {}),
+                    footer: { text: 'CoinDrop · coindrop.in' },
+                    timestamp: when,
+                }],
+            });
+        } catch (e) { console.warn('Feature Discord post failed:', e.message); }
+    }
+}
+
+app.get('/api/announcements', async (req, res) => {
+    res.set('Cache-Control', 'public, max-age=60');
+    res.json({ items: await loadSiteNotifs() });
 });
 
 app.post('/api/admin/unfeature-creator', async (req, res) => {
