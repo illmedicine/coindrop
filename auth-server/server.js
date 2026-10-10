@@ -22,7 +22,7 @@ function checkThrottle(parsed) {
     return false;
 }
 
-const firestore = {
+const firestoreRest = {
     async getDoc(collection, docId) {
         try {
             const data = await httpGet(`${FIRESTORE_URL}/${collection}/${docId}?key=${FIREBASE_API_KEY}`);
@@ -74,6 +74,22 @@ const firestore = {
         }));
     }
 };
+
+// ── Storage routing ─────────────────────────────────────────────────────────
+// With DATABASE_URL set (Railway Postgres), server-owned collections live in
+// Postgres. Everything else - and everything when DATABASE_URL is absent -
+// stays on Firestore, so the app behaves exactly as before until Postgres is added.
+const pgStore = require('./db').create(process.env.DATABASE_URL);
+const PG_COLLECTIONS = new Set(['config', 'managed_creators', 'notifications', 'referrals']);
+const backendFor = (collection) => (pgStore && PG_COLLECTIONS.has(collection)) ? pgStore : firestoreRest;
+const firestore = {
+    getDoc: (c, id) => backendFor(c).getDoc(c, id),
+    setDoc: (c, id, fields) => backendFor(c).setDoc(c, id, fields),
+    addDoc: (c, fields) => backendFor(c).addDoc(c, fields),
+    deleteDoc: (c, id) => backendFor(c).deleteDoc(c, id),
+    query: (c, f, op, v, o, l) => backendFor(c).query(c, f, op, v, o, l),
+};
+if (pgStore) pgStore.init().catch(e => console.error('Postgres init failed:', e.message));
 
 function toFirestoreValue(v) {
     if (v === null || v === undefined) return { nullValue: null };
@@ -1641,7 +1657,112 @@ Respond with EXACTLY this JSON: {"verified": true/false, "confidence": 0.0-1.0, 
 
 // ===== CREATOR MANAGEMENT =====
 
-async function fetchYouTubeRSS(channelId) {
+// ── YouTube Data API v3 ─────────────────────────────────────────────────────
+// Primary source for channel metadata and video lists (structured, ~1 quota unit
+// per call, 10k units/day free). Everything falls back to RSS / page scraping if
+// the key is missing, invalid or out of quota, so the app keeps working.
+const YOUTUBE_API_KEY = process.env.YOUTUBE_API_KEY || '';
+const _yt = { calls: 0, units: 0, errors: 0, blockedUntil: 0, lastError: '', since: new Date().toISOString() };
+
+function ytEnabled() { return !!YOUTUBE_API_KEY && Date.now() >= _yt.blockedUntil; }
+
+async function ytApi(endpoint, params) {
+    if (!ytEnabled()) return null;
+    try {
+        const raw = await httpGet(`https://www.googleapis.com/youtube/v3/${endpoint}?${querystring.stringify({ ...params, key: YOUTUBE_API_KEY })}`);
+        const parsed = JSON.parse(raw);
+        _yt.calls++; _yt.units++;
+        if (parsed.error) {
+            const reason = (parsed.error.errors && parsed.error.errors[0] && parsed.error.errors[0].reason) || parsed.error.status || 'unknown';
+            _yt.errors++; _yt.lastError = `${endpoint}: ${reason} - ${parsed.error.message || ''}`.slice(0, 300);
+            // Quota exhausted -> pause an hour; key/config problem -> pause 10 min; avoids hammering a broken key
+            if (/quota|dailyLimit|rateLimit/i.test(reason)) _yt.blockedUntil = Date.now() + 3600000;
+            else if (parsed.error.code === 400 || parsed.error.code === 403) _yt.blockedUntil = Date.now() + 600000;
+            console.warn('YouTube API error:', _yt.lastError);
+            return null;
+        }
+        return parsed;
+    } catch (e) { _yt.errors++; _yt.lastError = `${endpoint}: ${e.message}`; console.warn('YouTube API request failed:', e.message); return null; }
+}
+
+function ytFmtCount(n) {
+    n = parseInt(n, 10) || 0;
+    const fmt = (v, u) => (v >= 100 ? Math.round(v) : Math.round(v * 10) / 10) + u;
+    if (n >= 1e9) return fmt(n / 1e9, 'B');
+    if (n >= 1e6) return fmt(n / 1e6, 'M');
+    if (n >= 1e3) return fmt(n / 1e3, 'K');
+    return String(n);
+}
+
+// handle ("@name", "name") or channel ID ("UC...") -> channel metadata, 1 quota unit
+async function ytFetchChannel(input) {
+    const raw = String(input || '').trim().replace(/^@/, '');
+    if (!raw) return null;
+    const params = { part: 'snippet,statistics' };
+    if (/^UC[a-zA-Z0-9_-]{22}$/.test(raw)) params.id = raw; else params.forHandle = '@' + raw;
+    const data = await ytApi('channels', params);
+    const ch = data && data.items && data.items[0];
+    if (!ch) return null;
+    const sn = ch.snippet || {};
+    const th = sn.thumbnails || {};
+    const subs = ch.statistics && !ch.statistics.hiddenSubscriberCount ? ytFmtCount(ch.statistics.subscriberCount) : '';
+    return {
+        channelId: ch.id, name: (sn.title || '').trim(), about: sn.description || '',
+        avatar: (th.high || th.medium || th.default || {}).url || '',
+        customUrl: (sn.customUrl || '').replace(/^@/, ''), subscribers: subs,
+    };
+}
+
+function ytIsShort(iso) {
+    const m = /^PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?$/.exec(iso || '');
+    if (!m) return false;
+    return ((+m[1] || 0) * 3600 + (+m[2] || 0) * 60 + (+m[3] || 0)) <= 60;
+}
+
+// Latest videos from the channel's uploads playlist (UC... -> UU...), with view counts.
+// Returns null if the API is unavailable so callers can fall back to RSS.
+async function ytFetchVideos(channelId, max = 50) {
+    if (!/^UC[a-zA-Z0-9_-]{22}$/.test(channelId || '')) return null;
+    const playlistId = 'UU' + channelId.slice(2);
+    const ids = [];
+    let pageToken = '';
+    while (ids.length < max) {
+        const page = await ytApi('playlistItems', { part: 'contentDetails', playlistId, maxResults: Math.min(50, max - ids.length), ...(pageToken ? { pageToken } : {}) });
+        if (!page) return ids.length ? await ytHydrate(ids) : null;
+        (page.items || []).forEach(i => { if (i.contentDetails && i.contentDetails.videoId) ids.push(i.contentDetails.videoId); });
+        pageToken = page.nextPageToken || '';
+        if (!pageToken) break;
+    }
+    return ytHydrate(ids);
+}
+
+async function ytHydrate(ids) {
+    const videos = [];
+    for (let i = 0; i < ids.length; i += 50) {
+        const chunk = ids.slice(i, i + 50);
+        const data = await ytApi('videos', { part: 'snippet,statistics,contentDetails', id: chunk.join(','), maxResults: 50 });
+        if (!data) { chunk.forEach(id => videos.push({ id, title: id, views: '0' })); continue; }
+        const byId = new Map((data.items || []).map(v => [v.id, v]));
+        for (const id of chunk) {
+            const v = byId.get(id);
+            if (!v) continue; // private / deleted
+            const views = parseInt(v.statistics && v.statistics.viewCount, 10) || 0;
+            const entry = { id, title: (v.snippet && v.snippet.title) || id, views: views > 0 ? views.toLocaleString('en-US') : '0' };
+            if (ytIsShort(v.contentDetails && v.contentDetails.duration)) entry.short = true;
+            videos.push(entry);
+        }
+    }
+    return videos;
+}
+
+// Video list for a channel: YouTube API first, RSS feed as fallback
+async function fetchYouTubeRSS(channelId, max) {
+    const api = await ytFetchVideos(channelId, max || 50);
+    if (api) return api;
+    return fetchYouTubeRSSFeed(channelId);
+}
+
+async function fetchYouTubeRSSFeed(channelId) {
     if (!channelId) return [];
     try {
         const xml = await httpGet(`https://www.youtube.com/feeds/videos.xml?channel_id=${encodeURIComponent(channelId)}`);
@@ -1742,6 +1863,12 @@ async function discoverChannelId(handle) {
     if (!h) return null;
     if (_channelIds[h]) return _channelIds[h];
     if (BUILTIN_CHANNEL_IDS_BY_HANDLE[h]) return (_channelIds[h] = BUILTIN_CHANNEL_IDS_BY_HANDLE[h]);
+    const apiMeta = await ytFetchChannel(h);
+    if (apiMeta && apiMeta.channelId) {
+        _channelIds[h] = apiMeta.channelId;
+        firestore.setDoc('config', 'channelIds', { idsJson: JSON.stringify(_channelIds) }).catch(() => {});
+        return apiMeta.channelId;
+    }
     try {
         const html = await httpGetPage(`https://www.youtube.com/@${h}`);
         const match = html.match(/"channelId":"(UC[a-zA-Z0-9_-]{22})"/);
@@ -1759,6 +1886,14 @@ async function discoverChannelId(handle) {
 async function fetchChannelMetadata(handle) {
     const h = (handle || '').replace(/^@/, '').toLowerCase();
     if (!h) return null;
+    const apiMeta = await ytFetchChannel(h);
+    if (apiMeta && apiMeta.channelId) {
+        if (!_channelIds[h]) {
+            _channelIds[h] = apiMeta.channelId;
+            firestore.setDoc('config', 'channelIds', { idsJson: JSON.stringify(_channelIds) }).catch(() => {});
+        }
+        return { id: h, handle: '@' + h, name: apiMeta.name || h, avatar: apiMeta.avatar, about: apiMeta.about, channelId: apiMeta.channelId, channelUrl: `https://youtube.com/@${apiMeta.customUrl || h}`, subscribers: apiMeta.subscribers, platform: 'youtube', category: 'Content Creator' };
+    }
     try {
         const html = await httpGetPage(`https://www.youtube.com/@${h}`);
 
@@ -2351,7 +2486,7 @@ for (const [creatorId, handle] of Object.entries(BUILTIN_CHANNEL_HANDLES)) {
 const SYNC_VIDEOS_TTL = 60 * 60 * 1000;
 const _syncVideosCache = { data: null, builtAt: 0, inflight: null };
 
-async function buildSyncVideos() {
+async function buildSyncVideosLegacy() {
     try {
         const results = {};
         for (const [creatorId, channelId] of Object.entries(CHANNEL_IDS)) {
@@ -2409,6 +2544,24 @@ async function buildSyncVideos() {
         }
         return { synced: new Date().toISOString(), channels: results };
     } catch(e) { throw e; }
+}
+
+// API path: ~100 quota units per run for the built-in creators (up to 150 videos each)
+async function buildSyncVideosApi() {
+    const channels = {};
+    for (const [creatorId, channelId] of Object.entries(CHANNEL_IDS)) {
+        channels[creatorId] = (await ytFetchVideos(channelId, 150)) || { error: 'YouTube API unavailable' };
+    }
+    return { synced: new Date().toISOString(), channels, source: 'youtube-api' };
+}
+
+async function buildSyncVideos() {
+    if (ytEnabled()) {
+        const result = await buildSyncVideosApi();
+        if (Object.values(result.channels).some(Array.isArray)) return result;
+        console.warn('sync-videos: YouTube API returned nothing, falling back to scraping');
+    }
+    return buildSyncVideosLegacy();
 }
 
 function refreshSyncVideos() {
@@ -2730,7 +2883,48 @@ app.post('/api/admin/referrals/mark-payout', async (req, res) => {
     }
 });
 
-app.get('/health', (req, res) => res.json({ status: 'ok', features: { verification: !!ANTHROPIC_API_KEY, payouts: !!TREASURY_PRIVATE_KEY_ENCRYPTED, discord: !!DISCORD_WEBHOOKS.views }, apiUsage: _apiCallCount }));
+// Admin: which backend serves which collection + row counts
+app.get('/api/admin/storage-status', async (req, res) => {
+    const email = (req.query.email || '').toLowerCase().trim();
+    if (!ADMIN_EMAILS.includes(email)) return res.status(403).json({ error: 'Unauthorized' });
+    const out = { postgres: { configured: !!pgStore }, routing: {}, firestoreThrottled: _firestoreThrottled };
+    for (const c of PG_COLLECTIONS) out.routing[c] = pgStore ? 'postgres' : 'firestore';
+    if (pgStore) {
+        try { out.postgres.counts = await pgStore.counts(); out.postgres.connected = true; }
+        catch (e) { out.postgres.connected = false; out.postgres.error = e.message; }
+    }
+    res.json(out);
+});
+
+// Admin: one-time, idempotent copy of existing Firestore docs into Postgres.
+// Never overwrites a document that already exists in Postgres.
+app.post('/api/admin/migrate-storage', async (req, res) => {
+    const email = ((req.body && req.body.email) || '').toLowerCase().trim();
+    if (!ADMIN_EMAILS.includes(email)) return res.status(403).json({ error: 'Unauthorized' });
+    if (!pgStore) return res.status(400).json({ error: 'DATABASE_URL is not configured' });
+    const report = {};
+    for (const collection of PG_COLLECTIONS) {
+        const r = report[collection] = { copied: 0, existing: 0, error: null };
+        try {
+            let pageToken = null;
+            do {
+                const url = `${FIRESTORE_URL}/${collection}?key=${FIREBASE_API_KEY}&pageSize=300${pageToken ? `&pageToken=${encodeURIComponent(pageToken)}` : ''}`;
+                let parsed;
+                try { parsed = JSON.parse(await httpGet(url)); } catch { throw new Error('Firestore returned a non-JSON response'); }
+                if (parsed.error) throw new Error(parsed.error.message || parsed.error.status || 'Firestore error');
+                for (const doc of (parsed.documents || [])) {
+                    const inserted = await pgStore.insertIfMissing(collection, doc.name.split('/').pop(), parseFirestoreDoc(doc.fields || {}));
+                    if (inserted) r.copied++; else r.existing++;
+                }
+                pageToken = parsed.nextPageToken || null;
+            } while (pageToken);
+        } catch (e) { r.error = e.message; }
+    }
+    invalidateCreatorsCache();
+    res.json({ success: Object.values(report).every(x => !x.error), report });
+});
+
+app.get('/health', (req, res) => res.json({ status: 'ok', features: { verification: !!ANTHROPIC_API_KEY, payouts: !!TREASURY_PRIVATE_KEY_ENCRYPTED, discord: !!DISCORD_WEBHOOKS.views }, apiUsage: _apiCallCount, youtubeApi: { configured: !!YOUTUBE_API_KEY, active: ytEnabled() }, storage: { postgres: !!pgStore } }));
 
 // Admin: check API usage stats (for monitoring credits)
 app.get('/api/admin/api-usage', (req, res) => {
@@ -2738,6 +2932,7 @@ app.get('/api/admin/api-usage', (req, res) => {
     if (!ADMIN_EMAILS.includes((email || '').toLowerCase())) return res.status(403).json({ error: 'Unauthorized' });
     const uptimeHours = (Date.now() - _apiCallCount.timestamp) / 3600000;
     res.json({
+        youtube: { configured: !!YOUTUBE_API_KEY, active: ytEnabled(), ..._yt, blockedUntil: _yt.blockedUntil ? new Date(_yt.blockedUntil).toISOString() : null },
         usage: _apiCallCount,
         uptimeHours: uptimeHours.toFixed(2),
         estimatedCost: {
