@@ -603,7 +603,11 @@ if (_urlCreator) {
     switchTab('tasks');
 }
 
-// ===== Earnings Potential Banner (server-side, highest value persists) =====
+// ===== Earnings Potential Banner =====
+// Shows what THIS user can still earn: videos they haven't watched yet and
+// creators they haven't subscribed to yet, not the whole all-time catalog
+// (treating every video a channel ever posted as a "daily" task made the
+// number both huge and meaningless — nobody completes 1000+ tasks in a day).
 async function updateEarningsBanner() {
     const ebDaily = document.getElementById('eb-daily');
     const ebSub = document.getElementById('eb-sub-onetime');
@@ -624,15 +628,33 @@ async function updateEarningsBanner() {
         applyData(data);
     } catch (e) {}
 
-    // Then: if CREATORS loaded, report actual counts to server (updates highest value)
+    // Then: compute this user's actual remaining tasks and report them.
     if (typeof CREATORS !== 'undefined' && CREATORS.length > 0) {
         let totalVideos = 0;
-        CREATORS.forEach(c => totalVideos += c.videos.length);
+        let totalCreators = CREATORS.length;
+
+        if (user && user.id) {
+            try {
+                const res = await fetch(`https://coindrop-auth.up.railway.app/api/user-completed-videos/${user.id}`);
+                const { watchedVideoIds, subscribedCreatorNames } = await res.json();
+                const watched = new Set(watchedVideoIds || []);
+                const subscribed = new Set(subscribedCreatorNames || []);
+
+                CREATORS.forEach(c => c.videos.forEach(v => { if (!watched.has(v.id)) totalVideos++; }));
+                totalCreators = CREATORS.filter(c => !subscribed.has(c.name)).length;
+            } catch (e) {
+                // Fall back to full catalog counts if we couldn't load completion state
+                CREATORS.forEach(c => totalVideos += c.videos.length);
+            }
+        } else {
+            CREATORS.forEach(c => totalVideos += c.videos.length);
+        }
+
         try {
             const res = await fetch('https://coindrop-auth.up.railway.app/api/earnings-potential/update', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ totalVideos, totalCreators: CREATORS.length }),
+                body: JSON.stringify({ totalVideos, totalCreators }),
             });
             const data = await res.json();
             applyData(data);

@@ -781,11 +781,31 @@ app.get('/api/earnings-potential', (req, res) => {
     res.json(cachedEarningsPotential);
 });
 
+// What this specific user has already done — lets the client compute
+// "remaining" videos/creators instead of treating the whole all-time catalog
+// as if it were completable today. Reads cache.tasks directly (no 30-item
+// cap like /api/user-stats), so it's accurate for users with long histories.
+app.get('/api/user-completed-videos/:userId', (req, res) => {
+    const { userId } = req.params;
+    const watchedVideoIds = new Set();
+    const subscribedCreatorNames = new Set();
+    for (const t of cache.tasks) {
+        if (t.userId !== userId) continue;
+        if (t.taskType === 'watch' && t.videoId) watchedVideoIds.add(t.videoId);
+        if (t.taskType === 'subscribe' && t.creatorName) subscribedCreatorNames.add(t.creatorName);
+    }
+    res.json({ watchedVideoIds: [...watchedVideoIds], subscribedCreatorNames: [...subscribedCreatorNames] });
+});
+
 // Client reports actual video/creator counts from the live creator list;
 // server just recomputes from those and caches the result for instant display.
 app.post('/api/earnings-potential/update', async (req, res) => {
     const { totalVideos, totalCreators } = req.body;
-    if (!totalVideos || !totalCreators) return res.status(400).json({ error: 'Missing counts' });
+    // 0 is a legitimate count (user has watched/subscribed to everything) —
+    // only reject when the fields are actually missing/non-numeric.
+    if (typeof totalVideos !== 'number' || typeof totalCreators !== 'number') {
+        return res.status(400).json({ error: 'Missing counts' });
+    }
 
     const dailyUSD = (totalVideos * 0.01) + (totalVideos * 0.005) + (totalVideos * 0.05);
     const subOnetime = totalCreators * 0.05;
