@@ -801,10 +801,24 @@ async function sendPresenceHeartbeat() {
         await fetch(`${API_URL}/api/presence/heartbeat`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ userId: user.id }),
+            body: JSON.stringify({ userId: user.id, displayName: user.displayName }),
         });
     } catch(e) {}
 }
+
+// Let the server know we've left right away (tab close/navigation), rather
+// than waiting for the heartbeat to go stale. sendBeacon works during unload.
+function sendPresenceLeave() {
+    if (!user || !user.id) return;
+    try {
+        const blob = new Blob([JSON.stringify({ userId: user.id })], { type: 'application/json' });
+        navigator.sendBeacon(`${API_URL}/api/presence/leave`, blob);
+    } catch(e) {}
+}
+window.addEventListener('pagehide', sendPresenceLeave);
+document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') sendPresenceLeave();
+});
 
 async function loadLiveCounters() {
     try {
@@ -823,10 +837,52 @@ async function loadLiveCounters() {
     } catch(e) {}
 }
 
+// ===== Live join/leave popup (real presence events, not simulated) =====
+let _presenceEventsSince = Date.now();
+let _presencePopupQueue = [];
+let _presencePopupShowing = false;
+
+function enqueuePresencePopup(evt) {
+    _presencePopupQueue.push(evt);
+    drainPresencePopupQueue();
+}
+
+function drainPresencePopupQueue() {
+    if (_presencePopupShowing || !_presencePopupQueue.length) return;
+    const evt = _presencePopupQueue.shift();
+    const popup = document.getElementById('presence-popup');
+    const nameEl = document.getElementById('presence-popup-name');
+    const actionEl = document.getElementById('presence-popup-action');
+    if (!popup || !nameEl || !actionEl) return;
+
+    _presencePopupShowing = true;
+    nameEl.textContent = evt.name;
+    actionEl.textContent = evt.type === 'join' ? 'just joined — live now' : 'just left';
+    popup.classList.toggle('presence-popup--leave', evt.type === 'leave');
+    popup.classList.remove('hidden');
+
+    setTimeout(() => {
+        popup.classList.add('hidden');
+        _presencePopupShowing = false;
+        drainPresencePopupQueue();
+    }, 5000);
+}
+
+async function pollPresenceEvents() {
+    try {
+        const res = await fetch(`${API_URL}/api/presence/events?since=${_presenceEventsSince}`);
+        const data = await res.json();
+        _presenceEventsSince = data.now || Date.now();
+        (data.events || []).forEach(enqueuePresencePopup);
+    } catch(e) {}
+}
+
 sendPresenceHeartbeat();
 loadLiveCounters();
+pollPresenceEvents();
 setInterval(sendPresenceHeartbeat, 60000);
 setInterval(loadLiveCounters, 30000);
+setInterval(pollPresenceEvents, 8000);
 
 // ===== Platform Stats Ticker =====
 async function loadPlatformStats() {

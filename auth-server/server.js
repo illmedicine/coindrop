@@ -2664,24 +2664,74 @@ app.get('/api/sync-videos', async (req, res) => {
 });
 
 // ===== Presence Tracking (active logged-in users) =====
+// activeUsers: userId -> { lastSeen, displayName }
 const activeUsers = new Map();
 const PRESENCE_TTL = 90000;
 
+// Real join/leave events for the live popup. Ring buffer, trimmed by age.
+const presenceEvents = [];
+const PRESENCE_EVENT_TTL = 5 * 60000; // keep 5 min of history
+let _presenceEventSeq = 0;
+
+function pushPresenceEvent(type, displayName) {
+    if (!displayName) return;
+    presenceEvents.push({ id: ++_presenceEventSeq, type, name: displayName, ts: Date.now() });
+    const cutoff = Date.now() - PRESENCE_EVENT_TTL;
+    while (presenceEvents.length && presenceEvents[0].ts < cutoff) presenceEvents.shift();
+}
+
 app.post('/api/presence/heartbeat', (req, res) => {
-    const { userId } = req.body;
+    const { userId, displayName } = req.body;
     if (!userId) return res.status(400).json({ error: 'Missing userId' });
-    activeUsers.set(userId, Date.now());
+    const now = Date.now();
+    const existing = activeUsers.get(userId);
+    const wasActive = existing && (now - existing.lastSeen <= PRESENCE_TTL);
+    activeUsers.set(userId, { lastSeen: now, displayName: displayName || existing?.displayName || 'Someone' });
+    if (!wasActive) pushPresenceEvent('join', displayName || existing?.displayName);
+    res.json({ ok: true });
+});
+
+// Explicit leave signal, sent via sendBeacon on tab close/navigation away.
+app.post('/api/presence/leave', (req, res) => {
+    const { userId } = req.body || {};
+    const entry = userId && activeUsers.get(userId);
+    if (entry) {
+        activeUsers.delete(userId);
+        pushPresenceEvent('leave', entry.displayName);
+    }
     res.json({ ok: true });
 });
 
 app.get('/api/presence/count', (req, res) => {
     const now = Date.now();
     let count = 0;
-    for (const [uid, ts] of activeUsers) {
-        if (now - ts > PRESENCE_TTL) activeUsers.delete(uid);
-        else count++;
+    for (const [uid, entry] of activeUsers) {
+        if (now - entry.lastSeen > PRESENCE_TTL) {
+            activeUsers.delete(uid);
+            pushPresenceEvent('leave', entry.displayName);
+        } else count++;
     }
     res.json({ activeUsers: count });
+});
+
+// Sweep for silently-timed-out sessions (tab closed without beacon) so
+// "left" popups still fire without waiting on the next /count poll.
+setInterval(() => {
+    const now = Date.now();
+    for (const [uid, entry] of activeUsers) {
+        if (now - entry.lastSeen > PRESENCE_TTL) {
+            activeUsers.delete(uid);
+            pushPresenceEvent('leave', entry.displayName);
+        }
+    }
+}, 15000);
+
+// Recent join/leave events for the frontend popup. Pass `since` (a ts
+// from a previous call) to get only new events; omit it to get nothing
+// (avoids replaying history as a wall of popups on first page load).
+app.get('/api/presence/events', (req, res) => {
+    const since = Number(req.query.since) || Date.now();
+    res.json({ events: presenceEvents.filter(e => e.ts > since), now: Date.now() });
 });
 
 // ===== Discord Server Stats =====
