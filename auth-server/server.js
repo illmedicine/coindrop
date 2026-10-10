@@ -171,6 +171,9 @@ const DISCORD_WEBHOOKS = {
     likes: process.env.DISCORD_WEBHOOK_LIKES,
     comments: process.env.DISCORD_WEBHOOK_COMMENTS,
     subscriber: process.env.DISCORD_WEBHOOK_SUBSCRIBER,
+    // Public announcements channel (set DISCORD_WEBHOOK_ANNOUNCEMENTS in Railway; never hardcode the URL).
+    // Falls back to the flash channel so announcements are never silently dropped.
+    announcements: process.env.DISCORD_WEBHOOK_ANNOUNCEMENTS,
     payouts: 'https://discord.com/api/webhooks/1521127897090359366/hZvkQGoEd2PNs-ht4ut1jcyLheM0Ubq95xdSQ9ebxMcooIN9PLnN86glL9qdhIHvTXyQ',
     flash: process.env.DISCORD_WEBHOOK_FLASH || 'https://discord.com/api/webhooks/1521127897090359366/hZvkQGoEd2PNs-ht4ut1jcyLheM0Ubq95xdSQ9ebxMcooIN9PLnN86glL9qdhIHvTXyQ',
 };
@@ -1822,8 +1825,7 @@ let _vcRefreshing = false;
                     timestamp: new Date().toISOString()
                 }]
             };
-            await postToDiscord(DISCORD_WEBHOOKS.flash, msg);
-            await postToDiscord(DISCORD_WEBHOOKS.payouts, msg);
+            await postToDiscord(announcementsWebhook(), msg);
             await firestore.setDoc('config', 'announcements', { ...(ann || {}), mobile_verif_fix_20260709: true });
             console.log('Mobile fix announcement sent to Discord');
         }
@@ -1849,8 +1851,7 @@ let _vcRefreshing = false;
                     timestamp: new Date().toISOString()
                 }]
             };
-            await postToDiscord(DISCORD_WEBHOOKS.flash, msg);
-            await postToDiscord(DISCORD_WEBHOOKS.payouts, msg);
+            await postToDiscord(announcementsWebhook(), msg);
             await firestore.setDoc('config', 'announcements', { ...(ann || {}), verification_restored_20260717: true });
             console.log('Verification restored announcement sent to Discord');
         }
@@ -2196,10 +2197,10 @@ async function announceFeaturedCreator(creatorId) {
         });
     } catch (e) { console.warn('Site notification save failed:', e.message); }
 
-    if (DISCORD_WEBHOOKS.flash) {
+    if (announcementsWebhook()) {
         const avatar = creator && /^https?:\/\//.test(creator.avatar || '') ? creator.avatar : null;
         try {
-            await postToDiscord(DISCORD_WEBHOOKS.flash, {
+            await postToDiscord(announcementsWebhook(), {
                 username: 'CoinDrop Updates',
                 avatar_url: 'https://coindrop.in/assets/logo.svg',
                 embeds: [{
@@ -2373,6 +2374,9 @@ function discordPost(path, body, contentType) {
         req.end();
     });
 }
+
+// Where public announcements go: the announcements channel, else the flash channel
+function announcementsWebhook() { return DISCORD_WEBHOOKS.announcements || DISCORD_WEBHOOKS.flash; }
 
 function postToDiscord(webhookUrl, payload) {
     return new Promise((resolve, reject) => {
