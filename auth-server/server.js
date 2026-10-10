@@ -32,14 +32,6 @@ const firestoreRest = {
             return parseFirestoreDoc(parsed.fields || {});
         } catch { return null; }
     },
-    // true / false / null (unknown: quota, outage, bad response). Only false means "does not exist".
-    async exists(collection, docId) {
-        try {
-            const parsed = JSON.parse(await httpGet(`${FIRESTORE_URL}/${collection}/${docId}?key=${FIREBASE_API_KEY}`));
-            if (parsed.error) return (parsed.error.code === 404 || parsed.error.status === 'NOT_FOUND') ? false : null;
-            return !!parsed.name;
-        } catch { return null; }
-    },
     async setDoc(collection, docId, fields) {
         const body = JSON.stringify({ fields: toFirestoreFields(fields) });
         return httpPatch(`${FIRESTORE_URL}/${collection}/${docId}?key=${FIREBASE_API_KEY}`, body);
@@ -162,8 +154,26 @@ function httpDelete(url) {
     });
 }
 
+// Every real hostname the site is actually reachable on. Missing one here
+// silently breaks that visitor's requests (CORS failures throw in fetch and
+// get swallowed by callers' try/catch), which is why presence/online counts
+// could look right for one person and stuck at 0 for another on a different
+// URL to the same site.
+const ALLOWED_ORIGINS = [
+    'https://coindrop.in',
+    'https://www.coindrop.in',
+    'https://coindrop-e39de.web.app',
+    'https://coindrop-e39de.firebaseapp.com',
+    'http://localhost:4200',
+];
 const app = express();
-app.use(cors({ origin: ['https://coindrop.in', 'http://localhost:4200'], credentials: true }));
+app.use(cors({
+    origin(origin, cb) {
+        if (!origin || ALLOWED_ORIGINS.includes(origin)) return cb(null, true);
+        cb(new Error(`Origin not allowed: ${origin}`));
+    },
+    credentials: true,
+}));
 app.use(express.json({ limit: '10mb' }));
 
 const CLIENT_ID = process.env.DISCORD_CLIENT_ID;
@@ -303,14 +313,6 @@ app.get('/auth/discord/callback', async (req, res) => {
             activeSubscriptions: 0,
             activeFollows: 0,
         };
-
-        // Real presence: a user is "new" only if Firestore positively says their profile doesn't exist yet
-        try {
-            const existed = await firestoreRest.exists('users', user.id);
-            const country = await countryForIp(clientIp(req));
-            if (country) presenceCountry.set(user.id, country);
-            if (existed === false) noteUserJoined(user.id, userData.displayName, country);
-        } catch (e) { console.warn('Presence join check skipped:', e.message); }
 
         // Save user profile to Firestore (avatar, displayName)
         try {
@@ -760,55 +762,79 @@ app.get('/api/admin/check', (req, res) => {
     res.json({ isAdmin: ADMIN_EMAILS.includes(email) });
 });
 
-// ===== Earnings Potential (server-cached, highest value persists) =====
-const EP_DEFAULT = { daily: 22.40, sub: 0.85, residual: 0.17, network: '17 creators · 640 videos' };
+// ===== Earnings Potential (server-cached snapshot of the real, current totals) =====
+// Reflects whatever the last client actually reported from the live creator/task
+// list — never inflated above the real current counts. Only used so the banner
+// has something to show instantly before a client reports fresh numbers.
+const EP_DEFAULT = { daily: 0, sub: 0, residual: 0, network: 'Loading…' };
 let cachedEarningsPotential = EP_DEFAULT;
 
-// Last computed value is persisted so a restart serves it immediately instead of a default
+// Load persisted EP on startup
 (async function loadEP() {
     try {
         const existing = await firestore.getDoc('config', 'earningsPotential');
-        if (existing && existing.daily > 0) cachedEarningsPotential = existing;
+        if (existing) cachedEarningsPotential = existing;
     } catch(e) {}
 })();
 
-// Computed on the server from the catalog (the same lists users see): one source of truth, no warm-up needed.
-async function computeEarningsPotential() {
-    let creators;
-    try { creators = visibleCreators(await getManagedCreators()); } catch { return null; }
-    const totalCreators = creators.length;
-    const totalVideos = creators.reduce((n, c) => n + (c.videos || []).length, 0);
-    if (!totalCreators || !totalVideos) return null;
-    return {
-        daily: parseFloat(((totalVideos * 0.01) + (totalVideos * 0.005) + (totalVideos * 0.05)).toFixed(2)),
-        sub: parseFloat((totalCreators * 0.05).toFixed(2)),
-        residual: parseFloat((totalCreators * 0.01).toFixed(2)),
-        network: `${totalCreators} creators · ${totalVideos} videos`,
-        totalCreators, totalVideos,
-        updatedAt: new Date().toISOString(),
-    };
-}
-
-async function refreshEarningsPotential() {
-    const computed = await computeEarningsPotential();
-    if (!computed) return cachedEarningsPotential;
-    const changed = computed.daily !== cachedEarningsPotential.daily || computed.network !== cachedEarningsPotential.network;
-    cachedEarningsPotential = computed;
-    if (changed) firestore.setDoc('config', 'earningsPotential', computed).catch(() => {});
-    return computed;
-}
-
-app.get('/api/earnings-potential', async (req, res) => {
-    try { await refreshEarningsPotential(); } catch(e) {}
-    res.set('Cache-Control', 'public, max-age=15');
+app.get('/api/earnings-potential', (req, res) => {
     res.json(cachedEarningsPotential);
 });
 
-// Kept for older cached clients that still report counts. Client-reported numbers are NOT trusted
-// (anyone could post huge counts and permanently inflate the figure) - always returns the server value.
+// What this specific user has already done — lets the client compute
+// "remaining" videos/creators instead of treating the whole all-time catalog
+// as if it were completable today. Reads cache.tasks directly (no 30-item
+// cap like /api/user-stats), so it's accurate for users with long histories.
+app.get('/api/user-completed-videos/:userId', (req, res) => {
+    const { userId } = req.params;
+    const watchedVideoIds = new Set();
+    const subscribedCreatorNames = new Set();
+    for (const t of cache.tasks) {
+        if (t.userId !== userId) continue;
+        if (t.taskType === 'watch' && t.videoId) watchedVideoIds.add(t.videoId);
+        if (t.taskType === 'subscribe' && t.creatorName) subscribedCreatorNames.add(t.creatorName);
+    }
+    res.json({ watchedVideoIds: [...watchedVideoIds], subscribedCreatorNames: [...subscribedCreatorNames] });
+});
+
+// Client reports actual video/creator counts from the live creator list;
+// server just recomputes from those and caches the result for instant display.
 app.post('/api/earnings-potential/update', async (req, res) => {
-    try { await refreshEarningsPotential(); } catch(e) {}
-    res.json(cachedEarningsPotential);
+    let { totalVideos, totalCreators } = req.body;
+    // 0 is a legitimate count (user has watched/subscribed to everything) —
+    // only reject when the fields are actually missing/non-numeric.
+    if (typeof totalVideos !== 'number' || typeof totalCreators !== 'number') {
+        return res.status(400).json({ error: 'Missing counts' });
+    }
+
+    // Never accept more than the catalog actually contains (client-reported numbers are untrusted)
+    try {
+        const visible = visibleCreators(await getManagedCreators());
+        const maxVideos = visible.reduce((n, c) => n + (c.videos || []).length, 0);
+        if (visible.length) {
+            totalVideos = Math.max(0, Math.min(totalVideos, maxVideos));
+            totalCreators = Math.max(0, Math.min(totalCreators, visible.length));
+        }
+    } catch (e) {}
+
+    const dailyUSD = (totalVideos * 0.01) + (totalVideos * 0.005) + (totalVideos * 0.05);
+    const subOnetime = totalCreators * 0.05;
+    const monthlyResidual = totalCreators * 0.01;
+
+    const newData = {
+        daily: parseFloat(dailyUSD.toFixed(2)),
+        sub: parseFloat(subOnetime.toFixed(2)),
+        residual: parseFloat(monthlyResidual.toFixed(2)),
+        network: `${totalCreators} creators · ${totalVideos} videos`,
+        totalCreators,
+        totalVideos,
+        updatedAt: new Date().toISOString(),
+    };
+
+    cachedEarningsPotential = newData;
+    try { await firestore.setDoc('config', 'earningsPotential', newData); } catch(e) {}
+
+    res.json(newData);
 });
 
 // ===== Treasury Balance Check =====
@@ -2295,7 +2321,6 @@ function syncCatalogVideos() {
         } catch (e) { console.warn('catalog sync aborted:', e.message); failed++; }
         Object.assign(_catalogSyncStatus, { lastRunAt: new Date().toISOString(), lastDurationMs: Date.now() - t0, creators: total, updated, failed });
         console.log(`Catalog sync: ${total} creators, ${updated} updated, ${failed} failed in ${Date.now() - t0}ms`);
-        try { await refreshEarningsPotential(); } catch (e) {}
     })().finally(() => { _catalogSync = null; });
     return _catalogSync;
 }
@@ -2635,120 +2660,74 @@ app.get('/api/sync-videos', async (req, res) => {
 });
 
 // ===== Presence Tracking (active logged-in users) =====
-// Everything here is real: joins come from first-time Discord logins, "online" from a
-// user's first heartbeat of a session, "left" from heartbeat expiry or logout.
-// State is in memory only; no IP addresses are stored (country names only).
-const crypto2 = require('crypto');
-const presence = new Map();          // userId -> { name, lastSeen }
-const presenceCountry = new Map();   // userId -> country (from login IP, name only)
-const presenceMeta = new Map();      // userId -> { joinedAt, leftAt }
-const presenceEvents = [];           // { ts, type: 'joined'|'online'|'left', name, country, k }
-const PRESENCE_TTL = parseInt(process.env.PRESENCE_TTL_MS, 10) || 90000;
-const PRESENCE_WARMUP = process.env.PRESENCE_WARMUP_MS !== undefined ? parseInt(process.env.PRESENCE_WARMUP_MS, 10) : 2 * 60 * 1000;     // after a restart, everyone looks "newly online" - stay quiet
-const PRESENCE_BOOT = Date.now();
-const EVENT_MAX_AGE = 2 * 60 * 1000;
-let _lastEventTs = 0;
+// activeUsers: userId -> { lastSeen, displayName }
+const activeUsers = new Map();
+const PRESENCE_TTL = 90000;
 
-function presenceKey(userId) { return crypto2.createHash('sha256').update(String(userId)).digest('hex').slice(0, 8); }
-function cleanPresenceName(n) { return String(n || '').replace(/[\u0000-\u001f<>]/g, '').trim().slice(0, 24); }
+// Real join/leave events for the live popup. Ring buffer, trimmed by age.
+const presenceEvents = [];
+const PRESENCE_EVENT_TTL = 5 * 60000; // keep 5 min of history
+let _presenceEventSeq = 0;
 
-function pushPresenceEvent(type, userId, name, country) {
-    const clean = cleanPresenceName(name);
-    if (!clean) return;
-    const ts = Math.max(Date.now(), _lastEventTs + 1);
-    _lastEventTs = ts;
-    presenceEvents.push({ ts, type, name: clean, country: country || presenceCountry.get(userId) || '', k: presenceKey(userId) });
-    while (presenceEvents.length > 50) presenceEvents.shift();
-}
-
-function presenceMetaFor(userId) {
-    if (!presenceMeta.has(userId)) presenceMeta.set(userId, { joinedAt: 0, leftAt: 0 });
-    return presenceMeta.get(userId);
-}
-
-function noteUserJoined(userId, name, country) {
-    presenceMetaFor(userId).joinedAt = Date.now();
-    pushPresenceEvent('joined', userId, name, country);
-}
-
-function sweepPresence() {
-    const now = Date.now();
-    for (const [uid, p] of presence) {
-        if (now - p.lastSeen > PRESENCE_TTL) {
-            presence.delete(uid);
-            presenceMetaFor(uid).leftAt = now;
-            if (now - PRESENCE_BOOT > PRESENCE_WARMUP) pushPresenceEvent('left', uid, p.name);
-        }
-    }
-    if (presenceMeta.size > 5000) presenceMeta.clear();
-    if (presenceCountry.size > 5000) presenceCountry.clear();
-}
-setInterval(sweepPresence, 15000).unref();
-
-// Best-effort country lookup for first-time logins (IP is sent to ipwho.is, never stored by us)
-const _geoCache = new Map();
-function clientIp(req) {
-    const fwd = String(req.headers['x-forwarded-for'] || '').split(',')[0].trim();
-    return fwd || (req.socket && req.socket.remoteAddress) || '';
-}
-async function countryForIp(ip) {
-    ip = String(ip || '').replace(/^::ffff:/, '');
-    if (!ip || /^(::1$|127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|fc|fd)/i.test(ip)) return '';
-    if (_geoCache.has(ip)) return _geoCache.get(ip);
-    try {
-        const raw = await Promise.race([
-            httpGet(`https://ipwho.is/${encodeURIComponent(ip)}?fields=success,country`),
-            new Promise((_, rej) => setTimeout(() => rej(new Error('geo timeout')), 2500)),
-        ]);
-        const d = JSON.parse(raw);
-        const country = d && d.success ? String(d.country || '').slice(0, 40) : '';
-        if (_geoCache.size > 500) _geoCache.clear();
-        _geoCache.set(ip, country);
-        return country;
-    } catch { return ''; }
+function pushPresenceEvent(type, displayName) {
+    if (!displayName) return;
+    presenceEvents.push({ id: ++_presenceEventSeq, type, name: displayName, ts: Date.now() });
+    const cutoff = Date.now() - PRESENCE_EVENT_TTL;
+    while (presenceEvents.length && presenceEvents[0].ts < cutoff) presenceEvents.shift();
 }
 
 app.post('/api/presence/heartbeat', (req, res) => {
-    const { userId, name } = req.body || {};
+    const { userId, displayName } = req.body;
     if (!userId) return res.status(400).json({ error: 'Missing userId' });
     const now = Date.now();
-    const prev = presence.get(userId);
-    const wasActive = prev && now - prev.lastSeen <= PRESENCE_TTL;
-    const cleanName = cleanPresenceName(name) || (prev && prev.name) || '';
-    presence.set(userId, { name: cleanName, lastSeen: now });
-    if (!wasActive && now - PRESENCE_BOOT > PRESENCE_WARMUP) {
-        const m = presenceMetaFor(userId);
-        // Skip if they just joined (already announced) or only just left (refresh / flaky connection)
-        if (now - m.joinedAt > 5 * 60 * 1000 && now - m.leftAt > 2 * 60 * 1000) pushPresenceEvent('online', userId, cleanName);
-    }
+    const existing = activeUsers.get(userId);
+    const wasActive = existing && (now - existing.lastSeen <= PRESENCE_TTL);
+    activeUsers.set(userId, { lastSeen: now, displayName: displayName || existing?.displayName || 'Someone' });
+    if (!wasActive) pushPresenceEvent('join', displayName || existing?.displayName);
     res.json({ ok: true });
 });
 
+// Explicit leave signal, sent via sendBeacon on tab close/navigation away.
 app.post('/api/presence/leave', (req, res) => {
     const { userId } = req.body || {};
-    const p = userId && presence.get(userId);
-    if (p) {
-        presence.delete(userId);
-        presenceMetaFor(userId).leftAt = Date.now();
-        pushPresenceEvent('left', userId, p.name);
+    const entry = userId && activeUsers.get(userId);
+    if (entry) {
+        activeUsers.delete(userId);
+        pushPresenceEvent('leave', entry.displayName);
     }
     res.json({ ok: true });
 });
 
 app.get('/api/presence/count', (req, res) => {
-    sweepPresence();
-    res.set('Cache-Control', 'no-store');
-    res.json({ activeUsers: presence.size });
+    const now = Date.now();
+    let count = 0;
+    for (const [uid, entry] of activeUsers) {
+        if (now - entry.lastSeen > PRESENCE_TTL) {
+            activeUsers.delete(uid);
+            pushPresenceEvent('leave', entry.displayName);
+        } else count++;
+    }
+    res.json({ activeUsers: count });
 });
 
-// Recent real events newer than ?since=<ts>. Memory-only, safe to poll.
+// Sweep for silently-timed-out sessions (tab closed without beacon) so
+// "left" popups still fire without waiting on the next /count poll.
+setInterval(() => {
+    const now = Date.now();
+    for (const [uid, entry] of activeUsers) {
+        if (now - entry.lastSeen > PRESENCE_TTL) {
+            activeUsers.delete(uid);
+            pushPresenceEvent('leave', entry.displayName);
+        }
+    }
+}, 15000);
+
+// Recent join/leave events for the frontend popup. Pass `since` (a ts
+// from a previous call) to get only new events; omit it to get nothing
+// (avoids replaying history as a wall of popups on first page load).
 app.get('/api/presence/events', (req, res) => {
-    sweepPresence(); // make expiries visible right away instead of waiting for the 15s timer
-    const since = parseInt(req.query.since, 10) || 0;
-    const cutoff = Date.now() - EVENT_MAX_AGE;
-    const events = presenceEvents.filter(e => e.ts > since && e.ts >= cutoff).slice(-10);
-    res.set('Cache-Control', 'no-store');
-    res.json({ events, cursor: Math.max(since, _lastEventTs) });
+    const since = Number(req.query.since) || Date.now();
+    res.json({ events: presenceEvents.filter(e => e.ts > since), now: Date.now() });
 });
 
 // ===== Discord Server Stats =====

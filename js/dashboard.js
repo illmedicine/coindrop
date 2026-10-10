@@ -249,9 +249,6 @@ document.addEventListener('click', (e) => {
 });
 
 async function handleLogout() {
-    if (user && user.id) {
-        try { fetch(`${API_URL}/api/presence/leave`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userId: user.id }), keepalive: true }); } catch(e) {}
-    }
     localStorage.removeItem('coindrop_user');
     if (typeof auth !== 'undefined') {
         try { await auth.signOut(); } catch(e) {}
@@ -611,32 +608,66 @@ function resolveInitialCreator() {
 renderCreators('all');
 resolveInitialCreator();
 
-// ===== Earnings Potential Banner (computed on the server; the client only displays it) =====
-let _ebLastFetch = 0;
-let _ebInflight = null;
-function updateEarningsBanner(force) {
-    // Several scripts call this during load; coalesce so we fetch once and never show intermediate values
-    if (_ebInflight) return _ebInflight;
-    if (!force && Date.now() - _ebLastFetch < 20000) return Promise.resolve();
-    _ebInflight = (async () => {
+// ===== Earnings Potential Banner =====
+// Shows what THIS user can still earn: videos they haven't watched yet and
+// creators they haven't subscribed to yet, not the whole all-time catalog
+// (treating every video a channel ever posted as a "daily" task made the
+// number both huge and meaningless — nobody completes 1000+ tasks in a day).
+async function updateEarningsBanner() {
+    const ebDaily = document.getElementById('eb-daily');
+    const ebSub = document.getElementById('eb-sub-onetime');
+    const ebResidual = document.getElementById('eb-residual');
+    const ebNetwork = document.getElementById('eb-network');
+
+    function applyData(data) {
+        if (ebDaily) ebDaily.textContent = `$${data.daily.toFixed(2)} USD`;
+        if (ebSub) ebSub.textContent = `$${data.sub.toFixed(2)}`;
+        if (ebResidual) ebResidual.textContent = `$${data.residual.toFixed(2)}/mo`;
+        if (ebNetwork) ebNetwork.textContent = data.network;
+    }
+
+    // First: fetch server-cached value for instant display
+    try {
+        const res = await fetch('https://coindrop-auth.up.railway.app/api/earnings-potential');
+        const data = await res.json();
+        applyData(data);
+    } catch (e) {}
+
+    // Then: compute this user's actual remaining tasks and report them.
+    if (typeof CREATORS !== 'undefined' && CREATORS.length > 0) {
+        let totalVideos = 0;
+        let totalCreators = CREATORS.length;
+
+        if (user && user.id) {
+            try {
+                const res = await fetch(`https://coindrop-auth.up.railway.app/api/user-completed-videos/${user.id}`);
+                const { watchedVideoIds, subscribedCreatorNames } = await res.json();
+                const watched = new Set(watchedVideoIds || []);
+                const subscribed = new Set(subscribedCreatorNames || []);
+
+                CREATORS.forEach(c => c.videos.forEach(v => { if (!watched.has(v.id)) totalVideos++; }));
+                totalCreators = CREATORS.filter(c => !subscribed.has(c.name)).length;
+            } catch (e) {
+                // Fall back to full catalog counts if we couldn't load completion state
+                CREATORS.forEach(c => totalVideos += c.videos.length);
+            }
+        } else {
+            CREATORS.forEach(c => totalVideos += c.videos.length);
+        }
+
         try {
-            const res = await fetch('https://coindrop-auth.up.railway.app/api/earnings-potential');
-            if (!res.ok) return;
+            const res = await fetch('https://coindrop-auth.up.railway.app/api/earnings-potential/update', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ totalVideos, totalCreators }),
+            });
             const data = await res.json();
-            const ebDaily = document.getElementById('eb-daily');
-            const ebSub = document.getElementById('eb-sub-onetime');
-            const ebResidual = document.getElementById('eb-residual');
-            const ebNetwork = document.getElementById('eb-network');
-            if (ebDaily) ebDaily.textContent = `$${data.daily.toFixed(2)} USD`;
-            if (ebSub) ebSub.textContent = `$${data.sub.toFixed(2)}`;
-            if (ebResidual) ebResidual.textContent = `$${data.residual.toFixed(2)}/mo`;
-            if (ebNetwork) ebNetwork.textContent = data.network;
-            _ebLastFetch = Date.now();
-        } catch (e) {} finally { _ebInflight = null; }
-    })();
-    return _ebInflight;
+            applyData(data);
+        } catch (e) {}
+    }
 }
 updateEarningsBanner();
+setTimeout(updateEarningsBanner, 3000);
 
 // ===== Subscriptions & Cooldowns (server-driven) =====
 async function loadSubsAndCooldowns() {
@@ -797,10 +828,24 @@ async function sendPresenceHeartbeat() {
         await fetch(`${API_URL}/api/presence/heartbeat`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ userId: user.id, name: user.displayName || user.username || '' }),
+            body: JSON.stringify({ userId: user.id, displayName: user.displayName }),
         });
     } catch(e) {}
 }
+
+// Let the server know we've left right away (tab close/navigation), rather
+// than waiting for the heartbeat to go stale. sendBeacon works during unload.
+function sendPresenceLeave() {
+    if (!user || !user.id) return;
+    try {
+        const blob = new Blob([JSON.stringify({ userId: user.id })], { type: 'application/json' });
+        navigator.sendBeacon(`${API_URL}/api/presence/leave`, blob);
+    } catch(e) {}
+}
+window.addEventListener('pagehide', sendPresenceLeave);
+document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') sendPresenceLeave();
+});
 
 async function loadLiveCounters() {
     try {
@@ -820,11 +865,61 @@ async function loadLiveCounters() {
     } catch(e) {}
 }
 
-// Heartbeat must land before the first count read, otherwise a refresh briefly shows a low/zero total
-sendPresenceHeartbeat().then(loadLiveCounters);
-document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') sendPresenceHeartbeat(); });
+// ===== Live join/leave popup (real presence events, not simulated) =====
+let _presenceEventsSince = Date.now();
+let _presencePopupQueue = [];
+let _presencePopupShowing = false;
+
+function enqueuePresencePopup(evt) {
+    _presencePopupQueue.push(evt);
+    drainPresencePopupQueue();
+}
+
+function drainPresencePopupQueue() {
+    if (_presencePopupShowing || !_presencePopupQueue.length) return;
+    const evt = _presencePopupQueue.shift();
+    const popup = document.getElementById('presence-popup');
+    const nameEl = document.getElementById('presence-popup-name');
+    const actionEl = document.getElementById('presence-popup-action');
+    if (!popup || !nameEl || !actionEl) return;
+
+    _presencePopupShowing = true;
+    nameEl.textContent = evt.name;
+    actionEl.textContent = evt.type === 'join' ? 'just joined — live now' : 'just left';
+    popup.classList.toggle('presence-popup--leave', evt.type === 'leave');
+    popup.classList.remove('hidden');
+
+    setTimeout(() => {
+        popup.classList.add('hidden');
+        _presencePopupShowing = false;
+        drainPresencePopupQueue();
+    }, 5000);
+}
+
+async function pollPresenceEvents() {
+    try {
+        const res = await fetch(`${API_URL}/api/presence/events?since=${_presenceEventsSince}`);
+        const data = await res.json();
+        _presenceEventsSince = data.now || Date.now();
+        const events = data.events || [];
+        events.forEach(enqueuePresencePopup);
+        // Someone joined/left — refresh the counter right away instead of
+        // waiting for the next 15s tick, so it reflects reality immediately.
+        if (events.length) loadLiveCounters();
+    } catch(e) {}
+}
+
+// Send our own heartbeat first and wait for it to land before reading the
+// counter — otherwise the first /count read can race ahead of our own
+// heartbeat reaching the server and under-report by one.
+(async () => {
+    await sendPresenceHeartbeat();
+    loadLiveCounters();
+    pollPresenceEvents();
+})();
 setInterval(sendPresenceHeartbeat, 60000);
-setInterval(loadLiveCounters, 30000);
+setInterval(loadLiveCounters, 15000);
+setInterval(pollPresenceEvents, 5000);
 
 // ===== Platform Stats Ticker =====
 async function loadPlatformStats() {

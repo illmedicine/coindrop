@@ -9,6 +9,9 @@ android/local.properties
 # Node
 node_modules/
 
+# Firebase CLI local cache
+.firebase/
+
 # OS
 .DS_Store
 Thumbs.db
