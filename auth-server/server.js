@@ -57,9 +57,17 @@ const firestore = {
                 limit: limit || 20,
             }
         });
-        const data = await httpPostJson(`${FIRESTORE_URL.replace('/documents', '')}:runQuery?key=${FIREBASE_API_KEY}`, body);
-        const parsed = JSON.parse(data);
-        if (!Array.isArray(parsed)) return [];
+        const data = await httpPostJson(`${FIRESTORE_URL}:runQuery?key=${FIREBASE_API_KEY}`, body);
+        let parsed;
+        try { parsed = JSON.parse(data); }
+        catch { throw new Error(`Firestore returned a non-JSON response while querying ${collection}`); }
+        if (checkThrottle(Array.isArray(parsed) ? parsed[0] : parsed)) throw new Error('Firestore quota exceeded');
+        if (!Array.isArray(parsed)) {
+            if (parsed && parsed.error) throw new Error(`Firestore query on ${collection} failed: ${parsed.error.message || parsed.error.status}`);
+            return [];
+        }
+        const firstErr = parsed[0] && parsed[0].error;
+        if (firstErr) throw new Error(`Firestore query on ${collection} failed: ${firstErr.message || firstErr.status}`);
         return parsed.filter(r => r.document).map(r => ({
             id: r.document.name.split('/').pop(),
             ...parseFirestoreDoc(r.document.fields || {})
@@ -339,7 +347,7 @@ app.post('/api/verify-task', async (req, res) => {
                         limit: 1,
                     }
                 });
-                const subCheckData = await httpPostJson(`${FIRESTORE_URL.replace('/documents', '')}:runQuery?key=${FIREBASE_API_KEY}`, subCheckBody);
+                const subCheckData = await httpPostJson(`${FIRESTORE_URL}:runQuery?key=${FIREBASE_API_KEY}`, subCheckBody);
                 const subCheckParsed = JSON.parse(subCheckData);
                 const alreadySubscribed = Array.isArray(subCheckParsed) && subCheckParsed.some(r => r.document);
                 if (alreadySubscribed) {
@@ -1676,7 +1684,7 @@ let _vcRefreshing = false;
     // One-time announcement: mobile verification fix
     try {
         const ann = await firestore.getDoc('config', 'announcements');
-        if (!ann?.mobile_verif_fix_20260709) {
+        if (ann && !ann.mobile_verif_fix_20260709) { // ann is null when Firestore read fails (e.g. quota) — never announce blind
             const msg = {
                 username: 'CoinDrop Updates',
                 avatar_url: 'https://coindrop.in/assets/logo.svg',
@@ -1703,7 +1711,7 @@ let _vcRefreshing = false;
     // One-time announcement: verification service restored
     try {
         const ann = await firestore.getDoc('config', 'announcements');
-        if (!ann?.verification_restored_20260717) {
+        if (ann && !ann.verification_restored_20260717) { // ann is null when Firestore read fails (e.g. quota) — never announce blind
             const msg = {
                 username: 'CoinDrop Updates',
                 avatar_url: 'https://coindrop.in/assets/logo.svg',
@@ -1733,6 +1741,7 @@ async function discoverChannelId(handle) {
     const h = (handle || '').replace(/^@/, '').toLowerCase();
     if (!h) return null;
     if (_channelIds[h]) return _channelIds[h];
+    if (BUILTIN_CHANNEL_IDS_BY_HANDLE[h]) return (_channelIds[h] = BUILTIN_CHANNEL_IDS_BY_HANDLE[h]);
     try {
         const html = await httpGetPage(`https://www.youtube.com/@${h}`);
         const match = html.match(/"channelId":"(UC[a-zA-Z0-9_-]{22})"/);
@@ -1807,16 +1816,50 @@ async function refreshViewCounts(handles) {
     console.log(`View count refresh done — ${updated} videos updated, ${Object.keys(_viewCountCache.data).length} total cached`);
 }
 
+// ── Managed-creators cache ──────────────────────────────────────────────────
+// One shared in-memory copy of managed_creators. Public endpoints read from it
+// (zero Firestore reads on a hit); admin writes call invalidateCreatorsCache().
+// If Firestore fails or is throttled, the last good copy is served instead.
+const CREATORS_CACHE_TTL = 5 * 60 * 1000;
+const _creatorsCache = { creators: null, fetchedAt: 0, inflight: null };
+
+function invalidateCreatorsCache() { _creatorsCache.fetchedAt = 0; }
+
+async function getManagedCreators() {
+    const fresh = _creatorsCache.creators && (Date.now() - _creatorsCache.fetchedAt) < CREATORS_CACHE_TTL;
+    if (fresh) return _creatorsCache.creators;
+    if (_creatorsCache.inflight) return _creatorsCache.inflight;
+    _creatorsCache.inflight = (async () => {
+        try {
+            const docs = await firestore.query('managed_creators', null, null, null, null, 200);
+            _creatorsCache.creators = (docs || []).map(d => {
+                try { d.videos = JSON.parse(d.videosJson || '[]'); } catch { d.videos = []; }
+                delete d.videosJson;
+                return d;
+            });
+            _creatorsCache.fetchedAt = Date.now();
+            return _creatorsCache.creators;
+        } catch (e) {
+            if (_creatorsCache.creators) {
+                console.warn('managed_creators refresh failed, serving stale cache:', e.message);
+                _creatorsCache.fetchedAt = Date.now() - CREATORS_CACHE_TTL + 30000; // retry in 30s
+                return _creatorsCache.creators;
+            }
+            throw e;
+        } finally { _creatorsCache.inflight = null; }
+    })();
+    return _creatorsCache.inflight;
+}
+
 app.get('/api/creators/managed', async (req, res) => {
     try {
-        const docs = await firestore.query('managed_creators', null, null, null, null, 100);
-        const creators = (docs || []).map(d => {
-            try { d.videos = JSON.parse(d.videosJson || '[]'); } catch { d.videos = []; }
-            delete d.videosJson;
-            return d;
-        });
+        const creators = await getManagedCreators();
+        res.set('Cache-Control', 'public, max-age=60');
         res.json({ creators });
-    } catch(e) { res.status(500).json({ error: 'Failed to fetch creators' }); }
+    } catch(e) {
+        console.error('creators/managed failed:', e.message);
+        res.status(503).json({ error: 'Creator data temporarily unavailable', detail: e.message });
+    }
 });
 
 // Lookup endpoint — returns YouTube metadata without saving anything
@@ -1867,6 +1910,7 @@ app.post('/api/admin/add-creator', async (req, res) => {
     const creator = { id: creatorId, handle: cleanHandle, name: resolvedName, platform: 'youtube', channelUrl: resolvedChannelUrl, channelId: resolvedChannelId, avatar: resolvedAvatar, about: resolvedAbout, category: (category || 'Content Creator').trim(), subscribers: resolvedSubscribers || 'Unknown', videosJson: JSON.stringify(videos), videoCount: videos.length, addedAt: new Date().toISOString(), addedBy: email, managed: true };
     try {
         await firestore.setDoc('managed_creators', creatorId, creator);
+        invalidateCreatorsCache();
         res.json({ success: true, creator: { ...creator, videos }, videosFound: videos.length });
     } catch(e) { res.status(500).json({ error: 'Failed to save creator: ' + e.message }); }
 });
@@ -1876,7 +1920,7 @@ app.post('/api/admin/remove-creator', async (req, res) => {
     if (!ADMIN_EMAILS.includes((email || '').toLowerCase())) return res.status(403).json({ error: 'Unauthorized' });
     if (!creatorId) return res.status(400).json({ error: 'creatorId required' });
     try {
-        if (isManaged) await firestore.deleteDoc('managed_creators', creatorId);
+        if (isManaged) { await firestore.deleteDoc('managed_creators', creatorId); invalidateCreatorsCache(); }
         _removedCreatorIds.add(creatorId);
         await firestore.setDoc('config', 'removedCreators', { idsJson: JSON.stringify([..._removedCreatorIds]) });
         res.json({ success: true });
@@ -1927,6 +1971,7 @@ app.post('/api/admin/bulk-migrate-creators', async (req, res) => {
         // Clear all removed creators so everything is visible
         _removedCreatorIds.clear();
         await firestore.setDoc('config', 'removedCreators', { idsJson: '[]' });
+        invalidateCreatorsCache();
         res.json({ success: true, migrated, skipped });
         // Background: discover channel IDs and refresh YouTube videos
         setImmediate(async () => {
@@ -1939,6 +1984,7 @@ app.post('/api/admin/bulk-migrate-creators', async (req, res) => {
                         if (videos.length > 0) {
                             const stored = await firestore.getDoc('managed_creators', cid);
                             if (stored) await firestore.setDoc('managed_creators', cid, { ...stored, channelId, videosJson: JSON.stringify(videos), videoCount: videos.length, lastSynced: new Date().toISOString() });
+                            invalidateCreatorsCache();
                             console.log(`Migrated+refreshed @${h}: ${videos.length} videos`);
                         }
                     }
@@ -1987,12 +2033,13 @@ app.get('/api/creators/featured', (req, res) => {
 
 // Returns cached view counts immediately (stale-while-revalidate)
 app.get('/api/creators/view-counts', async (req, res) => {
+    res.set('Cache-Control', 'public, max-age=300');
     res.json({ counts: _viewCountCache.data, updatedAt: _viewCountCache.updatedAt });
     const FOUR_HOURS = 4 * 60 * 60 * 1000;
     if (Date.now() - _viewCountCache.updatedAt > FOUR_HOURS && !_vcRefreshing) {
         setImmediate(async () => {
             try {
-                const docs = await firestore.query('managed_creators', null, null, null, null, 100) || [];
+                const docs = await getManagedCreators();
                 const handles = docs.filter(d => d.handle).map(d => d.handle);
                 await refreshViewCounts(handles);
             } catch(e) { _vcRefreshing = false; }
@@ -2002,10 +2049,19 @@ app.get('/api/creators/view-counts', async (req, res) => {
 
 // Frontend registers its creator handles so server can discover channel IDs + prime view-count cache
 app.post('/api/creators/register-handles', (req, res) => {
-    const { handles } = req.body;
     res.json({ ok: true }); // Always respond immediately
-    if (!Array.isArray(handles) || handles.length === 0) return;
+    // Unauthenticated endpoint: never scrape arbitrary client-supplied handles.
+    // Only handles the server already knows about (managed + built-in) are processed.
+    const requested = Array.isArray(req.body && req.body.handles) ? req.body.handles : [];
+    if (requested.length === 0) return;
     setImmediate(async () => {
+        let known;
+        try {
+            known = new Set([...(await getManagedCreators()).map(c => c.handle), ...Object.values(BUILTIN_CHANNEL_HANDLES).filter(Boolean).map(h => '@' + h)]
+                .map(h => (h || '').toLowerCase()));
+        } catch { known = new Set(Object.values(BUILTIN_CHANNEL_HANDLES).filter(Boolean).map(h => ('@' + h).toLowerCase())); }
+        const handles = requested.filter(h => known.has(String(h || '').toLowerCase())).slice(0, 100);
+        if (handles.length === 0) return;
         const FOUR_HOURS = 4 * 60 * 60 * 1000;
         if (Date.now() - _viewCountCache.updatedAt > FOUR_HOURS && !_vcRefreshing) {
             await refreshViewCounts(handles);
@@ -2033,6 +2089,7 @@ app.post('/api/admin/refresh-creator-videos', async (req, res) => {
         if (!channelId) return res.status(400).json({ error: 'Could not discover Channel ID for this creator. Try again in a moment.' });
         const videos = await fetchYouTubeRSS(channelId);
         await firestore.setDoc('managed_creators', creatorId, { ...creator, channelId, videosJson: JSON.stringify(videos), videoCount: videos.length, lastSynced: new Date().toISOString() });
+        invalidateCreatorsCache();
         res.json({ success: true, videosFound: videos.length });
     } catch(e) { res.status(500).json({ error: 'Failed to refresh: ' + e.message }); }
 });
@@ -2279,7 +2336,22 @@ const CHANNEL_IDS = {
     shanshanuptopar: 'UChPtNXx4_6RW-4O4hZWJN7w',
 };
 
-app.get('/api/sync-videos', async (req, res) => {
+// YouTube handle for each built-in creator (null = no public handle to scrape)
+const BUILTIN_CHANNEL_HANDLES = { illmedicine: 'illmedicine', illmedicineai: 'illmedicineai', minds_through_time: 'MINDS_THROUGH_TIME', justclipsone: 'JustClipsone', moralsovermoneytv: 'MoralsOverMoneyTV', bombogames: 'BomboGames', dreathevirgo: 'Dreathevirgo', cheese2hii: 'Cheese2hii', pamelaward: 'pamelaward7657', adayinla: 'adayinlapodcast', sage_elohi: 'Sage_elohi', errorbyhuman: 'errorbyhuman', dykeasaurus420: 'Dykeasaurus420', nadiivlogs: 'Nadiivlogs', jreycash: 'JreyCash', cameronrandall: null, shanshanuptopar: 'ShanShanUptopar' };
+
+// Built-in handle (lowercase, no @) → channelId, so these never need an HTML scrape
+const BUILTIN_CHANNEL_IDS_BY_HANDLE = {};
+for (const [creatorId, handle] of Object.entries(BUILTIN_CHANNEL_HANDLES)) {
+    if (handle && CHANNEL_IDS[creatorId]) BUILTIN_CHANNEL_IDS_BY_HANDLE[handle.toLowerCase()] = CHANNEL_IDS[creatorId];
+}
+
+// Full YouTube sync is expensive (~50 outbound requests). Build it at most once per
+// TTL, share one in-flight build between concurrent callers, and serve the last
+// good result while a refresh runs or if a refresh fails.
+const SYNC_VIDEOS_TTL = 60 * 60 * 1000;
+const _syncVideosCache = { data: null, builtAt: 0, inflight: null };
+
+async function buildSyncVideos() {
     try {
         const results = {};
         for (const [creatorId, channelId] of Object.entries(CHANNEL_IDS)) {
@@ -2305,7 +2377,7 @@ app.get('/api/sync-videos', async (req, res) => {
                 const handle = Object.keys(CHANNEL_IDS).find(k => CHANNEL_IDS[k] === channelId);
                 let allVideoIds = new Set(Object.keys(rssVideos));
                 try {
-                    const channelHandles = { illmedicine: 'illmedicine', illmedicineai: 'illmedicineai', minds_through_time: 'MINDS_THROUGH_TIME', justclipsone: 'JustClipsone', moralsovermoneytv: 'MoralsOverMoneyTV', bombogames: 'BomboGames', dreathevirgo: 'Dreathevirgo', cheese2hii: 'Cheese2hii', pamelaward: 'pamelaward7657', adayinla: 'adayinlapodcast', sage_elohi: 'Sage_elohi', errorbyhuman: 'errorbyhuman', dykeasaurus420: 'Dykeasaurus420', nadiivlogs: 'Nadiivlogs', jreycash: 'JreyCash', cameronrandall: null, shanshanuptopar: 'ShanShanUptopar' };
+                    const channelHandles = BUILTIN_CHANNEL_HANDLES;
                     const ytHandle = channelHandles[creatorId];
                     if (ytHandle) {
                         const vidPage = await httpGet(`https://www.youtube.com/@${ytHandle}/videos`);
@@ -2335,9 +2407,30 @@ app.get('/api/sync-videos', async (req, res) => {
                 results[creatorId] = videos;
             } catch(e) { results[creatorId] = { error: e.message }; }
         }
-        res.json({ synced: new Date().toISOString(), channels: results });
+        return { synced: new Date().toISOString(), channels: results };
+    } catch(e) { throw e; }
+}
+
+function refreshSyncVideos() {
+    if (_syncVideosCache.inflight) return _syncVideosCache.inflight;
+    _syncVideosCache.inflight = buildSyncVideos()
+        .then(data => { _syncVideosCache.data = data; _syncVideosCache.builtAt = Date.now(); return data; })
+        .catch(e => { console.warn('sync-videos build failed:', e.message); if (_syncVideosCache.data) return _syncVideosCache.data; throw e; })
+        .finally(() => { _syncVideosCache.inflight = null; });
+    return _syncVideosCache.inflight;
+}
+
+app.get('/api/sync-videos', async (req, res) => {
+    try {
+        res.set('Cache-Control', 'public, max-age=300');
+        if (_syncVideosCache.data) {
+            res.json(_syncVideosCache.data);
+            if (Date.now() - _syncVideosCache.builtAt > SYNC_VIDEOS_TTL) refreshSyncVideos().catch(() => {});
+            return;
+        }
+        res.json(await refreshSyncVideos());
     } catch(e) {
-        res.status(500).json({ error: e.message });
+        res.status(502).json({ error: e.message });
     }
 });
 
@@ -2596,7 +2689,7 @@ app.get('/api/admin/referrals', async (req, res) => {
 
     try {
         const referrals = await firestore.query('referrals', null, null, null, 'timestamp', 500);
-        const creators = await firestore.query('managed_creators', null, null, null, null, 200);
+        const creators = await getManagedCreators();
 
         const stats = {};
         creators.forEach(c => {
