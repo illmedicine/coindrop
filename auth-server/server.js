@@ -1701,13 +1701,30 @@ async function ytApi(endpoint, params) {
     } catch (e) { _yt.errors++; _yt.lastError = `${endpoint}: ${e.message}`; console.warn('YouTube API request failed:', e.message); return null; }
 }
 
+// Matches how YouTube shows subscriber counts: 3 significant digits, rounded down (1.23M, 12.3K, 999)
 function ytFmtCount(n) {
     n = parseInt(n, 10) || 0;
-    const fmt = (v, u) => (v >= 100 ? Math.round(v) : Math.round(v * 10) / 10) + u;
+    const fmt = (v, unit) => {
+        const d = v < 10 ? 100 : v < 100 ? 10 : 1;
+        return String(Math.floor(v * d) / d) + unit;
+    };
     if (n >= 1e9) return fmt(n / 1e9, 'B');
     if (n >= 1e6) return fmt(n / 1e6, 'M');
     if (n >= 1e3) return fmt(n / 1e3, 'K');
     return String(n);
+}
+
+function ytChannelFromItem(ch) {
+    const sn = ch.snippet || {};
+    const th = sn.thumbnails || {};
+    const st = ch.statistics || {};
+    return {
+        channelId: ch.id, name: (sn.title || '').trim(), about: sn.description || '',
+        avatar: (th.high || th.medium || th.default || {}).url || '',
+        customUrl: (sn.customUrl || '').replace(/^@/, ''),
+        subscribers: st.hiddenSubscriberCount ? '' : ytFmtCount(st.subscriberCount),
+        videoCount: parseInt(st.videoCount, 10) || 0,
+    };
 }
 
 // handle ("@name", "name") or channel ID ("UC...") -> channel metadata, 1 quota unit
@@ -1718,15 +1735,18 @@ async function ytFetchChannel(input) {
     if (/^UC[a-zA-Z0-9_-]{22}$/.test(raw)) params.id = raw; else params.forHandle = '@' + raw;
     const data = await ytApi('channels', params);
     const ch = data && data.items && data.items[0];
-    if (!ch) return null;
-    const sn = ch.snippet || {};
-    const th = sn.thumbnails || {};
-    const subs = ch.statistics && !ch.statistics.hiddenSubscriberCount ? ytFmtCount(ch.statistics.subscriberCount) : '';
-    return {
-        channelId: ch.id, name: (sn.title || '').trim(), about: sn.description || '',
-        avatar: (th.high || th.medium || th.default || {}).url || '',
-        customUrl: (sn.customUrl || '').replace(/^@/, ''), subscribers: subs,
-    };
+    return ch ? ytChannelFromItem(ch) : null;
+}
+
+// Up to 50 channels per call (1 quota unit): channelId -> metadata
+async function ytFetchChannelsBatch(ids) {
+    const out = new Map();
+    for (let i = 0; i < ids.length; i += 50) {
+        const data = await ytApi('channels', { part: 'snippet,statistics', id: ids.slice(i, i + 50).join(','), maxResults: 50 });
+        if (!data) continue;
+        for (const ch of (data.items || [])) out.set(ch.id, ytChannelFromItem(ch));
+    }
+    return out;
 }
 
 function ytIsShort(iso) {
@@ -1737,14 +1757,18 @@ function ytIsShort(iso) {
 
 // Latest videos from the channel's uploads playlist (UC... -> UU...), with view counts.
 // Returns null if the API is unavailable so callers can fall back to RSS.
-async function ytFetchVideos(channelId, max = 50) {
+// max: 0/undefined = every video on the channel (up to VIDEOS_HARD_LIMIT as a runaway guard).
+// All-or-nothing: a failure part-way through returns null rather than a silently truncated list.
+const VIDEOS_HARD_LIMIT = parseInt(process.env.VIDEOS_HARD_LIMIT, 10) || 5000;
+async function ytFetchVideos(channelId, max) {
     if (!/^UC[a-zA-Z0-9_-]{22}$/.test(channelId || '')) return null;
+    const limit = Math.min(max > 0 ? max : Infinity, VIDEOS_HARD_LIMIT);
     const playlistId = 'UU' + channelId.slice(2);
     const ids = [];
     let pageToken = '';
-    while (ids.length < max) {
-        const page = await ytApi('playlistItems', { part: 'contentDetails', playlistId, maxResults: Math.min(50, max - ids.length), ...(pageToken ? { pageToken } : {}) });
-        if (!page) return ids.length ? await ytHydrate(ids) : null;
+    while (ids.length < limit) {
+        const page = await ytApi('playlistItems', { part: 'contentDetails', playlistId, maxResults: Math.min(50, limit - ids.length), ...(pageToken ? { pageToken } : {}) });
+        if (!page) return null;
         (page.items || []).forEach(i => { if (i.contentDetails && i.contentDetails.videoId) ids.push(i.contentDetails.videoId); });
         pageToken = page.nextPageToken || '';
         if (!pageToken) break;
@@ -1757,11 +1781,12 @@ async function ytHydrate(ids) {
     for (let i = 0; i < ids.length; i += 50) {
         const chunk = ids.slice(i, i + 50);
         const data = await ytApi('videos', { part: 'snippet,statistics,contentDetails', id: chunk.join(','), maxResults: 50 });
-        if (!data) { chunk.forEach(id => videos.push({ id, title: id, views: '0' })); continue; }
+        if (!data) return null; // never store placeholder titles
         const byId = new Map((data.items || []).map(v => [v.id, v]));
         for (const id of chunk) {
             const v = byId.get(id);
             if (!v) continue; // private / deleted
+            if (v.snippet && v.snippet.liveBroadcastContent === 'upcoming') continue; // scheduled premiere, not watchable yet
             const views = parseInt(v.statistics && v.statistics.viewCount, 10) || 0;
             const entry = { id, title: (v.snippet && v.snippet.title) || id, views: views > 0 ? views.toLocaleString('en-US') : '0' };
             if (ytIsShort(v.contentDetails && v.contentDetails.duration)) entry.short = true;
@@ -1773,9 +1798,11 @@ async function ytHydrate(ids) {
 
 // Video list for a channel: YouTube API first, RSS feed as fallback
 async function fetchYouTubeRSS(channelId, max) {
-    const api = await ytFetchVideos(channelId, max || 50);
+    const api = await ytFetchVideos(channelId, max);
     if (api) return api;
-    return fetchYouTubeRSSFeed(channelId);
+    const feed = await fetchYouTubeRSSFeed(channelId);
+    feed.partial = true; // only the latest few videos: callers must not treat this as the full list
+    return feed;
 }
 
 async function fetchYouTubeRSSFeed(channelId) {
@@ -2033,7 +2060,7 @@ app.post('/api/admin/add-creator', async (req, res) => {
         try { resolvedChannelId = await discoverChannelId(creatorId) || ''; } catch(e) {}
     }
 
-    const videos = resolvedChannelId ? await fetchYouTubeRSS(resolvedChannelId) : [];
+    const videos = resolvedChannelId ? await fetchYouTubeRSS(resolvedChannelId, VIDEOS_PER_CREATOR) : [];
     const creator = { id: creatorId, handle: cleanHandle, name: resolvedName, platform: 'youtube', channelUrl: resolvedChannelUrl, channelId: resolvedChannelId, avatar: resolvedAvatar, about: resolvedAbout, category: (category || 'Content Creator').trim(), subscribers: resolvedSubscribers || 'Unknown', videosJson: JSON.stringify(videos), videoCount: videos.length, addedAt: new Date().toISOString(), addedBy: email, managed: true };
     try {
         await firestore.setDoc('managed_creators', creatorId, creator);
@@ -2108,7 +2135,7 @@ app.post('/api/admin/bulk-migrate-creators', async (req, res) => {
                     const h = handle.replace(/^@/, '').toLowerCase();
                     const channelId = await discoverChannelId(h);
                     if (channelId) {
-                        const videos = await fetchYouTubeRSS(channelId);
+                        const videos = await fetchYouTubeRSS(channelId, VIDEOS_PER_CREATOR);
                         if (videos.length > 0) {
                             const stored = await firestore.getDoc('managed_creators', cid);
                             if (stored) await firestore.setDoc('managed_creators', cid, { ...stored, channelId, videosJson: JSON.stringify(videos), videoCount: videos.length, lastSynced: new Date().toISOString() });
@@ -2244,12 +2271,18 @@ async function buildCatalog() {
     return { creators, featuredIds: [..._featuredCreatorIds].filter(id => creators.some(c => c.id === id)) };
 }
 
+let _catalogMemo = { etag: '', raw: '', gz: null };
 app.get('/api/catalog', async (req, res) => {
     try {
         const body = JSON.stringify(await buildCatalog());
         const etag = '"' + crypto.createHash('sha1').update(body).digest('hex') + '"';
-        res.set({ 'ETag': etag, 'Cache-Control': 'public, max-age=30, stale-while-revalidate=300', 'Content-Type': 'application/json; charset=utf-8' });
+        res.set({ 'ETag': etag, 'Cache-Control': 'public, max-age=30, stale-while-revalidate=300', 'Content-Type': 'application/json; charset=utf-8', 'Vary': 'Accept-Encoding' });
         if (req.headers['if-none-match'] === etag) return res.status(304).end();
+        if (/\bgzip\b/.test(req.headers['accept-encoding'] || '')) {
+            if (_catalogMemo.etag !== etag) _catalogMemo = { etag, raw: body, gz: require('zlib').gzipSync(body) };
+            res.set('Content-Encoding', 'gzip');
+            return res.send(_catalogMemo.gz);
+        }
         res.send(body);
     } catch (e) {
         console.error('catalog failed:', e.message);
@@ -2261,34 +2294,66 @@ app.get('/api/catalog', async (req, res) => {
 // Writes to the store only when something actually changed.
 const CATALOG_SYNC_INTERVAL = 2 * 60 * 60 * 1000;
 let _catalogSync = null;
-const _catalogSyncStatus = { lastRunAt: null, lastDurationMs: 0, creators: 0, updated: 0, failed: 0 };
+const _catalogSyncStatus = { lastRunAt: null, lastDurationMs: 0, creators: 0, updated: 0, failed: 0, failures: [], profileChanges: [], countChecks: [] };
 
 function syncCatalogVideos() {
     if (_catalogSync) return _catalogSync;
     _catalogSync = (async () => {
         const t0 = Date.now();
         let updated = 0, failed = 0, total = 0;
+        const failures = [], profileChanges = [], countChecks = [];
         try {
             const all = visibleCreators(await getManagedCreators());
             total = all.length;
+            // Resolve channel IDs first, then fetch every channel's profile + stats in one batched call
+            for (const c of all) {
+                if (c.channelId) continue;
+                try { c.channelId = (await discoverChannelId(c.handle || ('@' + c.id))) || ''; } catch (e) {}
+            }
+            const profiles = await ytFetchChannelsBatch(all.map(c => c.channelId).filter(Boolean));
             const sig = vs => (vs || []).map(v => `${v.id}|${v.title}|${v.views}|${v.short ? 1 : 0}`).join('\n');
             for (const c of all) {
                 try {
                     const channelId = c.channelId || await discoverChannelId(c.handle || ('@' + c.id));
-                    if (!channelId) { failed++; continue; }
-                    const videos = await fetchYouTubeRSS(channelId, VIDEOS_PER_CREATOR);
+                    if (!channelId) { failed++; failures.push({ id: c.id, reason: 'no channel id' }); continue; }
+                    let videos = await fetchYouTubeRSS(channelId, VIDEOS_PER_CREATOR);
                     // A transient empty result must never wipe a creator's existing videos
-                    if (!Array.isArray(videos) || (videos.length === 0 && (c.videos || []).length > 0)) { failed++; continue; }
-                    if (sig(videos) === sig(c.videos) && c.channelId === channelId) continue;
+                    if (!Array.isArray(videos) || (videos.length === 0 && (c.videos || []).length > 0)) { failed++; failures.push({ id: c.id, channelId, reason: 'YouTube returned no videos (' + (_yt.lastError || 'API unavailable, RSS empty') + ')' }); continue; }
+                    // RSS fallback only knows the latest few videos: add/refresh those, keep the rest of the existing list
+                    if (videos.partial && (c.videos || []).length) {
+                        const fresh = new Set(videos.map(v => v.id));
+                        videos = [...videos, ...c.videos.filter(v => !fresh.has(v.id))];
+                    }
+                    // Channel profile straight from YouTube: name, avatar, about, subscribers, handle
+                    const m = profiles.get(channelId);
+                    const patch = {};
+                    if (m) {
+                        if (m.name && m.name !== c.name) patch.name = m.name;
+                        if (m.avatar && m.avatar !== c.avatar) patch.avatar = m.avatar;
+                        if (m.about !== (c.about || '') && m.about !== undefined) patch.about = m.about;
+                        if (m.subscribers && m.subscribers !== c.subscribers) patch.subscribers = m.subscribers; // hidden counts keep the last known value
+                        if (m.customUrl && ('@' + m.customUrl).toLowerCase() !== (c.handle || '').toLowerCase()) {
+                            patch.handle = '@' + m.customUrl;
+                            patch.channelUrl = 'https://youtube.com/@' + m.customUrl;
+                        }
+                        // Accuracy check: how many public videos YouTube says exist vs how many we list
+                        if (m.videoCount && !VIDEOS_PER_CREATOR && Math.abs(m.videoCount - videos.length) > 0) countChecks.push({ id: c.id, youtube: m.videoCount, catalog: videos.length });
+                    } else if (ytEnabled() && !videos.partial) {
+                        failures.push({ id: c.id, channelId, reason: 'YouTube did not return a profile for this channel (deleted, terminated or wrong id?)' });
+                    }
+                    const profileChanged = Object.keys(patch).length > 0;
+                    if (sig(videos) === sig(c.videos) && c.channelId === channelId && !profileChanged) continue;
+                    if (profileChanged) profileChanges.push({ id: c.id, fields: Object.keys(patch) });
                     const { videos: _old, ...rest } = c;
-                    await firestore.setDoc('managed_creators', c.id, { ...rest, channelId, videosJson: JSON.stringify(videos), videoCount: videos.length, lastSynced: new Date().toISOString() });
+                    await firestore.setDoc('managed_creators', c.id, { ...rest, ...patch, channelId, videosJson: JSON.stringify(videos), videoCount: videos.length, lastSynced: new Date().toISOString() });
+                    Object.assign(c, patch);
                     c.videos = videos; c.channelId = channelId; // the cached object is shared, so the catalog updates immediately
                     updated++;
-                } catch (e) { failed++; console.warn(`catalog sync ${c.id}: ${e.message}`); }
+                } catch (e) { failed++; failures.push({ id: c.id, reason: e.message }); console.warn(`catalog sync ${c.id}: ${e.message}`); }
                 await new Promise(r => setTimeout(r, 250));
             }
         } catch (e) { console.warn('catalog sync aborted:', e.message); failed++; }
-        Object.assign(_catalogSyncStatus, { lastRunAt: new Date().toISOString(), lastDurationMs: Date.now() - t0, creators: total, updated, failed });
+        Object.assign(_catalogSyncStatus, { lastRunAt: new Date().toISOString(), lastDurationMs: Date.now() - t0, creators: total, updated, failed, failures, profileChanges, countChecks });
         console.log(`Catalog sync: ${total} creators, ${updated} updated, ${failed} failed in ${Date.now() - t0}ms`);
     })().finally(() => { _catalogSync = null; });
     return _catalogSync;
@@ -2326,7 +2391,7 @@ app.post('/api/admin/sync-catalog', async (req, res) => {
 });
 app.get('/api/admin/catalog-status', (req, res) => {
     if (!ADMIN_EMAILS.includes((req.query.email || '').toLowerCase())) return res.status(403).json({ error: 'Unauthorized' });
-    res.json({ ..._catalogSyncStatus, syncing: !!_catalogSync, videosPerCreator: VIDEOS_PER_CREATOR });
+    res.json({ ..._catalogSyncStatus, syncing: !!_catalogSync, videosPerCreator: VIDEOS_PER_CREATOR || 'all' });
 });
 
 // ── Compatibility for pages cached before the catalog existed (safe to delete later) ──
@@ -2352,7 +2417,13 @@ app.post('/api/admin/refresh-creator-videos', async (req, res) => {
             channelId = await discoverChannelId(creator.handle) || '';
         }
         if (!channelId) return res.status(400).json({ error: 'Could not discover Channel ID for this creator. Try again in a moment.' });
-        const videos = await fetchYouTubeRSS(channelId);
+        let videos = await fetchYouTubeRSS(channelId, VIDEOS_PER_CREATOR);
+        if (videos.partial && creator.videosJson) {
+            // API unavailable: RSS only knows the latest few videos, so keep the rest of the stored list
+            let existing = []; try { existing = JSON.parse(creator.videosJson); } catch {}
+            const fresh = new Set(videos.map(v => v.id));
+            videos = [...videos, ...existing.filter(v => !fresh.has(v.id))];
+        }
         await firestore.setDoc('managed_creators', creatorId, { ...creator, channelId, videosJson: JSON.stringify(videos), videoCount: videos.length, lastSynced: new Date().toISOString() });
         invalidateCreatorsCache();
         res.json({ success: true, videosFound: videos.length });
@@ -2614,8 +2685,9 @@ for (const [creatorId, handle] of Object.entries(BUILTIN_CHANNEL_HANDLES)) {
     if (handle && CHANNEL_IDS[creatorId]) BUILTIN_CHANNEL_IDS_BY_HANDLE[handle.toLowerCase()] = CHANNEL_IDS[creatorId];
 }
 
-// Tasks offered per creator = most recent N videos. Each task pays out, so this directly sets payout exposure.
-const VIDEOS_PER_CREATOR = parseInt(process.env.VIDEOS_PER_CREATOR, 10) || 50;
+// Videos offered per creator. 0 (default) = every video on the channel so counts are accurate.
+// Set VIDEOS_PER_CREATOR=N in Railway to cap it at the latest N. Each task pays out, so this sets payout exposure.
+const VIDEOS_PER_CREATOR = parseInt(process.env.VIDEOS_PER_CREATOR, 10) || 0;
 
 // Old clients still call this; it now just reads the catalog (no scraping, no YouTube requests per visit).
 app.get('/api/sync-videos', async (req, res) => {
