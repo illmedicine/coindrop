@@ -1,4 +1,4 @@
-const CACHE_NAME = 'coindrop-v3';
+const CACHE_NAME = 'coindrop-v4';
 const PRECACHE = [
   '/',
   '/login',
