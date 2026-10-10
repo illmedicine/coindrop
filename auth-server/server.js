@@ -72,6 +72,25 @@ const firestoreRest = {
             id: r.document.name.split('/').pop(),
             ...parseFirestoreDoc(r.document.fields || {})
         }));
+    },
+    // Every doc in a collection, paginating through Firestore's pageToken until exhausted.
+    async listAll(collection, pageSize = 300) {
+        const out = [];
+        let pageToken = null;
+        do {
+            let url = `${FIRESTORE_URL}/${collection}?key=${FIREBASE_API_KEY}&pageSize=${pageSize}`;
+            if (pageToken) url += `&pageToken=${encodeURIComponent(pageToken)}`;
+            const data = await httpGet(url);
+            let parsed;
+            try { parsed = JSON.parse(data); } catch { throw new Error('Firestore returned a non-JSON response'); }
+            if (checkThrottle(parsed)) throw new Error('Firestore quota exceeded');
+            if (parsed.error) throw new Error(parsed.error.message || parsed.error.status || 'Firestore error');
+            for (const doc of (parsed.documents || [])) {
+                out.push({ id: doc.name.split('/').pop(), ...parseFirestoreDoc(doc.fields || {}) });
+            }
+            pageToken = parsed.nextPageToken || null;
+        } while (pageToken);
+        return out;
     }
 };
 
@@ -80,6 +99,15 @@ const firestoreRest = {
 // Postgres. Everything else - and everything when DATABASE_URL is absent -
 // stays on Firestore, so the app behaves exactly as before until Postgres is added.
 const pgStore = require('./db').create(process.env.DATABASE_URL);
+// NOTE: tasks/users/stats/cooldowns are slated to move here too (Firestore's
+// free-tier daily read quota keeps getting exhausted, which silently breaks
+// the leaderboard, platform stats ticker, and earnings banner — they fall back
+// to stale/baseline placeholder numbers whenever Firestore returns 429
+// RESOURCE_EXHAUSTED). Not flipped yet: that requires running
+// /api/admin/migrate-storage first to copy the existing data across, and that
+// migration itself needs to *read* Firestore — which is currently the thing
+// that's quota-exhausted. Add them here only right before running that
+// migration, not before, or every lookup momentarily sees an empty table.
 const PG_COLLECTIONS = new Set(['config', 'managed_creators', 'notifications', 'referrals']);
 const backendFor = (collection) => (pgStore && PG_COLLECTIONS.has(collection)) ? pgStore : firestoreRest;
 const firestore = {
@@ -88,6 +116,7 @@ const firestore = {
     addDoc: (c, fields) => backendFor(c).addDoc(c, fields),
     deleteDoc: (c, id) => backendFor(c).deleteDoc(c, id),
     query: (c, f, op, v, o, l) => backendFor(c).query(c, f, op, v, o, l),
+    listAll: (c, pageSize) => backendFor(c).listAll(c, pageSize),
 };
 if (pgStore) pgStore.init().catch(e => console.error('Postgres init failed:', e.message));
 
@@ -861,19 +890,9 @@ app.get('/api/admin/unpaid-tasks', async (req, res) => {
         // Try Firestore first, fall back to cache if throttled
         let allTasks = [];
         if (!_firestoreThrottled) {
-            let nextPageToken = null;
-            do {
-                let url = `${FIRESTORE_URL}/tasks?key=${FIREBASE_API_KEY}&pageSize=300`;
-                if (nextPageToken) url += `&pageToken=${nextPageToken}`;
-                const listData = await httpGet(url);
-                const parsed = JSON.parse(listData);
-                if (checkThrottle(parsed)) break;
-                if (!parsed.documents) break;
-                for (const doc of parsed.documents) {
-                    allTasks.push({ ...parseFirestoreDoc(doc.fields || {}), docId: doc.name.split('/').pop() });
-                }
-                nextPageToken = parsed.nextPageToken || null;
-            } while (nextPageToken);
+            try {
+                allTasks = (await firestore.listAll('tasks')).map(d => ({ ...d, docId: d.id }));
+            } catch (e) { console.warn('Admin unpaid-tasks listAll error:', e.message); }
         }
         if (allTasks.length > 0) {
             cache.tasks = allTasks.map(t => ({ ...t, _docId: t.docId }));
@@ -937,19 +956,9 @@ app.get('/api/admin/all-tasks', async (req, res) => {
     try {
         let allTasks = [];
         if (!_firestoreThrottled) {
-            let nextPageToken = null;
-            do {
-                let url = `${FIRESTORE_URL}/tasks?key=${FIREBASE_API_KEY}&pageSize=300`;
-                if (nextPageToken) url += `&pageToken=${nextPageToken}`;
-                const listData = await httpGet(url);
-                const parsed = JSON.parse(listData);
-                if (checkThrottle(parsed)) break;
-                if (!parsed.documents) break;
-                for (const doc of parsed.documents) {
-                    allTasks.push({ ...parseFirestoreDoc(doc.fields || {}), docId: doc.name.split('/').pop() });
-                }
-                nextPageToken = parsed.nextPageToken || null;
-            } while (nextPageToken);
+            try {
+                allTasks = (await firestore.listAll('tasks')).map(d => ({ ...d, docId: d.id }));
+            } catch (e) { console.warn('Admin all-tasks listAll error:', e.message); }
         }
         if (allTasks.length === 0 && cache.tasks.length > 0) {
             allTasks = cache.tasks.map(t => ({ ...t, docId: t._docId || t.docId }));
@@ -1032,30 +1041,11 @@ app.post('/api/admin/retry-payout', async (req, res) => {
         const taskDoc = await firestore.getDoc('tasks', docId);
         const treasuryKey = decryptPrivateKey(TREASURY_PRIVATE_KEY_ENCRYPTED, TREASURY_ENCRYPTION_KEY);
         const txSignature = await sendSolPayment(treasuryKey, walletAddress, parseFloat(rewardSOL));
-        const TASKS_URL = `${FIRESTORE_URL}/tasks/${docId}?key=${FIREBASE_API_KEY}&updateMask.fieldPaths=txSignature&updateMask.fieldPaths=payoutSuccess&updateMask.fieldPaths=retryTimestamp`;
-        const patchData = JSON.stringify({
-            fields: {
-                txSignature: { stringValue: txSignature },
-                payoutSuccess: { booleanValue: true },
-                retryTimestamp: { stringValue: new Date().toISOString() },
-            }
-        });
-        await new Promise((resolve, reject) => {
-            const url = new URL(TASKS_URL);
-            const patchReq = https.request({
-                hostname: url.hostname,
-                path: url.pathname + url.search,
-                method: 'PATCH',
-                headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(patchData) },
-            }, (patchRes) => {
-                let body = '';
-                patchRes.on('data', c => body += c);
-                patchRes.on('end', () => resolve(body));
-            });
-            patchReq.on('error', reject);
-            patchReq.write(patchData);
-            patchReq.end();
-        });
+        const retryTimestamp = new Date().toISOString();
+        // Full-document replace (not a partial patch) — matters once this collection
+        // moves to Postgres, where setDoc always replaces the whole JSONB row. Merge
+        // onto the doc we already fetched so we don't drop its other fields.
+        await firestore.setDoc('tasks', docId, { ...(taskDoc || {}), txSignature, payoutSuccess: true, retryTimestamp });
         // Update in-memory cache so unpaid count and ticker stats update immediately
         const cacheEntry = cache.tasks.find(t => (t._docId || t.docId) === docId);
         if (cacheEntry) { cacheEntry.txSignature = txSignature; cacheEntry.payoutSuccess = true; cacheEntry.retryTimestamp = new Date().toISOString(); }
@@ -1084,20 +1074,9 @@ app.post('/api/admin/retry-all', async (req, res) => {
         if (cache.tasks.length > 0) {
             allTasks = cache.tasks.map(t => ({ ...t, docId: t._docId || t.docId }));
         } else {
-            let fetched = [];
-            let nextPageToken = null;
-            do {
-                let url = `${FIRESTORE_URL}/tasks?key=${FIREBASE_API_KEY}&pageSize=300`;
-                if (nextPageToken) url += `&pageToken=${nextPageToken}`;
-                const listData = await httpGet(url);
-                const parsed = JSON.parse(listData);
-                if (!parsed.documents) break;
-                for (const doc of parsed.documents) {
-                    fetched.push({ ...parseFirestoreDoc(doc.fields || {}), docId: doc.name.split('/').pop() });
-                }
-                nextPageToken = parsed.nextPageToken || null;
-            } while (nextPageToken);
-            allTasks = fetched;
+            try {
+                allTasks = (await firestore.listAll('tasks')).map(d => ({ ...d, docId: d.id }));
+            } catch (e) { console.warn('Retry-all listAll error:', e.message); allTasks = []; }
         }
 
         // Find eligible unpaid tasks — dedup subscribe, same-day watch/like
@@ -1147,12 +1126,14 @@ app.post('/api/admin/retry-all', async (req, res) => {
                     sendSolPayment(treasuryKey, group.wallet, group.totalSOL),
                     new Promise((_, reject) => setTimeout(() => reject(new Error('Solana RPC timeout')), 30000))
                 ]);
-                // Mark ALL tasks for this wallet as paid
+                // Mark ALL tasks for this wallet as paid. Full-document replace
+                // (merge onto the task object we already have in hand) rather than
+                // a partial patch — matters once this collection moves to Postgres.
                 for (const t of group.tasks) {
                     try {
-                        const TASKS_URL = `${FIRESTORE_URL}/tasks/${t.docId}?key=${FIREBASE_API_KEY}&updateMask.fieldPaths=txSignature&updateMask.fieldPaths=payoutSuccess&updateMask.fieldPaths=retryTimestamp`;
-                        const patchBody = JSON.stringify({ fields: { txSignature: { stringValue: txSig }, payoutSuccess: { booleanValue: true }, retryTimestamp: { stringValue: new Date().toISOString() } } });
-                        await httpPatch(TASKS_URL, patchBody);
+                        const { docId, _docId, ...taskFields } = t;
+                        const retryTimestamp = new Date().toISOString();
+                        await firestore.setDoc('tasks', docId, { ...taskFields, txSignature: txSig, payoutSuccess: true, retryTimestamp });
                         const ce = cache.tasks.find(c => (c._docId || c.docId) === t.docId);
                         if (ce) { ce.txSignature = txSig; ce.payoutSuccess = true; }
                     } catch(e) { console.warn('Task patch error:', t.docId, e.message); }
@@ -1337,21 +1318,9 @@ async function refreshAllData() {
     console.log('Refreshing task data from Firestore...');
     try {
         let allTasks = [];
-        let nextPageToken = null;
-        do {
-            let url = `${FIRESTORE_URL}/tasks?key=${FIREBASE_API_KEY}&pageSize=300`;
-            if (nextPageToken) url += `&pageToken=${nextPageToken}`;
-            const listData = await httpGet(url);
-            const parsed = JSON.parse(listData);
-            if (checkThrottle(parsed)) break;
-            if (parsed.error) { console.warn('Firestore error during refresh:', parsed.error.message); break; }
-            if (parsed.documents && Array.isArray(parsed.documents)) {
-                for (const doc of parsed.documents) {
-                    allTasks.push({ ...parseFirestoreDoc(doc.fields || {}), _docId: doc.name.split('/').pop() });
-                }
-            }
-            nextPageToken = parsed.nextPageToken || null;
-        } while (nextPageToken);
+        try {
+            allTasks = (await firestore.listAll('tasks')).map(d => ({ ...d, _docId: d.id }));
+        } catch (e) { console.warn('Firestore error during refresh:', e.message); }
 
         if (allTasks.length === 0) { cache.refreshing = false; return; }
         cache.tasks = allTasks;
@@ -2533,15 +2502,14 @@ app.get('/api/leaderboard', async (req, res) => {
             }
         }
     } catch(e) {}
-    // Still empty — build from stats collection directly (1 doc per user, cheap)
+    // Still empty — build from the full stats collection directly (1 doc per user, cheap)
     try {
-        const listData = await httpGet(`${FIRESTORE_URL}/stats?key=${FIREBASE_API_KEY}&pageSize=50`);
-        const parsed = JSON.parse(listData);
-        if (parsed.documents && Array.isArray(parsed.documents)) {
+        const statsDocs = await firestore.listAll('stats');
+        if (statsDocs.length > 0) {
             const leaders = [];
-            for (const doc of parsed.documents) {
-                const uid = doc.name.split('/').pop();
-                const data = parseFirestoreDoc(doc.fields || {});
+            for (const doc of statsDocs) {
+                const uid = doc.id;
+                const data = doc;
                 let name = uid.substring(0, 8), avatar = null, email = null;
                 try {
                     const u = await firestore.getDoc('users', uid);
