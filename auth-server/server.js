@@ -32,6 +32,14 @@ const firestoreRest = {
             return parseFirestoreDoc(parsed.fields || {});
         } catch { return null; }
     },
+    // true / false / null (unknown: quota, outage, bad response). Only false means "does not exist".
+    async exists(collection, docId) {
+        try {
+            const parsed = JSON.parse(await httpGet(`${FIRESTORE_URL}/${collection}/${docId}?key=${FIREBASE_API_KEY}`));
+            if (parsed.error) return (parsed.error.code === 404 || parsed.error.status === 'NOT_FOUND') ? false : null;
+            return !!parsed.name;
+        } catch { return null; }
+    },
     async setDoc(collection, docId, fields) {
         const body = JSON.stringify({ fields: toFirestoreFields(fields) });
         return httpPatch(`${FIRESTORE_URL}/${collection}/${docId}?key=${FIREBASE_API_KEY}`, body);
@@ -295,6 +303,14 @@ app.get('/auth/discord/callback', async (req, res) => {
             activeSubscriptions: 0,
             activeFollows: 0,
         };
+
+        // Real presence: a user is "new" only if Firestore positively says their profile doesn't exist yet
+        try {
+            const existed = await firestoreRest.exists('users', user.id);
+            const country = await countryForIp(clientIp(req));
+            if (country) presenceCountry.set(user.id, country);
+            if (existed === false) noteUserJoined(user.id, userData.displayName, country);
+        } catch (e) { console.warn('Presence join check skipped:', e.message); }
 
         // Save user profile to Firestore (avatar, displayName)
         try {
@@ -748,51 +764,51 @@ app.get('/api/admin/check', (req, res) => {
 const EP_DEFAULT = { daily: 22.40, sub: 0.85, residual: 0.17, network: '17 creators · 640 videos' };
 let cachedEarningsPotential = EP_DEFAULT;
 
-// Load persisted EP on startup
+// Last computed value is persisted so a restart serves it immediately instead of a default
 (async function loadEP() {
     try {
         const existing = await firestore.getDoc('config', 'earningsPotential');
-        if (existing && existing.daily >= EP_DEFAULT.daily) cachedEarningsPotential = existing;
+        if (existing && existing.daily > 0) cachedEarningsPotential = existing;
     } catch(e) {}
 })();
 
-app.get('/api/earnings-potential', (req, res) => {
+// Computed on the server from the catalog (the same lists users see): one source of truth, no warm-up needed.
+async function computeEarningsPotential() {
+    let creators;
+    try { creators = visibleCreators(await getManagedCreators()); } catch { return null; }
+    const totalCreators = creators.length;
+    const totalVideos = creators.reduce((n, c) => n + (c.videos || []).length, 0);
+    if (!totalCreators || !totalVideos) return null;
+    return {
+        daily: parseFloat(((totalVideos * 0.01) + (totalVideos * 0.005) + (totalVideos * 0.05)).toFixed(2)),
+        sub: parseFloat((totalCreators * 0.05).toFixed(2)),
+        residual: parseFloat((totalCreators * 0.01).toFixed(2)),
+        network: `${totalCreators} creators · ${totalVideos} videos`,
+        totalCreators, totalVideos,
+        updatedAt: new Date().toISOString(),
+    };
+}
+
+async function refreshEarningsPotential() {
+    const computed = await computeEarningsPotential();
+    if (!computed) return cachedEarningsPotential;
+    const changed = computed.daily !== cachedEarningsPotential.daily || computed.network !== cachedEarningsPotential.network;
+    cachedEarningsPotential = computed;
+    if (changed) firestore.setDoc('config', 'earningsPotential', computed).catch(() => {});
+    return computed;
+}
+
+app.get('/api/earnings-potential', async (req, res) => {
+    try { await refreshEarningsPotential(); } catch(e) {}
+    res.set('Cache-Control', 'public, max-age=15');
     res.json(cachedEarningsPotential);
 });
 
-// Client reports actual video/creator counts so server can persist the highest earning potential
+// Kept for older cached clients that still report counts. Client-reported numbers are NOT trusted
+// (anyone could post huge counts and permanently inflate the figure) - always returns the server value.
 app.post('/api/earnings-potential/update', async (req, res) => {
-    const { totalVideos, totalCreators } = req.body;
-    if (!totalVideos || !totalCreators) return res.status(400).json({ error: 'Missing counts' });
-
-    const dailyUSD = (totalVideos * 0.01) + (totalVideos * 0.005) + (totalVideos * 0.05);
-    const subOnetime = totalCreators * 0.05;
-    const monthlyResidual = totalCreators * 0.01;
-
-    const newData = {
-        daily: parseFloat(dailyUSD.toFixed(2)),
-        sub: parseFloat(subOnetime.toFixed(2)),
-        residual: parseFloat(monthlyResidual.toFixed(2)),
-        network: `${totalCreators} creators · ${totalVideos} videos`,
-        totalCreators,
-        totalVideos,
-        updatedAt: new Date().toISOString(),
-    };
-
-    // Keep the highest daily value ever seen
-    try {
-        const existing = await firestore.getDoc('config', 'earningsPotential');
-        if (existing && existing.daily > newData.daily) {
-            newData.daily = existing.daily;
-            newData.sub = Math.max(newData.sub, existing.sub || 0);
-            newData.residual = Math.max(newData.residual, existing.residual || 0);
-        }
-    } catch(e) {}
-
-    cachedEarningsPotential = newData;
-    try { await firestore.setDoc('config', 'earningsPotential', newData); } catch(e) {}
-
-    res.json(newData);
+    try { await refreshEarningsPotential(); } catch(e) {}
+    res.json(cachedEarningsPotential);
 });
 
 // ===== Treasury Balance Check =====
@@ -1788,8 +1804,6 @@ async function fetchYouTubeRSSFeed(channelId) {
 let _channelIds = {};          // handle (no @) → channelId, persisted to Firestore
 let _removedCreatorIds = new Set(); // loaded from Firestore on boot
 let _featuredCreatorIds = new Set(); // loaded from Firestore on boot
-const _viewCountCache = { data: {}, updatedAt: 0 };
-let _vcRefreshing = false;
 
 // Load persisted state on boot (non-blocking)
 (async () => {
@@ -1934,26 +1948,6 @@ async function fetchChannelMetadata(handle) {
     }
 }
 
-// Background: refresh view counts for all provided handles (throttled, non-blocking)
-async function refreshViewCounts(handles) {
-    if (_vcRefreshing || !handles.length) return;
-    _vcRefreshing = true;
-    console.log(`Refreshing view counts for ${handles.length} creators...`);
-    let updated = 0;
-    for (const handle of handles) {
-        try {
-            const channelId = await discoverChannelId(handle);
-            if (!channelId) { await new Promise(r => setTimeout(r, 150)); continue; }
-            const videos = await fetchYouTubeRSS(channelId);
-            videos.forEach(v => { if (v.id && v.views !== '0') { _viewCountCache.data[v.id] = v.views; updated++; } });
-        } catch(e) { console.warn(`viewCount refresh(${handle}): ${e.message}`); }
-        await new Promise(r => setTimeout(r, 200)); // 200ms throttle between channels
-    }
-    _viewCountCache.updatedAt = Date.now();
-    _vcRefreshing = false;
-    console.log(`View count refresh done — ${updated} videos updated, ${Object.keys(_viewCountCache.data).length} total cached`);
-}
-
 // ── Managed-creators cache ──────────────────────────────────────────────────
 // One shared in-memory copy of managed_creators. Public endpoints read from it
 // (zero Firestore reads on a hit); admin writes call invalidateCreatorsCache().
@@ -2058,7 +2052,7 @@ app.post('/api/admin/remove-creator', async (req, res) => {
     if (!ADMIN_EMAILS.includes((email || '').toLowerCase())) return res.status(403).json({ error: 'Unauthorized' });
     if (!creatorId) return res.status(400).json({ error: 'creatorId required' });
     try {
-        if (isManaged) { await firestore.deleteDoc('managed_creators', creatorId); invalidateCreatorsCache(); }
+        // Soft remove: the doc stays so Restore can bring the creator back; the catalog just hides removed ids
         _removedCreatorIds.add(creatorId);
         await firestore.setDoc('config', 'removedCreators', { idsJson: JSON.stringify([..._removedCreatorIds]) });
         res.json({ success: true });
@@ -2083,7 +2077,8 @@ app.get('/api/creators/removed', (req, res) => {
 app.post('/api/admin/bulk-migrate-creators', async (req, res) => {
     const { email, creators } = req.body;
     if (!ADMIN_EMAILS.includes((email || '').toLowerCase())) return res.status(403).json({ error: 'Unauthorized' });
-    const toProcess = Array.isArray(creators) ? creators : [];
+    let toProcess = Array.isArray(creators) ? creators : [];
+    if (toProcess.length === 0) { try { toProcess = require('./seed-creators.json'); } catch {} }
     let migrated = 0, skipped = 0;
     try {
         const existing = await firestore.query('managed_creators', null, null, null, null, 200);
@@ -2237,49 +2232,119 @@ app.get('/api/creators/featured', (req, res) => {
     res.json({ featuredIds: [..._featuredCreatorIds] });
 });
 
-// Returns cached view counts immediately (stale-while-revalidate)
-app.get('/api/creators/view-counts', async (req, res) => {
-    res.set('Cache-Control', 'public, max-age=300');
-    res.json({ counts: _viewCountCache.data, updatedAt: _viewCountCache.updatedAt });
-    const FOUR_HOURS = 4 * 60 * 60 * 1000;
-    if (Date.now() - _viewCountCache.updatedAt > FOUR_HOURS && !_vcRefreshing) {
-        setImmediate(async () => {
-            try {
-                const docs = await getManagedCreators();
-                const handles = docs.filter(d => d.handle).map(d => d.handle);
-                await refreshViewCounts(handles);
-            } catch(e) { _vcRefreshing = false; }
-        });
+// ── Catalog: the single source of truth the website reads ───────────────────
+// Creators + their video lists live in managed_creators and are refreshed by a scheduled job
+// (never per visitor). The site makes one cached request, so everyone sees the same data.
+function visibleCreators(all) { return all.filter(c => !_removedCreatorIds.has(c.id)); }
+
+async function buildCatalog() {
+    const all = await getManagedCreators();
+    const creators = visibleCreators(all).map(c => ({
+        id: c.id, handle: c.handle, name: c.name, platform: c.platform || 'youtube',
+        avatar: c.avatar || '', channelUrl: c.channelUrl || '', about: c.about || '',
+        category: c.category || 'Content Creator', subscribers: c.subscribers || 'Unknown',
+        channelId: c.channelId || '', addedAt: c.addedAt || '',
+        videos: c.videos || [],
+    }));
+    return { creators, featuredIds: [..._featuredCreatorIds].filter(id => creators.some(c => c.id === id)) };
+}
+
+app.get('/api/catalog', async (req, res) => {
+    try {
+        const body = JSON.stringify(await buildCatalog());
+        const etag = '"' + crypto.createHash('sha1').update(body).digest('hex') + '"';
+        res.set({ 'ETag': etag, 'Cache-Control': 'public, max-age=30, stale-while-revalidate=300', 'Content-Type': 'application/json; charset=utf-8' });
+        if (req.headers['if-none-match'] === etag) return res.status(304).end();
+        res.send(body);
+    } catch (e) {
+        console.error('catalog failed:', e.message);
+        res.status(503).json({ error: 'Catalog temporarily unavailable' });
     }
 });
 
-// Frontend registers its creator handles so server can discover channel IDs + prime view-count cache
-app.post('/api/creators/register-handles', (req, res) => {
-    res.json({ ok: true }); // Always respond immediately
-    // Unauthenticated endpoint: never scrape arbitrary client-supplied handles.
-    // Only handles the server already knows about (managed + built-in) are processed.
-    const requested = Array.isArray(req.body && req.body.handles) ? req.body.handles : [];
-    if (requested.length === 0) return;
-    setImmediate(async () => {
-        let known;
+// Scheduled sync: refresh every visible creator's videos from YouTube (API, RSS fallback).
+// Writes to the store only when something actually changed.
+const CATALOG_SYNC_INTERVAL = 2 * 60 * 60 * 1000;
+let _catalogSync = null;
+const _catalogSyncStatus = { lastRunAt: null, lastDurationMs: 0, creators: 0, updated: 0, failed: 0 };
+
+function syncCatalogVideos() {
+    if (_catalogSync) return _catalogSync;
+    _catalogSync = (async () => {
+        const t0 = Date.now();
+        let updated = 0, failed = 0, total = 0;
         try {
-            known = new Set([...(await getManagedCreators()).map(c => c.handle), ...Object.values(BUILTIN_CHANNEL_HANDLES).filter(Boolean).map(h => '@' + h)]
-                .map(h => (h || '').toLowerCase()));
-        } catch { known = new Set(Object.values(BUILTIN_CHANNEL_HANDLES).filter(Boolean).map(h => ('@' + h).toLowerCase())); }
-        const handles = requested.filter(h => known.has(String(h || '').toLowerCase())).slice(0, 100);
-        if (handles.length === 0) return;
-        const FOUR_HOURS = 4 * 60 * 60 * 1000;
-        if (Date.now() - _viewCountCache.updatedAt > FOUR_HOURS && !_vcRefreshing) {
-            await refreshViewCounts(handles);
-        } else {
-            // Just discover IDs for unknown handles (future refreshes will use them)
-            for (const h of handles.filter(h => !_channelIds[(h || '').replace(/^@/, '').toLowerCase()])) {
-                await discoverChannelId(h);
-                await new Promise(r => setTimeout(r, 150));
+            const all = visibleCreators(await getManagedCreators());
+            total = all.length;
+            const sig = vs => (vs || []).map(v => `${v.id}|${v.title}|${v.views}|${v.short ? 1 : 0}`).join('\n');
+            for (const c of all) {
+                try {
+                    const channelId = c.channelId || await discoverChannelId(c.handle || ('@' + c.id));
+                    if (!channelId) { failed++; continue; }
+                    const videos = await fetchYouTubeRSS(channelId, VIDEOS_PER_CREATOR);
+                    // A transient empty result must never wipe a creator's existing videos
+                    if (!Array.isArray(videos) || (videos.length === 0 && (c.videos || []).length > 0)) { failed++; continue; }
+                    if (sig(videos) === sig(c.videos) && c.channelId === channelId) continue;
+                    const { videos: _old, ...rest } = c;
+                    await firestore.setDoc('managed_creators', c.id, { ...rest, channelId, videosJson: JSON.stringify(videos), videoCount: videos.length, lastSynced: new Date().toISOString() });
+                    c.videos = videos; c.channelId = channelId; // the cached object is shared, so the catalog updates immediately
+                    updated++;
+                } catch (e) { failed++; console.warn(`catalog sync ${c.id}: ${e.message}`); }
+                await new Promise(r => setTimeout(r, 250));
             }
-        }
-    });
+        } catch (e) { console.warn('catalog sync aborted:', e.message); failed++; }
+        Object.assign(_catalogSyncStatus, { lastRunAt: new Date().toISOString(), lastDurationMs: Date.now() - t0, creators: total, updated, failed });
+        console.log(`Catalog sync: ${total} creators, ${updated} updated, ${failed} failed in ${Date.now() - t0}ms`);
+        try { await refreshEarningsPotential(); } catch (e) {}
+    })().finally(() => { _catalogSync = null; });
+    return _catalogSync;
+}
+
+// Disaster recovery: if the store is reachable but a built-in creator is missing (and not hidden), re-create it
+// from the bundled seed (profile data only; videos come from the sync below).
+async function seedMissingCreators() {
+    let seed;
+    try { seed = require('./seed-creators.json'); } catch { return 0; }
+    let existing;
+    try { existing = new Set((await getManagedCreators()).map(c => c.id)); } catch { return 0; } // store down: don't guess
+    let seeded = 0;
+    for (const c of seed) {
+        if (existing.has(c.id) || _removedCreatorIds.has(c.id)) continue;
+        await firestore.setDoc('managed_creators', c.id, { ...c, channelId: CHANNEL_IDS[c.id] || '', videosJson: '[]', videoCount: 0, addedAt: new Date().toISOString(), managed: true, migratedFrom: 'seed' });
+        seeded++;
+    }
+    if (seeded) { invalidateCreatorsCache(); console.log(`Seeded ${seeded} missing built-in creators`); }
+    return seeded;
+}
+
+setTimeout(async () => {
+    try { await seedMissingCreators(); } catch (e) { console.warn('seed failed:', e.message); }
+    syncCatalogVideos().catch(() => {});
+}, 15000);
+setInterval(() => syncCatalogVideos().catch(() => {}), CATALOG_SYNC_INTERVAL).unref();
+
+// Admin: run the sync now / see when it last ran
+app.post('/api/admin/sync-catalog', async (req, res) => {
+    const email = ((req.body && req.body.email) || '').toLowerCase();
+    if (!ADMIN_EMAILS.includes(email)) return res.status(403).json({ error: 'Unauthorized' });
+    await syncCatalogVideos();
+    res.json({ success: true, ..._catalogSyncStatus });
 });
+app.get('/api/admin/catalog-status', (req, res) => {
+    if (!ADMIN_EMAILS.includes((req.query.email || '').toLowerCase())) return res.status(403).json({ error: 'Unauthorized' });
+    res.json({ ..._catalogSyncStatus, syncing: !!_catalogSync, videosPerCreator: VIDEOS_PER_CREATOR });
+});
+
+// ── Compatibility for pages cached before the catalog existed (safe to delete later) ──
+app.get('/api/creators/view-counts', async (req, res) => {
+    try {
+        const counts = {};
+        for (const c of visibleCreators(await getManagedCreators())) for (const v of (c.videos || [])) if (v.views && v.views !== '0') counts[v.id] = v.views;
+        res.set('Cache-Control', 'public, max-age=300');
+        res.json({ counts, updatedAt: Date.now() });
+    } catch (e) { res.json({ counts: {}, updatedAt: 0 }); }
+});
+app.post('/api/creators/register-handles', (req, res) => res.json({ ok: true })); // no longer triggers any scraping
 
 app.post('/api/admin/refresh-creator-videos', async (req, res) => {
     const { email, creatorId } = req.body;
@@ -2556,132 +2621,134 @@ for (const [creatorId, handle] of Object.entries(BUILTIN_CHANNEL_HANDLES)) {
     if (handle && CHANNEL_IDS[creatorId]) BUILTIN_CHANNEL_IDS_BY_HANDLE[handle.toLowerCase()] = CHANNEL_IDS[creatorId];
 }
 
-// Full YouTube sync is expensive (~50 outbound requests). Build it at most once per
-// TTL, share one in-flight build between concurrent callers, and serve the last
-// good result while a refresh runs or if a refresh fails.
-const SYNC_VIDEOS_TTL = 60 * 60 * 1000;
-const _syncVideosCache = { data: null, builtAt: 0, inflight: null };
+// Tasks offered per creator = most recent N videos. Each task pays out, so this directly sets payout exposure.
+const VIDEOS_PER_CREATOR = parseInt(process.env.VIDEOS_PER_CREATOR, 10) || 50;
 
-async function buildSyncVideosLegacy() {
-    try {
-        const results = {};
-        for (const [creatorId, channelId] of Object.entries(CHANNEL_IDS)) {
-            try {
-                // Get videos from RSS (has titles + view counts for recent 15)
-                const xml = await httpGet(`https://www.youtube.com/feeds/videos.xml?channel_id=${channelId}`);
-                const rssVideos = {};
-                const entries = xml.split('<entry>').slice(1);
-                for (const entry of entries) {
-                    const vidMatch = entry.match(/<yt:videoId>([^<]+)/);
-                    const titleMatch = entry.match(/<title>([^<]+)/);
-                    const viewsMatch = entry.match(/views="(\d+)"/);
-                    if (vidMatch && titleMatch) {
-                        rssVideos[vidMatch[1]] = {
-                            id: vidMatch[1],
-                            title: titleMatch[1].replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&#39;/g, "'").replace(/&quot;/g, '"'),
-                            views: viewsMatch ? viewsMatch[1] : '0',
-                        };
-                    }
-                }
-
-                // Get ALL video IDs from videos tab
-                const handle = Object.keys(CHANNEL_IDS).find(k => CHANNEL_IDS[k] === channelId);
-                let allVideoIds = new Set(Object.keys(rssVideos));
-                try {
-                    const channelHandles = BUILTIN_CHANNEL_HANDLES;
-                    const ytHandle = channelHandles[creatorId];
-                    if (ytHandle) {
-                        const vidPage = await httpGet(`https://www.youtube.com/@${ytHandle}/videos`);
-                        const vidIds = vidPage.match(/"videoId":"([^"]+)"/g) || [];
-                        vidIds.forEach(m => { const id = m.match(/"videoId":"([^"]+)"/)[1]; allVideoIds.add(id); });
-                        const shortPage = await httpGet(`https://www.youtube.com/@${ytHandle}/shorts`);
-                        const shortMatches = shortPage.match(/"reelWatchEndpoint":\{"videoId":"([^"]+)"/g) || [];
-                        shortMatches.forEach(m => { const id = m.match(/"videoId":"([^"]+)"/)[1]; allVideoIds.add(id); });
-                    }
-                } catch(e) {}
-
-                // For IDs not in RSS, fetch title via oEmbed
-                const videos = [];
-                for (const id of allVideoIds) {
-                    if (rssVideos[id]) {
-                        videos.push(rssVideos[id]);
-                    } else {
-                        try {
-                            const oembed = await httpGet(`https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${id}&format=json`);
-                            const parsed = JSON.parse(oembed);
-                            if (parsed.title) {
-                                videos.push({ id, title: parsed.title, views: '0' });
-                            }
-                        } catch(e) { videos.push({ id, title: id, views: '0' }); }
-                    }
-                }
-                results[creatorId] = videos;
-            } catch(e) { results[creatorId] = { error: e.message }; }
-        }
-        return { synced: new Date().toISOString(), channels: results };
-    } catch(e) { throw e; }
-}
-
-// API path: ~100 quota units per run for the built-in creators (up to 150 videos each)
-async function buildSyncVideosApi() {
-    const channels = {};
-    for (const [creatorId, channelId] of Object.entries(CHANNEL_IDS)) {
-        channels[creatorId] = (await ytFetchVideos(channelId, 150)) || { error: 'YouTube API unavailable' };
-    }
-    return { synced: new Date().toISOString(), channels, source: 'youtube-api' };
-}
-
-async function buildSyncVideos() {
-    if (ytEnabled()) {
-        const result = await buildSyncVideosApi();
-        if (Object.values(result.channels).some(Array.isArray)) return result;
-        console.warn('sync-videos: YouTube API returned nothing, falling back to scraping');
-    }
-    return buildSyncVideosLegacy();
-}
-
-function refreshSyncVideos() {
-    if (_syncVideosCache.inflight) return _syncVideosCache.inflight;
-    _syncVideosCache.inflight = buildSyncVideos()
-        .then(data => { _syncVideosCache.data = data; _syncVideosCache.builtAt = Date.now(); return data; })
-        .catch(e => { console.warn('sync-videos build failed:', e.message); if (_syncVideosCache.data) return _syncVideosCache.data; throw e; })
-        .finally(() => { _syncVideosCache.inflight = null; });
-    return _syncVideosCache.inflight;
-}
-
+// Old clients still call this; it now just reads the catalog (no scraping, no YouTube requests per visit).
 app.get('/api/sync-videos', async (req, res) => {
     try {
+        const channels = {};
+        for (const c of visibleCreators(await getManagedCreators())) channels[c.id] = c.videos || [];
         res.set('Cache-Control', 'public, max-age=300');
-        if (_syncVideosCache.data) {
-            res.json(_syncVideosCache.data);
-            if (Date.now() - _syncVideosCache.builtAt > SYNC_VIDEOS_TTL) refreshSyncVideos().catch(() => {});
-            return;
-        }
-        res.json(await refreshSyncVideos());
-    } catch(e) {
-        res.status(502).json({ error: e.message });
-    }
+        res.json({ synced: new Date().toISOString(), channels, source: 'catalog' });
+    } catch (e) { res.status(503).json({ error: 'Catalog temporarily unavailable' }); }
 });
 
 // ===== Presence Tracking (active logged-in users) =====
-const activeUsers = new Map();
-const PRESENCE_TTL = 90000;
+// Everything here is real: joins come from first-time Discord logins, "online" from a
+// user's first heartbeat of a session, "left" from heartbeat expiry or logout.
+// State is in memory only; no IP addresses are stored (country names only).
+const crypto2 = require('crypto');
+const presence = new Map();          // userId -> { name, lastSeen }
+const presenceCountry = new Map();   // userId -> country (from login IP, name only)
+const presenceMeta = new Map();      // userId -> { joinedAt, leftAt }
+const presenceEvents = [];           // { ts, type: 'joined'|'online'|'left', name, country, k }
+const PRESENCE_TTL = parseInt(process.env.PRESENCE_TTL_MS, 10) || 90000;
+const PRESENCE_WARMUP = process.env.PRESENCE_WARMUP_MS !== undefined ? parseInt(process.env.PRESENCE_WARMUP_MS, 10) : 2 * 60 * 1000;     // after a restart, everyone looks "newly online" - stay quiet
+const PRESENCE_BOOT = Date.now();
+const EVENT_MAX_AGE = 2 * 60 * 1000;
+let _lastEventTs = 0;
+
+function presenceKey(userId) { return crypto2.createHash('sha256').update(String(userId)).digest('hex').slice(0, 8); }
+function cleanPresenceName(n) { return String(n || '').replace(/[\u0000-\u001f<>]/g, '').trim().slice(0, 24); }
+
+function pushPresenceEvent(type, userId, name, country) {
+    const clean = cleanPresenceName(name);
+    if (!clean) return;
+    const ts = Math.max(Date.now(), _lastEventTs + 1);
+    _lastEventTs = ts;
+    presenceEvents.push({ ts, type, name: clean, country: country || presenceCountry.get(userId) || '', k: presenceKey(userId) });
+    while (presenceEvents.length > 50) presenceEvents.shift();
+}
+
+function presenceMetaFor(userId) {
+    if (!presenceMeta.has(userId)) presenceMeta.set(userId, { joinedAt: 0, leftAt: 0 });
+    return presenceMeta.get(userId);
+}
+
+function noteUserJoined(userId, name, country) {
+    presenceMetaFor(userId).joinedAt = Date.now();
+    pushPresenceEvent('joined', userId, name, country);
+}
+
+function sweepPresence() {
+    const now = Date.now();
+    for (const [uid, p] of presence) {
+        if (now - p.lastSeen > PRESENCE_TTL) {
+            presence.delete(uid);
+            presenceMetaFor(uid).leftAt = now;
+            if (now - PRESENCE_BOOT > PRESENCE_WARMUP) pushPresenceEvent('left', uid, p.name);
+        }
+    }
+    if (presenceMeta.size > 5000) presenceMeta.clear();
+    if (presenceCountry.size > 5000) presenceCountry.clear();
+}
+setInterval(sweepPresence, 15000).unref();
+
+// Best-effort country lookup for first-time logins (IP is sent to ipwho.is, never stored by us)
+const _geoCache = new Map();
+function clientIp(req) {
+    const fwd = String(req.headers['x-forwarded-for'] || '').split(',')[0].trim();
+    return fwd || (req.socket && req.socket.remoteAddress) || '';
+}
+async function countryForIp(ip) {
+    ip = String(ip || '').replace(/^::ffff:/, '');
+    if (!ip || /^(::1$|127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|fc|fd)/i.test(ip)) return '';
+    if (_geoCache.has(ip)) return _geoCache.get(ip);
+    try {
+        const raw = await Promise.race([
+            httpGet(`https://ipwho.is/${encodeURIComponent(ip)}?fields=success,country`),
+            new Promise((_, rej) => setTimeout(() => rej(new Error('geo timeout')), 2500)),
+        ]);
+        const d = JSON.parse(raw);
+        const country = d && d.success ? String(d.country || '').slice(0, 40) : '';
+        if (_geoCache.size > 500) _geoCache.clear();
+        _geoCache.set(ip, country);
+        return country;
+    } catch { return ''; }
+}
 
 app.post('/api/presence/heartbeat', (req, res) => {
-    const { userId } = req.body;
+    const { userId, name } = req.body || {};
     if (!userId) return res.status(400).json({ error: 'Missing userId' });
-    activeUsers.set(userId, Date.now());
+    const now = Date.now();
+    const prev = presence.get(userId);
+    const wasActive = prev && now - prev.lastSeen <= PRESENCE_TTL;
+    const cleanName = cleanPresenceName(name) || (prev && prev.name) || '';
+    presence.set(userId, { name: cleanName, lastSeen: now });
+    if (!wasActive && now - PRESENCE_BOOT > PRESENCE_WARMUP) {
+        const m = presenceMetaFor(userId);
+        // Skip if they just joined (already announced) or only just left (refresh / flaky connection)
+        if (now - m.joinedAt > 5 * 60 * 1000 && now - m.leftAt > 2 * 60 * 1000) pushPresenceEvent('online', userId, cleanName);
+    }
+    res.json({ ok: true });
+});
+
+app.post('/api/presence/leave', (req, res) => {
+    const { userId } = req.body || {};
+    const p = userId && presence.get(userId);
+    if (p) {
+        presence.delete(userId);
+        presenceMetaFor(userId).leftAt = Date.now();
+        pushPresenceEvent('left', userId, p.name);
+    }
     res.json({ ok: true });
 });
 
 app.get('/api/presence/count', (req, res) => {
-    const now = Date.now();
-    let count = 0;
-    for (const [uid, ts] of activeUsers) {
-        if (now - ts > PRESENCE_TTL) activeUsers.delete(uid);
-        else count++;
-    }
-    res.json({ activeUsers: count });
+    sweepPresence();
+    res.set('Cache-Control', 'no-store');
+    res.json({ activeUsers: presence.size });
+});
+
+// Recent real events newer than ?since=<ts>. Memory-only, safe to poll.
+app.get('/api/presence/events', (req, res) => {
+    sweepPresence(); // make expiries visible right away instead of waiting for the 15s timer
+    const since = parseInt(req.query.since, 10) || 0;
+    const cutoff = Date.now() - EVENT_MAX_AGE;
+    const events = presenceEvents.filter(e => e.ts > since && e.ts >= cutoff).slice(-10);
+    res.set('Cache-Control', 'no-store');
+    res.json({ events, cursor: Math.max(since, _lastEventTs) });
 });
 
 // ===== Discord Server Stats =====

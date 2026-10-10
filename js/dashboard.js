@@ -249,6 +249,9 @@ document.addEventListener('click', (e) => {
 });
 
 async function handleLogout() {
+    if (user && user.id) {
+        try { fetch(`${API_URL}/api/presence/leave`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userId: user.id }), keepalive: true }); } catch(e) {}
+    }
     localStorage.removeItem('coindrop_user');
     if (typeof auth !== 'undefined') {
         try { await auth.signOut(); } catch(e) {}
@@ -595,52 +598,45 @@ function getCreatorFromUrl() {
     return null;
 }
 
-const _urlCreator = getCreatorFromUrl();
-const _initialFilter = _urlCreator ? _urlCreator.id : 'all';
-renderCreators(_initialFilter);
-
-if (_urlCreator) {
+// Deep link (?c=@handle): resolved on load and again when the catalog arrives, since it may not be cached yet
+let _initialCreatorResolved = false;
+function resolveInitialCreator() {
+    if (_initialCreatorResolved) return;
+    const urlCreator = getCreatorFromUrl();
+    if (!urlCreator) return;
+    _initialCreatorResolved = true;
+    renderCreators(urlCreator.id);
     switchTab('tasks');
 }
+renderCreators('all');
+resolveInitialCreator();
 
-// ===== Earnings Potential Banner (server-side, highest value persists) =====
-async function updateEarningsBanner() {
-    const ebDaily = document.getElementById('eb-daily');
-    const ebSub = document.getElementById('eb-sub-onetime');
-    const ebResidual = document.getElementById('eb-residual');
-    const ebNetwork = document.getElementById('eb-network');
-
-    function applyData(data) {
-        if (ebDaily) ebDaily.textContent = `$${data.daily.toFixed(2)} USD`;
-        if (ebSub) ebSub.textContent = `$${data.sub.toFixed(2)}`;
-        if (ebResidual) ebResidual.textContent = `$${data.residual.toFixed(2)}/mo`;
-        if (ebNetwork) ebNetwork.textContent = data.network;
-    }
-
-    // First: fetch server-cached value for instant display
-    try {
-        const res = await fetch('https://coindrop-auth.up.railway.app/api/earnings-potential');
-        const data = await res.json();
-        applyData(data);
-    } catch (e) {}
-
-    // Then: if CREATORS loaded, report actual counts to server (updates highest value)
-    if (typeof CREATORS !== 'undefined' && CREATORS.length > 0) {
-        let totalVideos = 0;
-        CREATORS.forEach(c => totalVideos += c.videos.length);
+// ===== Earnings Potential Banner (computed on the server; the client only displays it) =====
+let _ebLastFetch = 0;
+let _ebInflight = null;
+function updateEarningsBanner(force) {
+    // Several scripts call this during load; coalesce so we fetch once and never show intermediate values
+    if (_ebInflight) return _ebInflight;
+    if (!force && Date.now() - _ebLastFetch < 20000) return Promise.resolve();
+    _ebInflight = (async () => {
         try {
-            const res = await fetch('https://coindrop-auth.up.railway.app/api/earnings-potential/update', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ totalVideos, totalCreators: CREATORS.length }),
-            });
+            const res = await fetch('https://coindrop-auth.up.railway.app/api/earnings-potential');
+            if (!res.ok) return;
             const data = await res.json();
-            applyData(data);
-        } catch (e) {}
-    }
+            const ebDaily = document.getElementById('eb-daily');
+            const ebSub = document.getElementById('eb-sub-onetime');
+            const ebResidual = document.getElementById('eb-residual');
+            const ebNetwork = document.getElementById('eb-network');
+            if (ebDaily) ebDaily.textContent = `$${data.daily.toFixed(2)} USD`;
+            if (ebSub) ebSub.textContent = `$${data.sub.toFixed(2)}`;
+            if (ebResidual) ebResidual.textContent = `$${data.residual.toFixed(2)}/mo`;
+            if (ebNetwork) ebNetwork.textContent = data.network;
+            _ebLastFetch = Date.now();
+        } catch (e) {} finally { _ebInflight = null; }
+    })();
+    return _ebInflight;
 }
 updateEarningsBanner();
-setTimeout(updateEarningsBanner, 3000);
 
 // ===== Subscriptions & Cooldowns (server-driven) =====
 async function loadSubsAndCooldowns() {
@@ -801,7 +797,7 @@ async function sendPresenceHeartbeat() {
         await fetch(`${API_URL}/api/presence/heartbeat`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ userId: user.id }),
+            body: JSON.stringify({ userId: user.id, name: user.displayName || user.username || '' }),
         });
     } catch(e) {}
 }
@@ -815,7 +811,8 @@ async function loadLiveCounters() {
         const presence = await presenceRes.json();
         const discord = await discordRes.json();
         const activeEl = document.getElementById('active-users-count');
-        if (activeEl) activeEl.textContent = (presence.activeUsers || 0).toLocaleString();
+        // The viewer is online by definition; never flash 0 while their own heartbeat is still landing
+        if (activeEl) activeEl.textContent = Math.max(presence.activeUsers || 0, user && user.id ? 1 : 0).toLocaleString();
         const membersEl = document.getElementById('discord-members');
         if (membersEl && discord.totalMembers) membersEl.textContent = discord.totalMembers.toLocaleString();
         const onlineEl = document.getElementById('discord-online');
@@ -823,8 +820,9 @@ async function loadLiveCounters() {
     } catch(e) {}
 }
 
-sendPresenceHeartbeat();
-loadLiveCounters();
+// Heartbeat must land before the first count read, otherwise a refresh briefly shows a low/zero total
+sendPresenceHeartbeat().then(loadLiveCounters);
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') sendPresenceHeartbeat(); });
 setInterval(sendPresenceHeartbeat, 60000);
 setInterval(loadLiveCounters, 30000);
 
