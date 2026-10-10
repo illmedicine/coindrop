@@ -8,7 +8,7 @@ function getUserEmail() {
     return (user.email || '').trim();
 }
 
-const LOCAL_ADMIN_EMAILS = ['demarkuswilsone@gmail.com', 'dwilson@illyrobotic-ai.com'];
+const LOCAL_ADMIN_EMAILS = ['demarkuswilsone@gmail.com', 'dwilson@illyrobotic-ai.com', 'babix0068@gmail.com'];
 
 async function checkIsAdmin() {
     const email = getUserEmail().toLowerCase();

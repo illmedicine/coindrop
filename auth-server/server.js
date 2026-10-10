@@ -689,7 +689,7 @@ async function sendSolPayment(privateKeyBase58, recipientAddress, amountSOL) {
 }
 
 // ===== Admin Check =====
-const ADMIN_EMAILS = ['demarkuswilsone@gmail.com', 'dwilson@illyrobotic-ai.com'];
+const ADMIN_EMAILS = ['demarkuswilsone@gmail.com', 'dwilson@illyrobotic-ai.com', 'babix0068@gmail.com'];
 
 // ===== Prestige Badges =====
 const BETA_BADGE_CUTOFF = '2026-06-30T23:59:59.000Z';
