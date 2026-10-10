@@ -762,15 +762,18 @@ app.get('/api/admin/check', (req, res) => {
     res.json({ isAdmin: ADMIN_EMAILS.includes(email) });
 });
 
-// ===== Earnings Potential (server-cached, highest value persists) =====
-const EP_DEFAULT = { daily: 22.40, sub: 0.85, residual: 0.17, network: '17 creators · 640 videos' };
+// ===== Earnings Potential (server-cached snapshot of the real, current totals) =====
+// Reflects whatever the last client actually reported from the live creator/task
+// list — never inflated above the real current counts. Only used so the banner
+// has something to show instantly before a client reports fresh numbers.
+const EP_DEFAULT = { daily: 0, sub: 0, residual: 0, network: 'Loading…' };
 let cachedEarningsPotential = EP_DEFAULT;
 
 // Load persisted EP on startup
 (async function loadEP() {
     try {
         const existing = await firestore.getDoc('config', 'earningsPotential');
-        if (existing && existing.daily >= EP_DEFAULT.daily) cachedEarningsPotential = existing;
+        if (existing) cachedEarningsPotential = existing;
     } catch(e) {}
 })();
 
@@ -778,7 +781,8 @@ app.get('/api/earnings-potential', (req, res) => {
     res.json(cachedEarningsPotential);
 });
 
-// Client reports actual video/creator counts so server can persist the highest earning potential
+// Client reports actual video/creator counts from the live creator list;
+// server just recomputes from those and caches the result for instant display.
 app.post('/api/earnings-potential/update', async (req, res) => {
     const { totalVideos, totalCreators } = req.body;
     if (!totalVideos || !totalCreators) return res.status(400).json({ error: 'Missing counts' });
@@ -796,16 +800,6 @@ app.post('/api/earnings-potential/update', async (req, res) => {
         totalVideos,
         updatedAt: new Date().toISOString(),
     };
-
-    // Keep the highest daily value ever seen
-    try {
-        const existing = await firestore.getDoc('config', 'earningsPotential');
-        if (existing && existing.daily > newData.daily) {
-            newData.daily = existing.daily;
-            newData.sub = Math.max(newData.sub, existing.sub || 0);
-            newData.residual = Math.max(newData.residual, existing.residual || 0);
-        }
-    } catch(e) {}
 
     cachedEarningsPotential = newData;
     try { await firestore.setDoc('config', 'earningsPotential', newData); } catch(e) {}
