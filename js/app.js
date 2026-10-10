@@ -28,44 +28,6 @@ function updateDropTimer() {
 setInterval(updateDropTimer, 1000);
 updateDropTimer();
 
-// Simulate live signup popups
-const FAKE_SIGNUPS = [
-    { name: 'Adebayo O.', country: 'Nigeria' },
-    { name: 'Fatima K.', country: 'Bangladesh' },
-    { name: 'Carlos R.', country: 'Colombia' },
-    { name: 'Amara D.', country: 'Senegal' },
-    { name: 'Raj P.', country: 'India' },
-    { name: 'Linh T.', country: 'Vietnam' },
-    { name: 'Grace M.', country: 'Kenya' },
-    { name: 'Juan S.', country: 'Philippines' },
-    { name: 'Kofi A.', country: 'Ghana' },
-    { name: 'Ana L.', country: 'Brazil' },
-    { name: 'Mohamed H.', country: 'Egypt' },
-    { name: 'Thiago F.', country: 'Brazil' },
-    { name: 'Aisha B.', country: 'Tanzania' },
-    { name: 'Diego V.', country: 'Mexico' },
-    { name: 'Nkechi U.', country: 'Nigeria' },
-];
-
-function showSignupPopup() {
-    const popup = document.getElementById('signup-popup');
-    const nameEl = document.getElementById('popup-name');
-    const countryEl = document.getElementById('popup-country');
-    if (!popup || !nameEl || !countryEl) return;
-
-    const person = FAKE_SIGNUPS[Math.floor(Math.random() * FAKE_SIGNUPS.length)];
-    nameEl.textContent = person.name;
-    countryEl.textContent = ` from ${person.country}`;
-    popup.classList.remove('hidden');
-
-    setTimeout(() => popup.classList.add('hidden'), 4000);
-}
-
-setTimeout(() => {
-    showSignupPopup();
-    setInterval(showSignupPopup, 15000 + Math.random() * 10000);
-}, 5000);
-
 // Form validation helpers
 function validateYouTubeHandle(handle) {
     return /^@[a-zA-Z0-9._-]{3,30}$/.test(handle);
