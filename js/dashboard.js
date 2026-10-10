@@ -595,13 +595,18 @@ function getCreatorFromUrl() {
     return null;
 }
 
-const _urlCreator = getCreatorFromUrl();
-const _initialFilter = _urlCreator ? _urlCreator.id : 'all';
-renderCreators(_initialFilter);
-
-if (_urlCreator) {
+// Deep link (?c=@handle): resolved on load and again when the catalog arrives, since it may not be cached yet
+let _initialCreatorResolved = false;
+function resolveInitialCreator() {
+    if (_initialCreatorResolved) return;
+    const urlCreator = getCreatorFromUrl();
+    if (!urlCreator) return;
+    _initialCreatorResolved = true;
+    renderCreators(urlCreator.id);
     switchTab('tasks');
 }
+renderCreators('all');
+resolveInitialCreator();
 
 // ===== Earnings Potential Banner =====
 // Shows what THIS user can still earn: videos they haven't watched yet and
@@ -851,7 +856,8 @@ async function loadLiveCounters() {
         const presence = await presenceRes.json();
         const discord = await discordRes.json();
         const activeEl = document.getElementById('active-users-count');
-        if (activeEl) activeEl.textContent = (presence.activeUsers || 0).toLocaleString();
+        // The viewer is online by definition; never flash 0 while their own heartbeat is still landing
+        if (activeEl) activeEl.textContent = Math.max(presence.activeUsers || 0, user && user.id ? 1 : 0).toLocaleString();
         const membersEl = document.getElementById('discord-members');
         if (membersEl && discord.totalMembers) membersEl.textContent = discord.totalMembers.toLocaleString();
         const onlineEl = document.getElementById('discord-online');

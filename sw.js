@@ -25,6 +25,8 @@ self.addEventListener('activate', e => {
 });
 
 self.addEventListener('fetch', e => {
+  // Only cache plain GETs over http(s): the Cache API rejects POSTs and chrome-extension:// requests
+  if (e.request.method !== 'GET' || !e.request.url.startsWith('http')) return;
   if (e.request.url.includes('coindrop-auth.up.railway.app') ||
       e.request.url.includes('firestore.googleapis.com') ||
       e.request.url.includes('api.coingecko.com')) {
@@ -34,7 +36,7 @@ self.addEventListener('fetch', e => {
     fetch(e.request).then(r => {
       if (r.ok) {
         const clone = r.clone();
-        caches.open(CACHE_NAME).then(c => c.put(e.request, clone));
+        caches.open(CACHE_NAME).then(c => c.put(e.request, clone)).catch(() => {});
       }
       return r;
     }).catch(() => caches.match(e.request))
