@@ -1307,7 +1307,7 @@ async function recomputeLeaderboardFromCache() {
         if (t.username && !userNames[t.userId]) userNames[t.userId] = t.username;
     }
     const leaders = [];
-    const sortedUsers = Object.entries(userMap).sort((a, b) => (b[1].totalEarnedUSD || 0) - (a[1].totalEarnedUSD || 0)).slice(0, 20);
+    const sortedUsers = Object.entries(userMap).sort((a, b) => (b[1].totalEarnedUSD || 0) - (a[1].totalEarnedUSD || 0));
     for (const [userId, data] of sortedUsers) {
         let name = userNames[userId] || userId.substring(0, 8);
         let avatar = null;
@@ -2648,7 +2648,7 @@ app.get('/api/leaderboard', async (req, res) => {
                 leaders.push({ userId: uid, name, avatar, badges, tasksCompleted: data.tasksCompleted || 0, totalEarnedUSD: data.totalEarned || 0 });
             }
             leaders.sort((a, b) => (b.totalEarnedUSD || 0) - (a.totalEarnedUSD || 0));
-            cache.leaderboard = { leaders: leaders.slice(0, 20) };
+            cache.leaderboard = { leaders };
             try { await firestore.setDoc('config', 'leaderboard', { leaders: JSON.stringify(cache.leaderboard.leaders), updatedAt: new Date().toISOString() }); } catch(e) {}
         }
     } catch(e) { console.warn('Leaderboard build error:', e.message); }
