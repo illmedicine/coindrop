@@ -108,7 +108,7 @@ const pgStore = require('./db').create(process.env.DATABASE_URL);
 // migration itself needs to *read* Firestore — which is currently the thing
 // that's quota-exhausted. Add them here only right before running that
 // migration, not before, or every lookup momentarily sees an empty table.
-const PG_COLLECTIONS = new Set(['config', 'managed_creators', 'notifications', 'referrals']);
+const PG_COLLECTIONS = new Set(['config', 'managed_creators', 'notifications', 'referrals', 'user_profiles']);
 const backendFor = (collection) => (pgStore && PG_COLLECTIONS.has(collection)) ? pgStore : firestoreRest;
 const firestore = {
     getDoc: (c, id) => backendFor(c).getDoc(c, id),
@@ -320,6 +320,8 @@ app.get('/auth/discord/callback', async (req, res) => {
             activeSubscriptions: 0,
             activeFollows: 0,
         };
+
+        try { await saveUserProfile(user.id, userData.displayName, userData.avatar); } catch (e) { console.warn('Profile save skipped:', e.message); }
 
         // Save user profile to Firestore (avatar, displayName)
         try {
@@ -1238,13 +1240,22 @@ function getCachedUserProfile(userId) {
     return cache.userProfiles[userId] || null;
 }
 
+// Public profile fields (displayName, avatar) for a user. Order: memory -> Postgres user_profiles -> Firestore users.
+// Postgres is the durable copy that survives restarts and Firestore quota outages.
+const _profileMiss = new Map(); // userId -> time of last failed lookup (don't re-query every leaderboard rebuild)
 async function getUserProfileCached(userId) {
     if (cache.userProfiles[userId]) return cache.userProfiles[userId];
-    try {
-        const doc = await firestore.getDoc('users', userId);
-        if (doc) cache.userProfiles[userId] = doc;
+    if (Date.now() - (_profileMiss.get(userId) || 0) < 10 * 60 * 1000) return null;
+    let doc = null;
+    if (pgStore) { try { doc = await pgStore.getDoc('user_profiles', userId); } catch (e) {} }
+    if (!doc) { try { doc = await firestoreRest.getDoc('users', userId); } catch (e) {} }
+    if (doc && (doc.avatar || doc.displayName)) {
+        cache.userProfiles[userId] = doc;
+        _profileMiss.delete(userId);
         return doc;
-    } catch(e) { return null; }
+    }
+    _profileMiss.set(userId, Date.now());
+    return null;
 }
 
 function recomputeStatsFromCache() {
@@ -2470,42 +2481,55 @@ app.get('/api/user-profile/:userId', async (req, res) => {
     } catch(e) { res.json({ profile: {} }); }
 });
 
-// Upsert the caller's own displayName/avatar into the server-queryable users
-// collection. Needed because avatar only ever reached this collection via the
-// Discord OAuth callback — Google sign-in (js/firebase-config.js) writes it
-// straight to Firestore through the client SDK, which the leaderboard/profile
-// reads here can miss under Firestore quota pressure, and it's never written
-// at all for a profile that only ever got auto-created by a task completion.
-// Merges onto the existing doc so it never clobbers walletAddress etc.
-app.post('/api/user-profile/sync', (req, res) => {
-    const { userId, displayName, avatar } = req.body || {};
-    if (!userId) return res.status(400).json({ error: 'userId required' });
+// Public profile data (display name + avatar) for the leaderboard. Sent by the browser on every dashboard load
+// (Google sign-in profiles only exist client-side) and by the Discord login. Persisted to Postgres so it survives
+// restarts and Firestore quota outages. Only https avatar URLs from known image hosts are accepted.
+const AVATAR_HOSTS = /(^|\.)(googleusercontent\.com|ggpht\.com|discordapp\.com|discord\.com|dicebear\.com|gravatar\.com)$/i;
+function cleanAvatarUrl(u) {
+    try {
+        const url = new URL(String(u || ''));
+        if (url.protocol !== 'https:' || !AVATAR_HOSTS.test(url.hostname) || url.href.length > 500) return '';
+        return url.href;
+    } catch { return ''; }
+}
+function cleanProfileName(n) { return String(n || '').replace(/[\u0000-\u001f<>]/g, '').trim().slice(0, 40); }
 
-    // Update the in-memory cache first and unconditionally — this is what
-    // getUserProfileCached() actually reads from, so the leaderboard reflects
-    // this immediately regardless of whether Firestore cooperates right now
-    // (it's been intermittently quota-exhausted, which otherwise silently
-    // breaks the read-then-write below and makes this endpoint a no-op).
-    const base = cache.userProfiles[userId] || {};
+async function saveUserProfile(userId, displayName, avatar) {
+    const base = cache.userProfiles[userId] || (pgStore ? await pgStore.getDoc('user_profiles', userId) : null) || {};
     const merged = { ...base };
-    if (displayName) merged.displayName = displayName;
-    if (avatar) merged.avatar = avatar;
-    cache.userProfiles[userId] = merged;
-    res.json({ success: true });
+    const name = cleanProfileName(displayName), img = cleanAvatarUrl(avatar);
+    if (name) merged.displayName = name;
+    if (img) merged.avatar = img;
+    if (!merged.displayName && !merged.avatar) return null;
+    cache.userProfiles[userId] = merged; // visible to the leaderboard immediately
+    _profileMiss.delete(userId);
+    if (pgStore) { try { await pgStore.setDoc('user_profiles', userId, merged); } catch (e) { console.warn('Profile persist failed:', e.message); } }
+    return merged;
+}
 
-    // Best-effort persistence so it survives a server restart. Runs after the
-    // response is already sent; a failed read here falls back to the merge we
-    // already have instead of aborting the write entirely.
-    (async () => {
-        try {
-            let existing = null;
-            try { existing = await firestore.getDoc('users', userId); } catch (e) {}
-            const toSave = { ...(existing || merged) };
-            if (displayName) toSave.displayName = displayName;
-            if (avatar) toSave.avatar = avatar;
-            await firestore.setDoc('users', userId, toSave);
-        } catch (e) { console.warn('Profile sync persist failed:', e.message); }
-    })();
+app.post('/api/user-profile/sync', async (req, res) => {
+    const { userId, displayName, avatar } = req.body || {};
+    if (!userId || typeof userId !== 'string' || userId.length > 128) return res.status(400).json({ error: 'userId required' });
+    const saved = await saveUserProfile(userId, displayName, avatar);
+    res.json({ success: !!saved });
+});
+
+// Admin: one-time copy of existing Firestore user profiles into Postgres (needs Firestore to be readable)
+app.post('/api/admin/backfill-profiles', async (req, res) => {
+    const email = ((req.body && req.body.email) || '').toLowerCase().trim();
+    if (!ADMIN_EMAILS.includes(email)) return res.status(403).json({ error: 'Unauthorized' });
+    if (!pgStore) return res.status(400).json({ error: 'DATABASE_URL is not configured' });
+    try {
+        const docs = await firestoreRest.listAll('users');
+        let copied = 0, withAvatar = 0, skipped = 0;
+        for (const d of docs) {
+            const name = cleanProfileName(d.displayName), img = cleanAvatarUrl(d.avatar);
+            if (!name && !img) { skipped++; continue; }
+            const fields = {}; if (name) fields.displayName = name; if (img) { fields.avatar = img; withAvatar++; }
+            if (await pgStore.insertIfMissing('user_profiles', d.id, fields)) copied++; else skipped++;
+        }
+        res.json({ success: true, usersInFirestore: docs.length, copied, withAvatar, skipped });
+    } catch (e) { res.status(503).json({ error: 'Firestore not readable right now: ' + e.message }); }
 });
 
 // API: Get user stats — denormalized: 2 Firestore reads max (stats + cooldowns)
