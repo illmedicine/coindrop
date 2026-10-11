@@ -2561,20 +2561,35 @@ app.get('/api/user-profile/:userId', async (req, res) => {
 // reads here can miss under Firestore quota pressure, and it's never written
 // at all for a profile that only ever got auto-created by a task completion.
 // Merges onto the existing doc so it never clobbers walletAddress etc.
-app.post('/api/user-profile/sync', async (req, res) => {
+app.post('/api/user-profile/sync', (req, res) => {
     const { userId, displayName, avatar } = req.body || {};
     if (!userId) return res.status(400).json({ error: 'userId required' });
-    try {
-        const existing = (await firestore.getDoc('users', userId)) || {};
-        const merged = { ...existing };
-        if (displayName) merged.displayName = displayName;
-        if (avatar) merged.avatar = avatar;
-        await firestore.setDoc('users', userId, merged);
-        cache.userProfiles[userId] = merged;
-        res.json({ success: true });
-    } catch (e) {
-        res.status(500).json({ error: e.message });
-    }
+
+    // Update the in-memory cache first and unconditionally — this is what
+    // getUserProfileCached() actually reads from, so the leaderboard reflects
+    // this immediately regardless of whether Firestore cooperates right now
+    // (it's been intermittently quota-exhausted, which otherwise silently
+    // breaks the read-then-write below and makes this endpoint a no-op).
+    const base = cache.userProfiles[userId] || {};
+    const merged = { ...base };
+    if (displayName) merged.displayName = displayName;
+    if (avatar) merged.avatar = avatar;
+    cache.userProfiles[userId] = merged;
+    res.json({ success: true });
+
+    // Best-effort persistence so it survives a server restart. Runs after the
+    // response is already sent; a failed read here falls back to the merge we
+    // already have instead of aborting the write entirely.
+    (async () => {
+        try {
+            let existing = null;
+            try { existing = await firestore.getDoc('users', userId); } catch (e) {}
+            const toSave = { ...(existing || merged) };
+            if (displayName) toSave.displayName = displayName;
+            if (avatar) toSave.avatar = avatar;
+            await firestore.setDoc('users', userId, toSave);
+        } catch (e) { console.warn('Profile sync persist failed:', e.message); }
+    })();
 });
 
 // API: Get user stats — denormalized: 2 Firestore reads max (stats + cooldowns)
