@@ -1332,7 +1332,19 @@ async function refreshAllData() {
             allTasks = (await firestore.listAll('tasks')).map(d => ({ ...d, _docId: d.id }));
         } catch (e) { console.warn('Firestore error during refresh:', e.message); }
 
-        if (allTasks.length === 0) { cache.refreshing = false; return; }
+        if (allTasks.length === 0) {
+            // Firestore didn't cooperate this round (quota, throttling, etc.) — if we
+            // already have tasks in memory (e.g. from the persisted snapshot loaded at
+            // boot), still recompute stats/leaderboard from those instead of leaving
+            // them stuck on whatever was cached before. Only truly bail if we have
+            // nothing at all to work with.
+            if (cache.tasks.length > 0) {
+                recomputeStatsFromCache();
+                await recomputeLeaderboardFromCache();
+            }
+            cache.refreshing = false;
+            return;
+        }
         cache.tasks = allTasks;
 
         recomputeStatsFromCache();
@@ -1361,7 +1373,11 @@ loadCacheFromFirestore().then(() => {
     setTimeout(() => { if (cache.tasks.length === 0) refreshAllData(); }, 60000);
 });
 setInterval(refreshAllData, 900000);
-setInterval(() => { if (cache.tasks.length > 0) recomputeStatsFromCache(); }, 60000);
+setInterval(() => {
+    if (cache.tasks.length === 0) return;
+    recomputeStatsFromCache();
+    recomputeLeaderboardFromCache().catch(e => console.warn('Leaderboard recompute error:', e.message));
+}, 60000);
 
 // Admin can trigger manual refresh
 app.get('/api/admin/refresh-cache', async (req, res) => {
