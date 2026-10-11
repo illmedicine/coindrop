@@ -28,6 +28,27 @@ document.addEventListener('scroll', () => {
 });
 
 // Load real leaderboard
+// Prestige tiers — must match js/dashboard.js's PRESTIGE table exactly (tasks
+// completed, not dollars earned) so a player's tier doesn't flip depending on
+// which page they're viewed from.
+const LANDING_PRESTIGE = {
+    starter: { label: 'Starter', icon: 'fa-seedling', class: 'badge-starter' },
+    bronze: { label: 'Bronze', icon: 'fa-medal', class: 'badge-bronze' },
+    silver: { label: 'Silver', icon: 'fa-shield-alt', class: 'badge-silver' },
+    gold: { label: 'Gold', icon: 'fa-star', class: 'badge-gold' },
+    platinum: { label: 'Platinum', icon: 'fa-crown', class: 'badge-platinum' },
+    diamond: { label: 'Diamond', icon: 'fa-gem', class: 'badge-diamond' },
+};
+function landingPrestigeTier(tasksCompleted) {
+    const tc = tasksCompleted || 0;
+    if (tc >= 500) return 'diamond';
+    if (tc >= 300) return 'platinum';
+    if (tc >= 150) return 'gold';
+    if (tc >= 50) return 'silver';
+    if (tc >= 10) return 'bronze';
+    return 'starter';
+}
+
 (async function loadLandingLeaderboard() {
     const container = document.getElementById('landing-leaderboard');
     if (!container) return;
@@ -47,9 +68,7 @@ document.addEventListener('scroll', () => {
         leaders.forEach((l, i) => {
             const totalTasks = l.tasksCompleted || 0;
             const earnedUSD = (l.totalEarnedUSD || l.totalEarned || 0);
-            const prestige = earnedUSD >= 2 ? 'Gold' : earnedUSD >= 1 ? 'Silver' : 'Bronze';
-            const badgeClass = prestige.toLowerCase();
-            const icon = prestige === 'Gold' ? 'fa-star' : prestige === 'Silver' ? 'fa-shield-alt' : 'fa-medal';
+            const pb = LANDING_PRESTIGE[landingPrestigeTier(totalTasks)];
             const avatar = l.avatar || 'https://api.dicebear.com/7.x/thumbs/svg?seed=' + encodeURIComponent(l.name);
             const rankIcon = i < 3 ? rankIcons[i] + ' ' : '';
             const lbBadges = l.badges || [];
@@ -62,7 +81,7 @@ document.addEventListener('scroll', () => {
                 '<span class="lb-member"><img src="' + avatar + '" alt="" class="lb-avatar"> ' + l.name + '</span>' +
                 '<span class="lb-tasks">' + totalTasks.toLocaleString() + '</span>' +
                 '<span class="lb-earned">$' + earnedUSD.toFixed(2) + '</span>' +
-                '<span class="lb-prestige"><span class="badge badge-' + badgeClass + '"><i class="fas fa-' + icon + '"></i> ' + prestige + '</span> ' + badgePills + '</span>';
+                '<span class="lb-prestige"><span class="badge ' + pb.class + '"><i class="fas ' + pb.icon + '"></i> ' + pb.label + '</span> ' + badgePills + '</span>';
             container.appendChild(row);
         });
     } catch (e) {
