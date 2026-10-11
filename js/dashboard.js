@@ -205,6 +205,21 @@ if (user) {
     document.getElementById('user-badge').innerHTML = `<i class="${p.icon}"></i> ${p.label}`;
     document.getElementById('user-badge').className = `badge ${p.class}`;
 
+    // Keep the server's copy of displayName/avatar current — the leaderboard
+    // and anywhere else reading the users collection otherwise only ever see
+    // whatever was saved at first login (and never anything at all for a
+    // profile that only got auto-created by a task completion).
+    if (user.id && user.avatar) {
+        // Note: API_URL is declared with const further down this file — referencing
+        // it here (at the top) would hit the temporal dead zone, so this uses the
+        // literal URL directly instead.
+        fetch('https://coindrop-auth.up.railway.app/api/user-profile/sync', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ userId: user.id, displayName: user.displayName, avatar: user.avatar }),
+        }).catch(() => {});
+    }
+
     // Show loading state for stats until server responds
     document.getElementById('total-earned').textContent = '...';
     document.getElementById('tasks-done').textContent = '...';
@@ -849,15 +864,24 @@ document.addEventListener('visibilitychange', () => {
 
 async function loadLiveCounters() {
     try {
-        const [presenceRes, discordRes] = await Promise.all([
+        const [ga4Res, presenceRes, discordRes] = await Promise.all([
+            fetch(`${API_URL}/api/ga4-active-users`),
             fetch(`${API_URL}/api/presence/count`),
             fetch(`${API_URL}/api/discord-stats`),
         ]);
+        const ga4 = await ga4Res.json();
         const presence = await presenceRes.json();
         const discord = await discordRes.json();
         const activeEl = document.getElementById('active-users-count');
-        // The viewer is online by definition; never flash 0 while their own heartbeat is still landing
-        if (activeEl) activeEl.textContent = Math.max(presence.activeUsers || 0, user && user.id ? 1 : 0).toLocaleString();
+        if (activeEl) {
+            // Prefer the real Google Analytics realtime count (every visitor on
+            // every page) over our own presence tracker (only ever counted
+            // logged-in dashboard users, so it badly undercounted). Fall back to
+            // the internal count if GA4 isn't configured yet or its call fails.
+            const ga4Count = ga4 && ga4.configured && typeof ga4.activeUsers === 'number' ? ga4.activeUsers : null;
+            const fallback = Math.max(presence.activeUsers || 0, user && user.id ? 1 : 0);
+            activeEl.textContent = (ga4Count !== null ? ga4Count : fallback).toLocaleString();
+        }
         const membersEl = document.getElementById('discord-members');
         if (membersEl && discord.totalMembers) membersEl.textContent = discord.totalMembers.toLocaleString();
         const onlineEl = document.getElementById('discord-online');

@@ -1285,7 +1285,7 @@ async function recomputeLeaderboardFromCache() {
         if (t.username && !userNames[t.userId]) userNames[t.userId] = t.username;
     }
     const leaders = [];
-    const sortedUsers = Object.entries(userMap).sort((a, b) => (b[1].totalEarnedUSD || 0) - (a[1].totalEarnedUSD || 0)).slice(0, 20);
+    const sortedUsers = Object.entries(userMap).sort((a, b) => (b[1].totalEarnedUSD || 0) - (a[1].totalEarnedUSD || 0));
     for (const [userId, data] of sortedUsers) {
         let name = userNames[userId] || userId.substring(0, 8);
         let avatar = null;
@@ -1310,7 +1310,19 @@ async function refreshAllData() {
             allTasks = (await firestore.listAll('tasks')).map(d => ({ ...d, _docId: d.id }));
         } catch (e) { console.warn('Firestore error during refresh:', e.message); }
 
-        if (allTasks.length === 0) { cache.refreshing = false; return; }
+        if (allTasks.length === 0) {
+            // Firestore didn't cooperate this round (quota, throttling, etc.) — if we
+            // already have tasks in memory (e.g. from the persisted snapshot loaded at
+            // boot), still recompute stats/leaderboard from those instead of leaving
+            // them stuck on whatever was cached before. Only truly bail if we have
+            // nothing at all to work with.
+            if (cache.tasks.length > 0) {
+                recomputeStatsFromCache();
+                await recomputeLeaderboardFromCache();
+            }
+            cache.refreshing = false;
+            return;
+        }
         cache.tasks = allTasks;
 
         recomputeStatsFromCache();
@@ -1339,7 +1351,11 @@ loadCacheFromFirestore().then(() => {
     setTimeout(() => { if (cache.tasks.length === 0) refreshAllData(); }, 60000);
 });
 setInterval(refreshAllData, 900000);
-setInterval(() => { if (cache.tasks.length > 0) recomputeStatsFromCache(); }, 60000);
+setInterval(() => {
+    if (cache.tasks.length === 0) return;
+    recomputeStatsFromCache();
+    recomputeLeaderboardFromCache().catch(e => console.warn('Leaderboard recompute error:', e.message));
+}, 60000);
 
 // Admin can trigger manual refresh
 app.get('/api/admin/refresh-cache', async (req, res) => {
@@ -2454,6 +2470,44 @@ app.get('/api/user-profile/:userId', async (req, res) => {
     } catch(e) { res.json({ profile: {} }); }
 });
 
+// Upsert the caller's own displayName/avatar into the server-queryable users
+// collection. Needed because avatar only ever reached this collection via the
+// Discord OAuth callback — Google sign-in (js/firebase-config.js) writes it
+// straight to Firestore through the client SDK, which the leaderboard/profile
+// reads here can miss under Firestore quota pressure, and it's never written
+// at all for a profile that only ever got auto-created by a task completion.
+// Merges onto the existing doc so it never clobbers walletAddress etc.
+app.post('/api/user-profile/sync', (req, res) => {
+    const { userId, displayName, avatar } = req.body || {};
+    if (!userId) return res.status(400).json({ error: 'userId required' });
+
+    // Update the in-memory cache first and unconditionally — this is what
+    // getUserProfileCached() actually reads from, so the leaderboard reflects
+    // this immediately regardless of whether Firestore cooperates right now
+    // (it's been intermittently quota-exhausted, which otherwise silently
+    // breaks the read-then-write below and makes this endpoint a no-op).
+    const base = cache.userProfiles[userId] || {};
+    const merged = { ...base };
+    if (displayName) merged.displayName = displayName;
+    if (avatar) merged.avatar = avatar;
+    cache.userProfiles[userId] = merged;
+    res.json({ success: true });
+
+    // Best-effort persistence so it survives a server restart. Runs after the
+    // response is already sent; a failed read here falls back to the merge we
+    // already have instead of aborting the write entirely.
+    (async () => {
+        try {
+            let existing = null;
+            try { existing = await firestore.getDoc('users', userId); } catch (e) {}
+            const toSave = { ...(existing || merged) };
+            if (displayName) toSave.displayName = displayName;
+            if (avatar) toSave.avatar = avatar;
+            await firestore.setDoc('users', userId, toSave);
+        } catch (e) { console.warn('Profile sync persist failed:', e.message); }
+    })();
+});
+
 // API: Get user stats — denormalized: 2 Firestore reads max (stats + cooldowns)
 // Badges, prestige, display info all stored in the stats doc at write time
 app.get('/api/user-stats/:userId', async (req, res) => {
@@ -2564,7 +2618,7 @@ app.get('/api/leaderboard', async (req, res) => {
                 leaders.push({ userId: uid, name, avatar, badges, tasksCompleted: data.tasksCompleted || 0, totalEarnedUSD: data.totalEarned || 0 });
             }
             leaders.sort((a, b) => (b.totalEarnedUSD || 0) - (a.totalEarnedUSD || 0));
-            cache.leaderboard = { leaders: leaders.slice(0, 20) };
+            cache.leaderboard = { leaders };
             try { await firestore.setDoc('config', 'leaderboard', { leaders: JSON.stringify(cache.leaderboard.leaders), updatedAt: new Date().toISOString() }); } catch(e) {}
         }
     } catch(e) { console.warn('Leaderboard build error:', e.message); }
@@ -2684,6 +2738,99 @@ setInterval(() => {
 app.get('/api/presence/events', (req, res) => {
     const since = Number(req.query.since) || Date.now();
     res.json({ events: presenceEvents.filter(e => e.ts > since), now: Date.now() });
+});
+
+// ===== Google Analytics 4 Realtime (authoritative "online now" count) =====
+// Our own presence system only ever counted logged-in dashboard users sending
+// a heartbeat, so it badly undercounted against GA, which tracks every
+// visitor on every page. Rather than try to replicate that, pull the real
+// number straight from GA4's Realtime Data API.
+//
+// Needs three Railway env vars (none of this works until they're set):
+//   GA4_PROPERTY_ID               - numeric GA4 property id (e.g. 542602796)
+//   GA4_SERVICE_ACCOUNT_EMAIL     - the service account's client_email
+//   GA4_SERVICE_ACCOUNT_PRIVATE_KEY - its PEM private key (\n escaped is fine,
+//                                     we unescape them below)
+// The service account needs "Viewer" access granted on the GA4 property
+// (Admin > Property Access Management in Google Analytics).
+const GA4_PROPERTY_ID = process.env.GA4_PROPERTY_ID;
+const GA4_SERVICE_ACCOUNT_EMAIL = process.env.GA4_SERVICE_ACCOUNT_EMAIL;
+const GA4_SERVICE_ACCOUNT_PRIVATE_KEY = (process.env.GA4_SERVICE_ACCOUNT_PRIVATE_KEY || '').replace(/\\n/g, '\n');
+const GA4_CONFIGURED = !!(GA4_PROPERTY_ID && GA4_SERVICE_ACCOUNT_EMAIL && GA4_SERVICE_ACCOUNT_PRIVATE_KEY);
+
+function base64url(input) {
+    return Buffer.from(input).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+// Mints a short-lived OAuth2 access token for the service account (JWT bearer
+// flow — https://developers.google.com/identity/protocols/oauth2/service-account),
+// signed with Node's built-in crypto so we don't need to add google-auth-library
+// as a dependency just for this one call.
+let _ga4TokenCache = { token: null, expiresAt: 0 };
+async function getGA4AccessToken() {
+    if (_ga4TokenCache.token && Date.now() < _ga4TokenCache.expiresAt - 60000) return _ga4TokenCache.token;
+
+    const now = Math.floor(Date.now() / 1000);
+    const header = base64url(JSON.stringify({ alg: 'RS256', typ: 'JWT' }));
+    const claims = base64url(JSON.stringify({
+        iss: GA4_SERVICE_ACCOUNT_EMAIL,
+        scope: 'https://www.googleapis.com/auth/analytics.readonly',
+        aud: 'https://oauth2.googleapis.com/token',
+        iat: now,
+        exp: now + 3600,
+    }));
+    const signInput = `${header}.${claims}`;
+    const signature = crypto.sign('RSA-SHA256', Buffer.from(signInput), GA4_SERVICE_ACCOUNT_PRIVATE_KEY);
+    const jwt = `${signInput}.${base64url(signature).replace(/\+/g, '-').replace(/\//g, '_')}`;
+
+    const body = `grant_type=${encodeURIComponent('urn:ietf:params:oauth:grant-type:jwt-bearer')}&assertion=${encodeURIComponent(jwt)}`;
+    const tokenRes = await new Promise((resolve, reject) => {
+        const req = https.request({
+            hostname: 'oauth2.googleapis.com', path: '/token', method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Content-Length': Buffer.byteLength(body) },
+        }, (res) => { let d = ''; res.on('data', c => d += c); res.on('end', () => resolve(d)); });
+        req.on('error', reject); req.write(body); req.end();
+    });
+    const parsed = JSON.parse(tokenRes);
+    if (!parsed.access_token) throw new Error(parsed.error_description || parsed.error || 'GA4 auth failed');
+    _ga4TokenCache = { token: parsed.access_token, expiresAt: Date.now() + (parsed.expires_in || 3600) * 1000 };
+    return parsed.access_token;
+}
+
+// Short cache so a burst of page loads doesn't hammer the GA4 API (it has its
+// own quota) — a few seconds of staleness is invisible for a "live" counter.
+let _ga4RealtimeCache = { activeUsers: null, timestamp: 0 };
+async function getGA4RealtimeActiveUsers() {
+    if (Date.now() - _ga4RealtimeCache.timestamp < 15000 && _ga4RealtimeCache.activeUsers !== null) {
+        return _ga4RealtimeCache.activeUsers;
+    }
+    const accessToken = await getGA4AccessToken();
+    const body = JSON.stringify({ metrics: [{ name: 'activeUsers' }] });
+    const reportRes = await new Promise((resolve, reject) => {
+        const req = https.request({
+            hostname: 'analyticsdata.googleapis.com',
+            path: `/v1beta/properties/${GA4_PROPERTY_ID}:runRealtimeReport`,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${accessToken}`, 'Content-Length': Buffer.byteLength(body) },
+        }, (res) => { let d = ''; res.on('data', c => d += c); res.on('end', () => resolve(d)); });
+        req.on('error', reject); req.write(body); req.end();
+    });
+    const parsed = JSON.parse(reportRes);
+    if (parsed.error) throw new Error(parsed.error.message || 'GA4 report failed');
+    const activeUsers = parseInt((parsed.rows && parsed.rows[0] && parsed.rows[0].metricValues[0].value) || '0', 10);
+    _ga4RealtimeCache = { activeUsers, timestamp: Date.now() };
+    return activeUsers;
+}
+
+app.get('/api/ga4-active-users', async (req, res) => {
+    if (!GA4_CONFIGURED) return res.json({ activeUsers: null, configured: false });
+    try {
+        const activeUsers = await getGA4RealtimeActiveUsers();
+        res.json({ activeUsers, configured: true });
+    } catch (e) {
+        console.warn('GA4 realtime fetch error:', e.message);
+        res.json({ activeUsers: null, configured: true, error: e.message });
+    }
 });
 
 // ===== Discord Server Stats =====

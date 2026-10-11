@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-WT35ZRWJG0"></script>
+    <script>window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments);}gtag('js',new Date());gtag('config','G-WT35ZRWJG0');</script>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FAQ — CoinDrop</title>
+    <meta name="description" content="Frequently asked questions about CoinDrop — how earning works, task rewards, payouts, wallets, eligibility, and more.">
+    <link rel="icon" type="image/png" href="assets/logo.png">
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#F7931A">
+    <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="css/landing.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <style>
+        .legal-hero {
+            background: linear-gradient(135deg, #0F1A2E 0%, #1B2A4A 60%, #0F1A2E 100%);
+            padding: 120px 0 60px;
+            text-align: center;
+            border-bottom: 1px solid rgba(247,147,26,0.15);
+        }
+        .legal-hero h1 {
+            font-size: clamp(2rem, 5vw, 3.2rem);
+            font-weight: 800;
+            color: #fff;
+            margin-bottom: 12px;
+        }
+        .legal-hero p {
+            color: rgba(255,255,255,0.55);
+            font-size: 0.95rem;
+        }
+        .legal-body {
+            max-width: 820px;
+            margin: 0 auto;
+            padding: 60px 24px 100px;
+            color: #374151;
+            line-height: 1.8;
+        }
+        .legal-body h2 {
+            font-size: 1.3rem;
+            font-weight: 700;
+            color: #F7931A;
+            margin: 48px 0 16px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .legal-body h2:first-of-type { margin-top: 0; }
+        .legal-body h2 i { font-size: 1.1rem; }
+        .divider { border: none; border-top: 1px solid #E5E7EB; margin: 40px 0; }
+        .contact-box {
+            background: #1B2A4A;
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 12px;
+            padding: 28px 32px;
+            margin-top: 48px;
+            color: rgba(255,255,255,0.85);
+        }
+        .contact-box p { margin: 0; }
+        .contact-box a { color: #F7931A; }
+
+        .faq-item {
+            background: #fff;
+            border: 1px solid #E5E7EB;
+            border-radius: 12px;
+            margin-bottom: 12px;
+            overflow: hidden;
+        }
+        .faq-item summary {
+            list-style: none;
+            cursor: pointer;
+            padding: 18px 22px;
+            font-weight: 600;
+            font-size: 0.98rem;
+            color: #1B2A4A;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+        }
+        .faq-item summary::-webkit-details-marker { display: none; }
+        .faq-item summary::after {
+            content: '\f078';
+            font-family: 'Font Awesome 6 Free';
+            font-weight: 900;
+            color: #F7931A;
+            flex-shrink: 0;
+            transition: transform 0.2s;
+            font-size: 0.85rem;
+        }
+        .faq-item[open] summary::after { transform: rotate(180deg); }
+        .faq-item[open] summary { border-bottom: 1px solid #E5E7EB; }
+        .faq-item .faq-answer {
+            padding: 4px 22px 20px;
+            font-size: 0.95rem;
+            color: #4B5563;
+            line-height: 1.7;
+        }
+        .faq-answer a { color: #F7931A; }
+    </style>
+</head>
+<body>
+    <!-- Navigation -->
+    <nav class="navbar">
+        <div class="nav-container">
+            <a href="/" class="nav-logo">
+                <img src="assets/logo.png" alt="CoinDrop" class="logo-img">
+                <span class="logo-text">COIN<span class="logo-accent">DROP</span></span>
+            </a>
+            <div class="nav-links" id="nav-links">
+                <a href="/#how-it-works">How It Works</a>
+                <a href="/#earn">Earn</a>
+                <a href="/#leaderboard">Leaderboard</a>
+                <a href="/register" class="btn btn-outline">Sign Up</a>
+                <a href="/login" class="btn btn-primary">Login</a>
+            </div>
+            <button class="nav-toggle" id="nav-toggle" aria-label="Toggle menu">
+                <i class="fas fa-bars"></i>
+            </button>
+        </div>
+    </nav>
+
+    <!-- Hero -->
+    <section class="legal-hero">
+        <div class="container">
+            <h1><i class="fas fa-circle-question" style="color:#F7931A;margin-right:12px;"></i>Frequently Asked Questions</h1>
+            <p>Everything you need to know about earning on CoinDrop</p>
+        </div>
+    </section>
+
+    <!-- Body -->
+    <div class="legal-body">
+
+        <h2><i class="fas fa-rocket"></i> Getting Started</h2>
+
+        <details class="faq-item" open>
+            <summary>Is CoinDrop really free to join?</summary>
+            <div class="faq-answer">Yes. CoinDrop is 100% free — there's no sign-up fee, no subscription, and no minimum investment required to start earning. You just need an account and a Solana wallet to receive payouts.</div>
+        </details>
+
+        <details class="faq-item">
+            <summary>How do I start earning?</summary>
+            <div class="faq-answer">
+                <ol style="padding-left:20px;">
+                    <li>Create a free account</li>
+                    <li>Connect a Solana wallet (we recommend <a href="https://phantom.app" target="_blank">Phantom</a>)</li>
+                    <li>Open the Tasks tab and pick a task — watch a video, like a post, subscribe to a creator, and more</li>
+                    <li>Complete the task and submit verification</li>
+                    <li>Get paid in SOL directly to your wallet</li>
+                </ol>
+            </div>
+        </details>
+
+        <details class="faq-item">
+            <summary>Is CoinDrop available in my country?</summary>
+            <div class="faq-answer">CoinDrop is available in 190+ countries worldwide. You do need to be at least 13 years old, and it's your responsibility to confirm that participating is lawful where you live.</div>
+        </details>
+
+        <details class="faq-item">
+            <summary>Do I need a wallet before I sign up?</summary>
+            <div class="faq-answer">No — you can register first and connect a Solana wallet (like <a href="https://phantom.app" target="_blank">Phantom</a>) afterward. You will need a connected wallet before any earnings can be paid out, though, so it's worth setting one up early.</div>
+        </details>
+
+        <hr class="divider">
+
+        <h2><i class="fas fa-coins"></i> Tasks & Rewards</h2>
+
+        <details class="faq-item">
+            <summary>What kinds of tasks can I complete?</summary>
+            <div class="faq-answer">Tasks span YouTube, Instagram, TikTok, and X content from participating creators — watching a video, liking a post, leaving a comment, and subscribing or following a channel. New tasks are added regularly as creators join the platform.</div>
+        </details>
+
+        <details class="faq-item">
+            <summary>How much does each task pay?</summary>
+            <div class="faq-answer">Reward amounts vary by task type and are shown on the task card before you start it. As a general pattern: watching pays the least per task, commenting pays more, and subscribing/following pays a one-time reward plus an ongoing monthly residual for as long as you stay subscribed.</div>
+        </details>
+
+        <details class="faq-item">
+            <summary>How is my task verified?</summary>
+            <div class="faq-answer">Most tasks are verified automatically — for example by checking a screenshot you submit against the expected result (like a "subscribed" or "liked" state). This keeps rewards fair for everyone and prevents fraud.</div>
+        </details>
+
+        <details class="faq-item">
+            <summary>Can I do the same task over and over to earn more?</summary>
+            <div class="faq-answer">No — each task has a cooldown period per piece of content, so you can't repeat-claim the same watch, like, or comment on the same video to farm rewards. New content becomes available regularly, so there's always something fresh to earn from.</div>
+        </details>
+
+        <hr class="divider">
+
+        <h2><i class="fas fa-wallet"></i> Payouts</h2>
+
+        <details class="faq-item">
+            <summary>How do I get paid?</summary>
+            <div class="faq-answer">Rewards are paid in SOL (Solana) directly to the wallet address connected to your account. There are no platform fees on payouts.</div>
+        </details>
+
+        <details class="faq-item">
+            <summary>What wallet should I use?</summary>
+            <div class="faq-answer">We recommend <a href="https://phantom.app" target="_blank">Phantom</a>, but any standard Solana (SPL-compatible) wallet address will work.</div>
+        </details>
+
+        <details class="faq-item">
+            <summary>Is the value of my SOL rewards fixed?</summary>
+            <div class="faq-answer">No. You're paid in SOL, and SOL's market price moves like any cryptocurrency. The USD-equivalent value of your earnings will fluctuate with the market.</div>
+        </details>
+
+        <hr class="divider">
+
+        <h2><i class="fas fa-star"></i> Creators & Referrals</h2>
+
+        <details class="faq-item">
+            <summary>What is the Creator Referral Program?</summary>
+            <div class="faq-answer">If you refer a creator to CoinDrop using your unique referral link and they join, you earn a SOL reward for that referral. Full details and your referral link are available from your dashboard.</div>
+        </details>
+
+        <details class="faq-item">
+            <summary>I'm a creator — how do I get my content on CoinDrop?</summary>
+            <div class="faq-answer">Reach out to us at <a href="mailto:support@illyrobotic-ai.com">support@illyrobotic-ai.com</a> or join our <a href="https://discord.gg/847XjyVa3C" target="_blank">Discord</a> to get started.</div>
+        </details>
+
+        <hr class="divider">
+
+        <h2><i class="fas fa-shield-halved"></i> Account & Safety</h2>
+
+        <details class="faq-item">
+            <summary>Is my personal data safe?</summary>
+            <div class="faq-answer">We use industry-standard protections including AES-256 encryption for sensitive data. See our full <a href="/privacy">Privacy Policy</a> for details on what we collect and how it's protected.</div>
+        </details>
+
+        <details class="faq-item">
+            <summary>Can I have more than one account?</summary>
+            <div class="faq-answer">No — only one CoinDrop account per person is allowed. Multiple accounts, bots, or automated engagement are against our <a href="/terms">Terms of Service</a> and may result in forfeited rewards or a suspended account.</div>
+        </details>
+
+        <details class="faq-item">
+            <summary>What happens if my account is flagged for fraud?</summary>
+            <div class="faq-answer">We use automated fraud detection to keep the platform fair. Accounts found violating our Terms (botting, fake engagement, multiple accounts, etc.) may have pending rewards forfeited and the account suspended or terminated.</div>
+        </details>
+
+        <div class="contact-box">
+            <p>Still have a question? We're happy to help:</p>
+            <p style="margin-top:14px;">
+                <a href="mailto:support@illyrobotic-ai.com">support@illyrobotic-ai.com</a>
+                &nbsp;·&nbsp;
+                <a href="https://discord.gg/847XjyVa3C" target="_blank">Join our Discord</a>
+            </p>
+        </div>
+
+    </div>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <div class="container">
+            <div class="footer-grid">
+                <div class="footer-brand">
+                    <div class="footer-logo">
+                        <img src="assets/logo.png" alt="CoinDrop" class="logo-img">
+                        <span class="logo-text">COIN<span class="logo-accent">DROP</span></span>
+                    </div>
+                    <p>Watch. Engage. Earn. Your global side hustle powered by Solana.</p>
+                    <div class="footer-socials">
+                        <a href="https://discord.gg/847XjyVa3C" target="_blank"><i class="fab fa-discord"></i></a>
+                        <a href="#"><i class="fab fa-twitter"></i></a>
+                        <a href="#"><i class="fab fa-instagram"></i></a>
+                        <a href="https://youtube.com/@illmedicineai" target="_blank"><i class="fab fa-youtube"></i></a>
+                    </div>
+                </div>
+                <div class="footer-links">
+                    <h4>Platform</h4>
+                    <a href="/#how-it-works">How It Works</a>
+                    <a href="/#earn">Earn SOL</a>
+                    <a href="/#leaderboard">Leaderboard</a>
+                    <a href="/register">Sign Up</a>
+                </div>
+                <div class="footer-links">
+                    <h4>Support</h4>
+                    <a href="mailto:support@illyrobotic-ai.com">Contact Us</a>
+                    <a href="/faq">FAQ</a>
+                    <a href="/terms">Terms of Service</a>
+                    <a href="/privacy">Privacy Policy</a>
+                </div>
+                <div class="footer-links">
+                    <h4>Resources</h4>
+                    <a href="https://phantom.app" target="_blank"><i class="fas fa-wallet"></i> Get Phantom Wallet</a>
+                    <a href="https://apps.apple.com/app/phantom-crypto-wallet/id1598432977" target="_blank"><i class="fab fa-apple"></i> Phantom for iOS</a>
+                    <a href="https://play.google.com/store/apps/details?id=app.phantom" target="_blank"><i class="fab fa-google-play"></i> Phantom for Android</a>
+                    <a href="/faq">Earning Guide</a>
+                </div>
+            </div>
+            <div class="footer-bottom">
+                <p>&copy; 2026 CoinDrop. All rights reserved. Powered by Solana.</p>
+                <p class="footer-illy">A product by <a href="https://www.illyrobotic-ai.com/" target="_blank">Illy Robotic Instruments</a></p>
+            </div>
+        </div>
+    </footer>
+
+    <script src="js/app.js"></script>
+    <script>
+        const navToggle = document.getElementById('nav-toggle');
+        const navLinks = document.getElementById('nav-links');
+        if (navToggle) navToggle.addEventListener('click', () => navLinks.classList.toggle('active'));
+    </script>
+    <script>if('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js');</script>
+</body>
+</html>

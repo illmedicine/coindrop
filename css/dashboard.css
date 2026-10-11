@@ -638,7 +638,7 @@
 .mini-lb-row:nth-child(2) .mini-lb-rank { color: var(--silver); }
 .mini-lb-row:nth-child(3) .mini-lb-rank { color: var(--bronze); }
 
-.mini-lb-avatar { width: 28px; height: 28px; border-radius: 50%; }
+.mini-lb-avatar { width: 28px; height: 28px; border-radius: 50%; object-fit: cover; flex-shrink: 0; }
 .mini-lb-name { flex: 1; font-size: 0.85rem; font-weight: 500; }
 
 .mini-lb-earned {
@@ -1026,6 +1026,17 @@
 .sub-next-payout { font-size: 0.75rem; color: var(--orange); font-weight: 500; }
 
 /* Full leaderboard */
+.lb-header-row {
+    display: grid;
+    grid-template-columns: 60px 1fr 100px 120px 120px;
+    padding: 0 20px 8px;
+    font-size: 0.75rem;
+    font-weight: 700;
+    color: var(--gray-400);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
 .lb-full-row {
     display: grid;
     grid-template-columns: 60px 1fr 100px 120px 120px;
@@ -1041,6 +1052,26 @@
 .lb-full-row.you {
     border-color: var(--orange);
     background: rgba(247,147,26,0.03);
+}
+
+.lb-member {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.lb-avatar {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    object-fit: cover;
+    flex-shrink: 0;
+    border: 1px solid var(--gray-200);
+    background: var(--gray-100);
 }
 
 /* Earnings */
@@ -1129,6 +1160,8 @@
     .tab-content { padding: 16px; }
     .lb-full-row { grid-template-columns: 40px 1fr 80px 100px; }
     .lb-full-row > :nth-child(5) { display: none; }
+    .lb-header-row { grid-template-columns: 40px 1fr 80px 100px; }
+    .lb-header-row > :nth-child(5) { display: none; }
     .creator-profile { flex-direction: column; }
     .creator-subscribe-action { flex-direction: column; align-items: stretch; }
     .video-task-card { flex-direction: column; }

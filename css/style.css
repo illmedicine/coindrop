@@ -335,12 +335,16 @@ h3 { font-size: 1.25rem; }
     font-weight: 600;
 }
 
-.badge-diamond { background: rgba(185,242,255,0.15); color: var(--diamond); }
-.badge-platinum { background: rgba(229,228,226,0.15); color: var(--platinum); }
-.badge-gold { background: rgba(255,215,0,0.15); color: var(--gold); }
-.badge-silver { background: rgba(192,192,192,0.15); color: var(--silver); }
-.badge-bronze { background: rgba(205,127,50,0.15); color: var(--bronze); }
-.badge-starter { background: rgba(107,114,128,0.15); color: var(--gray-400); }
+/* Text colors here are deliberately darker than the --diamond/--platinum/etc.
+   variables (which stay pale for icon/decorative use elsewhere) — these badges
+   sit on white/near-white cards, and the pale variable values are close to
+   unreadable as text at this size. */
+.badge-diamond { background: rgba(185,242,255,0.25); color: #0E7490; }
+.badge-platinum { background: rgba(148,163,184,0.2); color: #475569; }
+.badge-gold { background: rgba(255,215,0,0.18); color: #A16207; }
+.badge-silver { background: rgba(192,192,192,0.25); color: #64748B; }
+.badge-bronze { background: rgba(205,127,50,0.18); color: #92400E; }
+.badge-starter { background: rgba(107,114,128,0.15); color: var(--gray-600); }
 
 /* ===== Forms ===== */
 .form-group { margin-bottom: 20px; }
