@@ -24,11 +24,26 @@ function updateNotifBadge() {
     }
 }
 
-function toggleNotifications() {
+function toggleNotifications(e) {
+    if (e) e.stopPropagation();
     const panel = document.getElementById('notif-panel');
     if (panel) panel.classList.toggle('hidden');
     renderNotifications();
 }
+
+function closeNotifications() {
+    document.getElementById('notif-panel')?.classList.add('hidden');
+}
+
+// Close the panel on any click outside it (and outside the bell that opens
+// it) instead of requiring the bell to be clicked again to dismiss it.
+document.addEventListener('click', (e) => {
+    const panel = document.getElementById('notif-panel');
+    const bell = document.getElementById('notif-bell');
+    if (panel && !panel.classList.contains('hidden') && !panel.contains(e.target) && !bell?.contains(e.target)) {
+        closeNotifications();
+    }
+});
 
 function renderNotifications() {
     const list = document.getElementById('notif-list');
