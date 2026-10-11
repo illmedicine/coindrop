@@ -638,7 +638,7 @@
 .mini-lb-row:nth-child(2) .mini-lb-rank { color: var(--silver); }
 .mini-lb-row:nth-child(3) .mini-lb-rank { color: var(--bronze); }
 
-.mini-lb-avatar { width: 28px; height: 28px; border-radius: 50%; }
+.mini-lb-avatar { width: 28px; height: 28px; border-radius: 50%; object-fit: cover; flex-shrink: 0; }
 .mini-lb-name { flex: 1; font-size: 0.85rem; font-weight: 500; }
 
 .mini-lb-earned {
@@ -1041,6 +1041,26 @@
 .lb-full-row.you {
     border-color: var(--orange);
     background: rgba(247,147,26,0.03);
+}
+
+.lb-member {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.lb-avatar {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    object-fit: cover;
+    flex-shrink: 0;
+    border: 1px solid var(--gray-200);
+    background: var(--gray-100);
 }
 
 /* Earnings */
