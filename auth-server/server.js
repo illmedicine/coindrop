@@ -2786,6 +2786,99 @@ app.get('/api/presence/events', (req, res) => {
     res.json({ events: presenceEvents.filter(e => e.ts > since), now: Date.now() });
 });
 
+// ===== Google Analytics 4 Realtime (authoritative "online now" count) =====
+// Our own presence system only ever counted logged-in dashboard users sending
+// a heartbeat, so it badly undercounted against GA, which tracks every
+// visitor on every page. Rather than try to replicate that, pull the real
+// number straight from GA4's Realtime Data API.
+//
+// Needs three Railway env vars (none of this works until they're set):
+//   GA4_PROPERTY_ID               - numeric GA4 property id (e.g. 542602796)
+//   GA4_SERVICE_ACCOUNT_EMAIL     - the service account's client_email
+//   GA4_SERVICE_ACCOUNT_PRIVATE_KEY - its PEM private key (\n escaped is fine,
+//                                     we unescape them below)
+// The service account needs "Viewer" access granted on the GA4 property
+// (Admin > Property Access Management in Google Analytics).
+const GA4_PROPERTY_ID = process.env.GA4_PROPERTY_ID;
+const GA4_SERVICE_ACCOUNT_EMAIL = process.env.GA4_SERVICE_ACCOUNT_EMAIL;
+const GA4_SERVICE_ACCOUNT_PRIVATE_KEY = (process.env.GA4_SERVICE_ACCOUNT_PRIVATE_KEY || '').replace(/\\n/g, '\n');
+const GA4_CONFIGURED = !!(GA4_PROPERTY_ID && GA4_SERVICE_ACCOUNT_EMAIL && GA4_SERVICE_ACCOUNT_PRIVATE_KEY);
+
+function base64url(input) {
+    return Buffer.from(input).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+// Mints a short-lived OAuth2 access token for the service account (JWT bearer
+// flow — https://developers.google.com/identity/protocols/oauth2/service-account),
+// signed with Node's built-in crypto so we don't need to add google-auth-library
+// as a dependency just for this one call.
+let _ga4TokenCache = { token: null, expiresAt: 0 };
+async function getGA4AccessToken() {
+    if (_ga4TokenCache.token && Date.now() < _ga4TokenCache.expiresAt - 60000) return _ga4TokenCache.token;
+
+    const now = Math.floor(Date.now() / 1000);
+    const header = base64url(JSON.stringify({ alg: 'RS256', typ: 'JWT' }));
+    const claims = base64url(JSON.stringify({
+        iss: GA4_SERVICE_ACCOUNT_EMAIL,
+        scope: 'https://www.googleapis.com/auth/analytics.readonly',
+        aud: 'https://oauth2.googleapis.com/token',
+        iat: now,
+        exp: now + 3600,
+    }));
+    const signInput = `${header}.${claims}`;
+    const signature = crypto.sign('RSA-SHA256', Buffer.from(signInput), GA4_SERVICE_ACCOUNT_PRIVATE_KEY);
+    const jwt = `${signInput}.${base64url(signature).replace(/\+/g, '-').replace(/\//g, '_')}`;
+
+    const body = `grant_type=${encodeURIComponent('urn:ietf:params:oauth:grant-type:jwt-bearer')}&assertion=${encodeURIComponent(jwt)}`;
+    const tokenRes = await new Promise((resolve, reject) => {
+        const req = https.request({
+            hostname: 'oauth2.googleapis.com', path: '/token', method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Content-Length': Buffer.byteLength(body) },
+        }, (res) => { let d = ''; res.on('data', c => d += c); res.on('end', () => resolve(d)); });
+        req.on('error', reject); req.write(body); req.end();
+    });
+    const parsed = JSON.parse(tokenRes);
+    if (!parsed.access_token) throw new Error(parsed.error_description || parsed.error || 'GA4 auth failed');
+    _ga4TokenCache = { token: parsed.access_token, expiresAt: Date.now() + (parsed.expires_in || 3600) * 1000 };
+    return parsed.access_token;
+}
+
+// Short cache so a burst of page loads doesn't hammer the GA4 API (it has its
+// own quota) — a few seconds of staleness is invisible for a "live" counter.
+let _ga4RealtimeCache = { activeUsers: null, timestamp: 0 };
+async function getGA4RealtimeActiveUsers() {
+    if (Date.now() - _ga4RealtimeCache.timestamp < 15000 && _ga4RealtimeCache.activeUsers !== null) {
+        return _ga4RealtimeCache.activeUsers;
+    }
+    const accessToken = await getGA4AccessToken();
+    const body = JSON.stringify({ metrics: [{ name: 'activeUsers' }] });
+    const reportRes = await new Promise((resolve, reject) => {
+        const req = https.request({
+            hostname: 'analyticsdata.googleapis.com',
+            path: `/v1beta/properties/${GA4_PROPERTY_ID}:runRealtimeReport`,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${accessToken}`, 'Content-Length': Buffer.byteLength(body) },
+        }, (res) => { let d = ''; res.on('data', c => d += c); res.on('end', () => resolve(d)); });
+        req.on('error', reject); req.write(body); req.end();
+    });
+    const parsed = JSON.parse(reportRes);
+    if (parsed.error) throw new Error(parsed.error.message || 'GA4 report failed');
+    const activeUsers = parseInt((parsed.rows && parsed.rows[0] && parsed.rows[0].metricValues[0].value) || '0', 10);
+    _ga4RealtimeCache = { activeUsers, timestamp: Date.now() };
+    return activeUsers;
+}
+
+app.get('/api/ga4-active-users', async (req, res) => {
+    if (!GA4_CONFIGURED) return res.json({ activeUsers: null, configured: false });
+    try {
+        const activeUsers = await getGA4RealtimeActiveUsers();
+        res.json({ activeUsers, configured: true });
+    } catch (e) {
+        console.warn('GA4 realtime fetch error:', e.message);
+        res.json({ activeUsers: null, configured: true, error: e.message });
+    }
+});
+
 // ===== Discord Server Stats =====
 let _discordStatsCache = { totalMembers: 0, onlineMembers: 0, timestamp: 0 };
 
