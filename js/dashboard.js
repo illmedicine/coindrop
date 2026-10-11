@@ -321,7 +321,7 @@ async function loadMiniLeaderboard() {
         if (!leaders.length) { el.innerHTML = '<p class="text-muted" style="font-size:0.85rem">No earners yet. Be the first!</p>'; return; }
         el.innerHTML = leaders.slice(0, 5).map((l, i) => `<div class="mini-lb-row">
             <span class="mini-lb-rank">${i+1}</span>
-            <img src="${l.avatar || 'https://api.dicebear.com/7.x/thumbs/svg?seed=' + l.userId}" class="mini-lb-avatar" alt="">
+            <img src="${l.avatar || 'https://api.dicebear.com/7.x/thumbs/svg?seed=' + l.userId}" class="mini-lb-avatar" alt="" referrerpolicy="no-referrer" onerror="this.onerror=null;this.src='https://api.dicebear.com/7.x/thumbs/svg?seed=${l.userId}'">
             <span class="mini-lb-name">${l.name}</span>
             <span class="mini-lb-earned">$${(l.totalEarnedUSD||l.totalEarned||0).toFixed(2)}</span>
         </div>`).join('');
@@ -787,7 +787,7 @@ async function loadFullLeaderboard() {
             const lbBadges = l.badges || [];
             return `<div class="lb-full-row ${isYou ? 'you' : ''}">
                 <span class="mini-lb-rank">${i+1}</span>
-                <span class="lb-member"><img src="${l.avatar || 'https://api.dicebear.com/7.x/thumbs/svg?seed=' + l.userId}" class="lb-avatar" alt=""> ${l.name}${isYou ? ' (You)' : ''}</span>
+                <span class="lb-member"><img src="${l.avatar || 'https://api.dicebear.com/7.x/thumbs/svg?seed=' + l.userId}" class="lb-avatar" alt="" referrerpolicy="no-referrer" onerror="this.onerror=null;this.src='https://api.dicebear.com/7.x/thumbs/svg?seed=${l.userId}'"> ${l.name}${isYou ? ' (You)' : ''}</span>
                 <span class="lb-tasks">${tc}</span>
                 <span class="lb-earned">$${(l.totalEarnedUSD||l.totalEarned||0).toFixed(2)}</span>
                 <span class="lb-badges-col"><span class="badge ${pb.class}"><i class="${pb.icon}"></i> ${pb.label}</span>${lbBadges.length ? ' ' + renderBadgePills(lbBadges) : ''}</span>

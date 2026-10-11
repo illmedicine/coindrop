@@ -78,7 +78,7 @@ function landingPrestigeTier(tasksCompleted) {
             const row = document.createElement('div');
             row.className = 'lb-row ' + (rowClasses[i] || '');
             row.innerHTML = '<span class="lb-rank">' + rankIcon + (i + 1) + '</span>' +
-                '<span class="lb-member"><img src="' + avatar + '" alt="" class="lb-avatar"> ' + l.name + '</span>' +
+                '<span class="lb-member"><img src="' + avatar + '" alt="" class="lb-avatar" referrerpolicy="no-referrer" onerror="this.onerror=null;this.src=\'https://api.dicebear.com/7.x/thumbs/svg?seed=' + encodeURIComponent(l.name) + '\'"> ' + l.name + '</span>' +
                 '<span class="lb-tasks">' + totalTasks.toLocaleString() + '</span>' +
                 '<span class="lb-earned">$' + earnedUSD.toFixed(2) + '</span>' +
                 '<span class="lb-prestige"><span class="badge ' + pb.class + '"><i class="fas ' + pb.icon + '"></i> ' + pb.label + '</span> ' + badgePills + '</span>';
