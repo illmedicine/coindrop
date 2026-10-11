@@ -205,6 +205,21 @@ if (user) {
     document.getElementById('user-badge').innerHTML = `<i class="${p.icon}"></i> ${p.label}`;
     document.getElementById('user-badge').className = `badge ${p.class}`;
 
+    // Keep the server's copy of displayName/avatar current — the leaderboard
+    // and anywhere else reading the users collection otherwise only ever see
+    // whatever was saved at first login (and never anything at all for a
+    // profile that only got auto-created by a task completion).
+    if (user.id && user.avatar) {
+        // Note: API_URL is declared with const further down this file — referencing
+        // it here (at the top) would hit the temporal dead zone, so this uses the
+        // literal URL directly instead.
+        fetch('https://coindrop-auth.up.railway.app/api/user-profile/sync', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ userId: user.id, displayName: user.displayName, avatar: user.avatar }),
+        }).catch(() => {});
+    }
+
     // Show loading state for stats until server responds
     document.getElementById('total-earned').textContent = '...';
     document.getElementById('tasks-done').textContent = '...';

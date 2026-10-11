@@ -2554,6 +2554,29 @@ app.get('/api/user-profile/:userId', async (req, res) => {
     } catch(e) { res.json({ profile: {} }); }
 });
 
+// Upsert the caller's own displayName/avatar into the server-queryable users
+// collection. Needed because avatar only ever reached this collection via the
+// Discord OAuth callback — Google sign-in (js/firebase-config.js) writes it
+// straight to Firestore through the client SDK, which the leaderboard/profile
+// reads here can miss under Firestore quota pressure, and it's never written
+// at all for a profile that only ever got auto-created by a task completion.
+// Merges onto the existing doc so it never clobbers walletAddress etc.
+app.post('/api/user-profile/sync', async (req, res) => {
+    const { userId, displayName, avatar } = req.body || {};
+    if (!userId) return res.status(400).json({ error: 'userId required' });
+    try {
+        const existing = (await firestore.getDoc('users', userId)) || {};
+        const merged = { ...existing };
+        if (displayName) merged.displayName = displayName;
+        if (avatar) merged.avatar = avatar;
+        await firestore.setDoc('users', userId, merged);
+        cache.userProfiles[userId] = merged;
+        res.json({ success: true });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
 // API: Get user stats — denormalized: 2 Firestore reads max (stats + cooldowns)
 // Badges, prestige, display info all stored in the stats doc at write time
 app.get('/api/user-stats/:userId', async (req, res) => {
