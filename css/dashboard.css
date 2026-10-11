@@ -1026,6 +1026,17 @@
 .sub-next-payout { font-size: 0.75rem; color: var(--orange); font-weight: 500; }
 
 /* Full leaderboard */
+.lb-header-row {
+    display: grid;
+    grid-template-columns: 60px 1fr 100px 120px 120px;
+    padding: 0 20px 8px;
+    font-size: 0.75rem;
+    font-weight: 700;
+    color: var(--gray-400);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
 .lb-full-row {
     display: grid;
     grid-template-columns: 60px 1fr 100px 120px 120px;
@@ -1149,6 +1160,8 @@
     .tab-content { padding: 16px; }
     .lb-full-row { grid-template-columns: 40px 1fr 80px 100px; }
     .lb-full-row > :nth-child(5) { display: none; }
+    .lb-header-row { grid-template-columns: 40px 1fr 80px 100px; }
+    .lb-header-row > :nth-child(5) { display: none; }
     .creator-profile { flex-direction: column; }
     .creator-subscribe-action { flex-direction: column; align-items: stretch; }
     .video-task-card { flex-direction: column; }
