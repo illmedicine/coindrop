@@ -9,16 +9,20 @@ document.getElementById('sidebar-toggle')?.addEventListener('click', () => {
 document.querySelectorAll('.sidebar-link[data-tab]').forEach(link => {
     link.addEventListener('click', (e) => {
         e.preventDefault();
-        const tab = link.dataset.tab;
-        document.querySelectorAll('.sidebar-link').forEach(l => l.classList.remove('active'));
-        link.classList.add('active');
-        document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
-        document.getElementById(`tab-${tab}`).classList.add('active');
+        switchTab(link.dataset.tab);
         document.getElementById('sidebar').classList.remove('open');
-        if (tab === 'analytics' && typeof loadCreatorAnalytics === 'function') loadCreatorAnalytics();
-        if (tab === 'admin-payouts' && typeof loadUnpaidTasks === 'function') loadUnpaidTasks();
     });
 });
+
+// Restore whichever tab was open before a refresh, so reloading doesn't
+// always dump you back on Overview. Uses sessionStorage (not localStorage)
+// so it only persists within this browsing session, not forever. A ?c=
+// creator deep link still wins — resolveInitialCreator() runs after this
+// and calls switchTab('tasks') itself when that param is present.
+const _lastTab = sessionStorage.getItem('coindrop_active_tab');
+if (_lastTab && document.getElementById(`tab-${_lastTab}`)) {
+    switchTab(_lastTab);
+}
 
 // Handle OAuth callback — auth server redirects here with ?auth= param
 const urlParams = new URLSearchParams(window.location.search);
@@ -277,6 +281,7 @@ function switchTab(tabName) {
     if (link) link.classList.add('active');
     document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
     document.getElementById(`tab-${tabName}`)?.classList.add('active');
+    try { sessionStorage.setItem('coindrop_active_tab', tabName); } catch (e) {}
     if (tabName === 'analytics' && typeof loadCreatorAnalytics === 'function') loadCreatorAnalytics();
     if (tabName === 'admin-payouts' && typeof loadUnpaidTasks === 'function') loadUnpaidTasks();
 }
