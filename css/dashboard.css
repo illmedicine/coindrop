@@ -1633,3 +1633,17 @@
     from { transform: translateY(100px); opacity: 0; }
     to { transform: translateY(0); opacity: 1; }
 }
+
+/* Audit tab: custom "Search user" dropdown */
+.audit-user-option {
+    padding: 9px 14px;
+    font-size: 0.85rem;
+    color: var(--navy);
+    cursor: pointer;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    border-bottom: 1px solid var(--gray-100);
+}
+.audit-user-option:last-child { border-bottom: none; }
+.audit-user-option:hover { background: var(--gray-50); }

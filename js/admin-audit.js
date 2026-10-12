@@ -79,10 +79,10 @@ function onAuditUserInput() {
     if (matches.length === 0) {
         dropdown.innerHTML = '<div style="padding:10px 14px;color:var(--gray-400);font-size:0.85rem;">No matching users</div>';
     } else {
-        dropdown.innerHTML = matches.map(u =>
-            `<div class="audit-user-option" onclick="selectAuditUser('${u.replace(/'/g, "\\'")}')"
-                style="padding:8px 14px;font-size:0.85rem;cursor:pointer;" onmouseover="this.style.background='var(--gray-50)'" onmouseout="this.style.background=''">${u}</div>`
-        ).join('');
+        dropdown.innerHTML = matches.map(u => {
+            const escaped = u.replace(/"/g, '&quot;');
+            return `<div class="audit-user-option" title="${escaped}" onclick="selectAuditUser('${u.replace(/'/g, "\\'")}')">${escaped}</div>`;
+        }).join('');
     }
     dropdown.style.display = 'block';
     applyAuditFilter();
