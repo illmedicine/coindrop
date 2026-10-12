@@ -4,8 +4,8 @@ const AUDIT_API = 'https://coindrop-auth.up.railway.app';
 let _auditAllTasks = [];
 
 const FLAG_META = {
-    DUPLICATE_SUBSCRIBE:  { label: 'Duplicate Subscribe',   color: '#ef4444', icon: 'fa-repeat' },
-    SAME_DAY_DUPLICATE:   { label: 'Same-Day Duplicate',    color: '#f97316', icon: 'fa-clone' },
+    DUPLICATE_SUBSCRIBE:  { label: 'Duplicate Subscribe (not paid)', color: '#ef4444', icon: 'fa-repeat' },
+    SAME_DAY_DUPLICATE:   { label: 'Same-Day Duplicate (not paid)', color: '#f97316', icon: 'fa-clone' },
     HIGH_VOLUME_BOT_RISK: { label: 'Bot Risk (50+ tasks/day)', color: '#7c3aed', icon: 'fa-robot' },
 };
 
@@ -94,7 +94,9 @@ function renderAuditTable(tasks) {
             <td style="padding:8px;">
                 ${t.payoutSuccess
                     ? `<span style="color:#22c55e;font-weight:600;font-size:0.75rem;"><i class="fas fa-check"></i> Paid${txShort ? `<br><span style="font-family:monospace;opacity:0.6;">${txShort}</span>` : ''}</span>`
-                    : `<span style="color:var(--gray-400);font-size:0.75rem;"><i class="fas fa-clock"></i> Pending</span>`}
+                    : t.payoutBlocked
+                        ? `<span style="color:#ef4444;font-weight:600;font-size:0.75rem;" title="Duplicates are never paid"><i class="fas fa-ban"></i> Blocked</span>`
+                        : `<span style="color:var(--gray-400);font-size:0.75rem;"><i class="fas fa-clock"></i> Pending</span>`}
             </td>
             <td style="padding:8px;">${flagBadges || '<span style="color:var(--gray-300);font-size:0.72rem;">—</span>'}</td>
         </tr>`;
@@ -120,7 +122,7 @@ async function runAIAnalysis() {
     }
 
     const dupeSubs       = [];  // userId saw same creator subscribe >1
-    const sameDayDupes   = [];  // same video+taskType on same day
+    const sameDayDupes   = [];  // same video+taskType (watch/like/comment) on same day
     const highVolume     = [];  // >50 tasks in a single calendar day
     const unpaidFlagged  = [];  // flagged tasks that are still unpaid
 
@@ -131,7 +133,7 @@ async function runAIAnalysis() {
             const k = `${t.userId}:${t.creatorName}`;
             subMap[k] = (subMap[k] || 0) + 1;
         }
-        if (t.taskType === 'watch' || t.taskType === 'like') {
+        if (t.taskType === 'watch' || t.taskType === 'like' || t.taskType === 'comment') {
             const date = (t.timestamp||'').slice(0,10);
             const k = `${t.userId}:${t.videoId}:${t.taskType}:${date}`;
             dayMap[k] = (dayMap[k] || 0) + 1;
@@ -154,7 +156,7 @@ async function runAIAnalysis() {
                 dupeSubs.push({ user: t.username||t.userId, creator: t.creatorName, count: subMap[k] });
             }
         }
-        if (t.taskType === 'watch' || t.taskType === 'like') {
+        if (t.taskType === 'watch' || t.taskType === 'like' || t.taskType === 'comment') {
             const date = (t.timestamp||'').slice(0,10);
             const k = `${t.userId}:${t.videoId}:${t.taskType}:${date}`;
             if ((dayMap[k]||0) > 1 && !seenDayAlert.has(k)) {
@@ -200,7 +202,7 @@ async function runAIAnalysis() {
         html += '</ul></div>';
     }
     if (sameDayDupes.length > 0) {
-        html += `<div style="margin-bottom:12px;"><strong style="color:#f97316;"><i class="fas fa-clone"></i> Same-Day Duplicate Watch/Like (${sameDayDupes.length})</strong><ul style="margin:6px 0 0 18px;opacity:0.85;">`;
+        html += `<div style="margin-bottom:12px;"><strong style="color:#f97316;"><i class="fas fa-clone"></i> Same-Day Duplicate Watch/Like/Comment (${sameDayDupes.length})</strong><ul style="margin:6px 0 0 18px;opacity:0.85;">`;
         sameDayDupes.forEach(d => { html += `<li>${d.user} — ${d.task} on "<em>${d.title}</em>" ${d.count}× on ${d.date}</li>`; });
         html += '</ul></div>';
     }

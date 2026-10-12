@@ -66,7 +66,8 @@ async function loadUnpaidTasks() {
 
         const totalOwedUSD = unpaid.reduce((sum, t) => sum + (t.rewardUSD || 0), 0);
         const totalOwedSOL = unpaid.reduce((sum, t) => sum + (t.rewardSOL || 0), 0);
-        if (countEl) countEl.innerHTML = `<strong>${unpaid.length}</strong> unpaid task${unpaid.length !== 1 ? 's' : ''} &mdash; Total owed: <strong style="color:var(--orange);">$${totalOwedUSD.toFixed(2)} USD</strong> (<strong>${totalOwedSOL.toFixed(6)} SOL</strong>)`;
+        if (countEl) countEl.innerHTML = `<strong>${unpaid.length}</strong> unpaid task${unpaid.length !== 1 ? 's' : ''} &mdash; Total owed: <strong style="color:var(--orange);">$${totalOwedUSD.toFixed(2)} USD</strong> (<strong>${totalOwedSOL.toFixed(6)} SOL</strong>)`
+            + ((data.debug && data.debug.blockedDuplicates) ? ` <span style="color:#ef4444;font-size:0.85rem;" title="Duplicate subscribes and same-day duplicate watch/like/comment tasks are never paid"><i class="fas fa-ban"></i> ${data.debug.blockedDuplicates} duplicate task${data.debug.blockedDuplicates !== 1 ? 's' : ''} ($${(data.debug.blockedDuplicatesUSD || 0).toFixed(2)}) excluded &mdash; not payable</span>` : '');
 
         if (unpaid.length === 0) {
             container.innerHTML = '<div style="text-align:center;padding:40px;color:var(--gray-400);"><i class="fas fa-check-circle" style="font-size:3rem;color:#22c55e;margin-bottom:12px;display:block;"></i><h3 style="color:var(--navy);">All Caught Up!</h3><p>No unpaid tasks found. All earners have been paid.</p></div>';
