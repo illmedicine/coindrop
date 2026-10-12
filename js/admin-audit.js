@@ -39,30 +39,74 @@ async function loadAuditTasks() {
 // Fill the Creator/User dropdowns with whatever actually appears in the
 // loaded tasks, sorted alphabetically. Re-selects the previous value if it's
 // still present, so re-populating on Refresh doesn't reset an active filter.
+let _auditUserList = [];
+
 function populateAuditFilterOptions() {
     const creatorSel = document.getElementById('audit-creator-filter');
-    const userList = document.getElementById('audit-user-list');
-    if (!creatorSel || !userList) return;
+    if (!creatorSel) return;
 
     const creators = [...new Set(_auditAllTasks.map(t => t.creatorName).filter(Boolean))].sort((a, b) => a.localeCompare(b));
     // At scale this list runs into the thousands and a lot of accounts have
     // no username on record (older tasks), only a raw userId — a plain
-    // <select> is unusable to scroll through, so this feeds a <datalist> for
-    // the text input instead, which gives type-to-filter for free.
-    const users = [...new Set(_auditAllTasks.map(t => t.username || t.userId).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+    // <select> is unusable to scroll through, so this instead backs a custom
+    // dropdown (onAuditUserInput/selectAuditUser below) that filters as you
+    // type, matching the look of the Creator <select> rather than the
+    // browser's own unstyled <datalist> popup.
+    _auditUserList = [...new Set(_auditAllTasks.map(t => t.username || t.userId).filter(Boolean))].sort((a, b) => a.localeCompare(b));
 
     const prevCreator = creatorSel.value;
     creatorSel.innerHTML = '<option value="">All Creators</option>' +
         creators.map(c => `<option value="${c.replace(/"/g, '&quot;')}">${c}</option>`).join('');
     if (creators.includes(prevCreator)) creatorSel.value = prevCreator;
-
-    userList.innerHTML = users.map(u => `<option value="${u.replace(/"/g, '&quot;')}">`).join('');
 }
+
+// Custom searchable dropdown for the User filter — styled list instead of
+// the browser's own <datalist> popup, capped to the first 100 matches so it
+// stays snappy with thousands of users.
+function hideAuditUserDropdown() {
+    const dd = document.getElementById('audit-user-dropdown');
+    if (dd) dd.style.display = 'none';
+}
+
+function onAuditUserInput() {
+    const input = document.getElementById('audit-user-filter');
+    const dropdown = document.getElementById('audit-user-dropdown');
+    if (!input || !dropdown) return;
+
+    const q = input.value.trim().toLowerCase();
+    const matches = (q ? _auditUserList.filter(u => u.toLowerCase().includes(q)) : _auditUserList).slice(0, 100);
+
+    if (matches.length === 0) {
+        dropdown.innerHTML = '<div style="padding:10px 14px;color:var(--gray-400);font-size:0.85rem;">No matching users</div>';
+    } else {
+        dropdown.innerHTML = matches.map(u =>
+            `<div class="audit-user-option" onclick="selectAuditUser('${u.replace(/'/g, "\\'")}')"
+                style="padding:8px 14px;font-size:0.85rem;cursor:pointer;" onmouseover="this.style.background='var(--gray-50)'" onmouseout="this.style.background=''">${u}</div>`
+        ).join('');
+    }
+    dropdown.style.display = 'block';
+    applyAuditFilter();
+}
+
+function selectAuditUser(username) {
+    const input = document.getElementById('audit-user-filter');
+    if (input) input.value = username;
+    hideAuditUserDropdown();
+    applyAuditFilter();
+}
+
+document.addEventListener('click', (e) => {
+    const wrap = document.getElementById('audit-user-filter')?.closest('span');
+    if (wrap && !wrap.contains(e.target)) {
+        hideAuditUserDropdown();
+    }
+});
 
 function clearAuditFilters() {
     const ids = ['audit-filter', 'audit-tasktype-filter', 'audit-creator-filter', 'audit-user-filter', 'audit-date-from', 'audit-date-to', 'audit-search'];
     ids.forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
     document.getElementById('audit-filter').value = 'all';
+    hideAuditUserDropdown();
     applyAuditFilter();
 }
 
