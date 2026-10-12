@@ -29,19 +29,64 @@ async function loadAuditTasks() {
             `<strong style="color:#ef4444;">${data.flagged}</strong> flagged &mdash; ` +
             `<strong style="color:#22c55e;">${_auditAllTasks.filter(t => t.payoutSuccess).length}</strong> paid`;
 
-        renderAuditTable(_auditAllTasks);
+        populateAuditFilterOptions();
+        applyAuditFilter();
     } catch (err) {
         container.innerHTML = `<p style="color:var(--danger);"><i class="fas fa-exclamation-circle"></i> ${err.message}</p>`;
     }
 }
 
+// Fill the Creator/User dropdowns with whatever actually appears in the
+// loaded tasks, sorted alphabetically. Re-selects the previous value if it's
+// still present, so re-populating on Refresh doesn't reset an active filter.
+function populateAuditFilterOptions() {
+    const creatorSel = document.getElementById('audit-creator-filter');
+    const userList = document.getElementById('audit-user-list');
+    if (!creatorSel || !userList) return;
+
+    const creators = [...new Set(_auditAllTasks.map(t => t.creatorName).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+    // At scale this list runs into the thousands and a lot of accounts have
+    // no username on record (older tasks), only a raw userId — a plain
+    // <select> is unusable to scroll through, so this feeds a <datalist> for
+    // the text input instead, which gives type-to-filter for free.
+    const users = [...new Set(_auditAllTasks.map(t => t.username || t.userId).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+
+    const prevCreator = creatorSel.value;
+    creatorSel.innerHTML = '<option value="">All Creators</option>' +
+        creators.map(c => `<option value="${c.replace(/"/g, '&quot;')}">${c}</option>`).join('');
+    if (creators.includes(prevCreator)) creatorSel.value = prevCreator;
+
+    userList.innerHTML = users.map(u => `<option value="${u.replace(/"/g, '&quot;')}">`).join('');
+}
+
+function clearAuditFilters() {
+    const ids = ['audit-filter', 'audit-tasktype-filter', 'audit-creator-filter', 'audit-user-filter', 'audit-date-from', 'audit-date-to', 'audit-search'];
+    ids.forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+    document.getElementById('audit-filter').value = 'all';
+    applyAuditFilter();
+}
+
 function applyAuditFilter() {
     const filter = document.getElementById('audit-filter')?.value || 'all';
     const search = (document.getElementById('audit-search')?.value || '').toLowerCase();
+    const taskType = document.getElementById('audit-tasktype-filter')?.value || '';
+    const creator = document.getElementById('audit-creator-filter')?.value || '';
+    const userFilter = document.getElementById('audit-user-filter')?.value || '';
+    const dateFrom = document.getElementById('audit-date-from')?.value || '';
+    const dateTo = document.getElementById('audit-date-to')?.value || '';
+
     let tasks = _auditAllTasks;
     if (filter === 'flagged') tasks = tasks.filter(t => t.flags.length > 0);
     else if (filter === 'paid')    tasks = tasks.filter(t => t.payoutSuccess);
     else if (filter === 'unpaid')  tasks = tasks.filter(t => !t.payoutSuccess);
+    if (taskType) tasks = tasks.filter(t => t.taskType === taskType);
+    if (creator) tasks = tasks.filter(t => t.creatorName === creator);
+    if (userFilter) {
+        const uf = userFilter.toLowerCase();
+        tasks = tasks.filter(t => (t.username || t.userId || '').toLowerCase().includes(uf));
+    }
+    if (dateFrom) tasks = tasks.filter(t => (t.timestamp || '').slice(0, 10) >= dateFrom);
+    if (dateTo) tasks = tasks.filter(t => (t.timestamp || '').slice(0, 10) <= dateTo);
     if (search) tasks = tasks.filter(t =>
         (t.username || '').toLowerCase().includes(search) ||
         (t.creatorName || '').toLowerCase().includes(search) ||

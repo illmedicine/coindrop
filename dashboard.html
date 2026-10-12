@@ -101,7 +101,7 @@
                     <i class="fas fa-bolt text-orange"></i>
                     Next content drop: <strong id="next-drop-timer">--:--</strong>
                 </div>
-                <div class="notif-bell" id="notif-bell" onclick="toggleNotifications()">
+                <div class="notif-bell" id="notif-bell" onclick="toggleNotifications(event)">
                     <i class="fas fa-bell"></i>
                     <span class="notif-badge" id="notif-badge" style="display:none;">0</span>
                 </div>
@@ -576,17 +576,42 @@
                 <h2><i class="fas fa-shield-alt text-orange"></i> Leaderboard Audit</h2>
                 <p class="text-muted">Full task history with AI fraud detection. Flagged tasks are ineligible for payout.</p>
             </div>
-            <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:16px;">
+            <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:10px;">
                 <button class="btn btn-primary" onclick="loadAuditTasks()"><i class="fas fa-sync"></i> Refresh</button>
                 <button class="btn btn-primary" id="run-ai-btn" onclick="runAIAnalysis()" style="background:#7c3aed;"><i class="fas fa-robot"></i> Run AI Analysis</button>
+                <input id="audit-search" type="text" placeholder="Search user, creator, title..." oninput="applyAuditFilter()" style="padding:8px 14px;border-radius:8px;border:1px solid var(--gray-200);font-size:0.85rem;min-width:220px;">
+                <span id="audit-summary" class="text-muted" style="margin-left:auto;font-size:0.82rem;"></span>
+            </div>
+            <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:16px;">
                 <select id="audit-filter" onchange="applyAuditFilter()" style="padding:8px 14px;border-radius:8px;border:1px solid var(--gray-200);font-size:0.85rem;background:white;">
                     <option value="all">All Tasks</option>
                     <option value="flagged">Flagged Only</option>
                     <option value="paid">Paid</option>
-                    <option value="unpaid">Unpaid</option>
+                    <option value="unpaid">Pending</option>
                 </select>
-                <input id="audit-search" type="text" placeholder="Search user, creator, title..." oninput="applyAuditFilter()" style="padding:8px 14px;border-radius:8px;border:1px solid var(--gray-200);font-size:0.85rem;min-width:220px;">
-                <span id="audit-summary" class="text-muted" style="margin-left:auto;font-size:0.82rem;"></span>
+                <select id="audit-tasktype-filter" onchange="applyAuditFilter()" style="padding:8px 14px;border-radius:8px;border:1px solid var(--gray-200);font-size:0.85rem;background:white;">
+                    <option value="">All Task Types</option>
+                    <option value="watch">Watch</option>
+                    <option value="like">Like</option>
+                    <option value="comment">Comment</option>
+                    <option value="subscribe">Subscribe</option>
+                    <option value="follow">Follow</option>
+                </select>
+                <select id="audit-creator-filter" onchange="applyAuditFilter()" style="padding:8px 14px;border-radius:8px;border:1px solid var(--gray-200);font-size:0.85rem;background:white;">
+                    <option value="">All Creators</option>
+                </select>
+                <span style="position:relative;display:inline-flex;align-items:center;">
+                    <input id="audit-user-filter" list="audit-user-list" type="text" placeholder="Search user..." oninput="applyAuditFilter()" style="padding:8px 30px 8px 14px;border-radius:8px;border:1px solid var(--gray-200);font-size:0.85rem;min-width:180px;">
+                    <i class="fas fa-times" onclick="document.getElementById('audit-user-filter').value='';applyAuditFilter();" title="Clear" style="position:absolute;right:10px;cursor:pointer;color:var(--gray-300);font-size:0.75rem;"></i>
+                </span>
+                <datalist id="audit-user-list"></datalist>
+                <label style="display:flex;align-items:center;gap:6px;font-size:0.8rem;color:var(--gray-400);">
+                    From <input id="audit-date-from" type="date" onchange="applyAuditFilter()" style="padding:7px 10px;border-radius:8px;border:1px solid var(--gray-200);font-size:0.85rem;">
+                </label>
+                <label style="display:flex;align-items:center;gap:6px;font-size:0.8rem;color:var(--gray-400);">
+                    To <input id="audit-date-to" type="date" onchange="applyAuditFilter()" style="padding:7px 10px;border-radius:8px;border:1px solid var(--gray-200);font-size:0.85rem;">
+                </label>
+                <button class="btn btn-ghost" onclick="clearAuditFilters()" style="padding:7px 12px;font-size:0.8rem;color:var(--gray-500);"><i class="fas fa-times"></i> Clear Filters</button>
             </div>
             <div id="audit-ai-report" style="display:none;margin-bottom:16px;padding:16px;background:#1e1b4b;border-radius:10px;color:white;"></div>
             <div id="audit-tasks-list">
