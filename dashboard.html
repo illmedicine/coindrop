@@ -600,10 +600,7 @@
                 <select id="audit-creator-filter" onchange="applyAuditFilter()" style="padding:8px 14px;border-radius:8px;border:1px solid var(--gray-200);font-size:0.85rem;background:white;">
                     <option value="">All Creators</option>
                 </select>
-                <span style="position:relative;display:inline-flex;align-items:center;">
-                    <input id="audit-user-filter" list="audit-user-list" type="text" placeholder="Search user..." oninput="applyAuditFilter()" style="padding:8px 30px 8px 14px;border-radius:8px;border:1px solid var(--gray-200);font-size:0.85rem;min-width:180px;">
-                    <i class="fas fa-times" onclick="document.getElementById('audit-user-filter').value='';applyAuditFilter();" title="Clear" style="position:absolute;right:10px;cursor:pointer;color:var(--gray-300);font-size:0.75rem;"></i>
-                </span>
+                <input id="audit-user-filter" list="audit-user-list" type="text" placeholder="Search user..." oninput="applyAuditFilter()" style="padding:8px 14px;border-radius:8px;border:1px solid var(--gray-200);font-size:0.85rem;background:white;">
                 <datalist id="audit-user-list"></datalist>
                 <label style="display:flex;align-items:center;gap:6px;font-size:0.8rem;color:var(--gray-400);">
                     From <input id="audit-date-from" type="date" onchange="applyAuditFilter()" style="padding:7px 10px;border-radius:8px;border:1px solid var(--gray-200);font-size:0.85rem;">
