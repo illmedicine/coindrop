@@ -589,6 +589,14 @@
                     <option value="paid">Paid</option>
                     <option value="unpaid">Pending</option>
                 </select>
+                <select id="audit-tasktype-filter" onchange="applyAuditFilter()" style="padding:8px 14px;border-radius:8px;border:1px solid var(--gray-200);font-size:0.85rem;background:white;">
+                    <option value="">All Task Types</option>
+                    <option value="watch">Watch</option>
+                    <option value="like">Like</option>
+                    <option value="comment">Comment</option>
+                    <option value="subscribe">Subscribe</option>
+                    <option value="follow">Follow</option>
+                </select>
                 <select id="audit-creator-filter" onchange="applyAuditFilter()" style="padding:8px 14px;border-radius:8px;border:1px solid var(--gray-200);font-size:0.85rem;background:white;">
                     <option value="">All Creators</option>
                 </select>

@@ -59,7 +59,7 @@ function populateAuditFilterOptions() {
 }
 
 function clearAuditFilters() {
-    const ids = ['audit-filter', 'audit-creator-filter', 'audit-user-filter', 'audit-date-from', 'audit-date-to', 'audit-search'];
+    const ids = ['audit-filter', 'audit-tasktype-filter', 'audit-creator-filter', 'audit-user-filter', 'audit-date-from', 'audit-date-to', 'audit-search'];
     ids.forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
     document.getElementById('audit-filter').value = 'all';
     applyAuditFilter();
@@ -68,6 +68,7 @@ function clearAuditFilters() {
 function applyAuditFilter() {
     const filter = document.getElementById('audit-filter')?.value || 'all';
     const search = (document.getElementById('audit-search')?.value || '').toLowerCase();
+    const taskType = document.getElementById('audit-tasktype-filter')?.value || '';
     const creator = document.getElementById('audit-creator-filter')?.value || '';
     const userFilter = document.getElementById('audit-user-filter')?.value || '';
     const dateFrom = document.getElementById('audit-date-from')?.value || '';
@@ -77,6 +78,7 @@ function applyAuditFilter() {
     if (filter === 'flagged') tasks = tasks.filter(t => t.flags.length > 0);
     else if (filter === 'paid')    tasks = tasks.filter(t => t.payoutSuccess);
     else if (filter === 'unpaid')  tasks = tasks.filter(t => !t.payoutSuccess);
+    if (taskType) tasks = tasks.filter(t => t.taskType === taskType);
     if (creator) tasks = tasks.filter(t => t.creatorName === creator);
     if (userFilter) tasks = tasks.filter(t => (t.username || t.userId) === userFilter);
     if (dateFrom) tasks = tasks.filter(t => (t.timestamp || '').slice(0, 10) >= dateFrom);
