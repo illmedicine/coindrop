@@ -41,10 +41,14 @@ async function loadAuditTasks() {
 // still present, so re-populating on Refresh doesn't reset an active filter.
 function populateAuditFilterOptions() {
     const creatorSel = document.getElementById('audit-creator-filter');
-    const userSel = document.getElementById('audit-user-filter');
-    if (!creatorSel || !userSel) return;
+    const userList = document.getElementById('audit-user-list');
+    if (!creatorSel || !userList) return;
 
     const creators = [...new Set(_auditAllTasks.map(t => t.creatorName).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+    // At scale this list runs into the thousands and a lot of accounts have
+    // no username on record (older tasks), only a raw userId — a plain
+    // <select> is unusable to scroll through, so this feeds a <datalist> for
+    // the text input instead, which gives type-to-filter for free.
     const users = [...new Set(_auditAllTasks.map(t => t.username || t.userId).filter(Boolean))].sort((a, b) => a.localeCompare(b));
 
     const prevCreator = creatorSel.value;
@@ -52,10 +56,7 @@ function populateAuditFilterOptions() {
         creators.map(c => `<option value="${c.replace(/"/g, '&quot;')}">${c}</option>`).join('');
     if (creators.includes(prevCreator)) creatorSel.value = prevCreator;
 
-    const prevUser = userSel.value;
-    userSel.innerHTML = '<option value="">All Users</option>' +
-        users.map(u => `<option value="${u.replace(/"/g, '&quot;')}">${u}</option>`).join('');
-    if (users.includes(prevUser)) userSel.value = prevUser;
+    userList.innerHTML = users.map(u => `<option value="${u.replace(/"/g, '&quot;')}">`).join('');
 }
 
 function clearAuditFilters() {
@@ -80,7 +81,10 @@ function applyAuditFilter() {
     else if (filter === 'unpaid')  tasks = tasks.filter(t => !t.payoutSuccess);
     if (taskType) tasks = tasks.filter(t => t.taskType === taskType);
     if (creator) tasks = tasks.filter(t => t.creatorName === creator);
-    if (userFilter) tasks = tasks.filter(t => (t.username || t.userId) === userFilter);
+    if (userFilter) {
+        const uf = userFilter.toLowerCase();
+        tasks = tasks.filter(t => (t.username || t.userId || '').toLowerCase().includes(uf));
+    }
     if (dateFrom) tasks = tasks.filter(t => (t.timestamp || '').slice(0, 10) >= dateFrom);
     if (dateTo) tasks = tasks.filter(t => (t.timestamp || '').slice(0, 10) <= dateTo);
     if (search) tasks = tasks.filter(t =>
