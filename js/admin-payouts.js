@@ -75,13 +75,15 @@ async function loadUnpaidTasks() {
 
         let html = '<table style="width:100%;border-collapse:collapse;font-size:0.85rem;">';
         html += '<thead><tr style="border-bottom:2px solid var(--gray-200);text-align:left;">';
-        html += '<th style="padding:10px;">User</th><th style="padding:10px;">Task</th><th style="padding:10px;">Content</th>';
+        html += '<th style="padding:10px;">Time</th><th style="padding:10px;">User</th><th style="padding:10px;">Task</th><th style="padding:10px;">Content</th>';
         html += '<th style="padding:10px;">Reward</th><th style="padding:10px;">Wallet</th><th style="padding:10px;">Action</th></tr></thead><tbody>';
 
         for (const task of unpaid) {
             const wallet = task.walletAddress || '';
             const walletShort = wallet ? wallet.substring(0, 6) + '...' + wallet.substring(wallet.length - 4) : '<span style="color:var(--danger);">No wallet</span>';
+            const ts = task.timestamp ? new Date(task.timestamp).toLocaleString() : '—';
             html += `<tr style="border-bottom:1px solid var(--gray-200);" id="row-${task.docId}">`;
+            html += `<td style="padding:10px;white-space:nowrap;color:var(--gray-500);font-size:0.8rem;">${ts}</td>`;
             html += `<td style="padding:10px;font-weight:600;">${task.username}</td>`;
             html += `<td style="padding:10px;"><span style="background:var(--orange);color:#fff;padding:2px 8px;border-radius:4px;font-size:0.75rem;">${task.taskType}</span></td>`;
             html += `<td style="padding:10px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${task.videoTitle}">${task.videoTitle}</td>`;
