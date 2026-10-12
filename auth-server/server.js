@@ -229,6 +229,49 @@ const DISCORD_SERVER_ID = '1517900956849803346';
 const DISCORD_BOT_TOKEN = process.env.DISCORD_BOT_TOKEN;
 
 // All rewards in USD cents — converted to SOL at payout time
+// ── Duplicate rules: duplicates are NEVER paid ───────────────────────────────
+// One payout per user per creator subscribe (forever); one payout per user per video per task type per UTC day
+// for watch / like / comment. The earliest task in each group is the legitimate one; later duplicates are blocked.
+const DAILY_DEDUP_TYPES = new Set(['watch', 'like', 'comment']);
+const utcDay = ts => String(ts || '').slice(0, 10);
+
+// Map of task doc id -> reason for every task that duplicates an EARLIER task (paid or not)
+function computeDuplicateBlocks(tasks) {
+    const idOf = t => String(t.docId || t._docId || t.id || '');
+    const sorted = [...tasks].sort((a, b) => {
+        const ta = String(a.timestamp || ''), tb = String(b.timestamp || '');
+        return ta < tb ? -1 : ta > tb ? 1 : idOf(a).localeCompare(idOf(b));
+    });
+    const seenSub = new Set(), seenDay = new Set(), blocked = new Map();
+    for (const t of sorted) {
+        if (t.taskType === 'subscribe') {
+            const k = `${t.userId}:${t.creatorName}`;
+            if (seenSub.has(k)) blocked.set(idOf(t), 'DUPLICATE_SUBSCRIBE'); else seenSub.add(k);
+        } else if (DAILY_DEDUP_TYPES.has(t.taskType)) {
+            const k = `${t.userId}:${t.videoId}:${t.taskType}:${utcDay(t.timestamp)}`;
+            if (seenDay.has(k)) blocked.set(idOf(t), 'SAME_DAY_DUPLICATE'); else seenDay.add(k);
+        }
+    }
+    return blocked;
+}
+
+const DUPLICATE_REASON_TEXT = {
+    DUPLICATE_SUBSCRIBE: 'Duplicate subscribe: a payout was already earned for this creator',
+    SAME_DAY_DUPLICATE: 'Same-day duplicate: this task was already done on this video today (UTC)',
+};
+
+// For a task that is about to be verified: does the in-memory task list already contain a duplicate?
+// Works even when Firestore is unreachable (the Firestore-based checks above fail open).
+function duplicateReasonForNewTask({ userId, taskType, videoId, creatorName }) {
+    const today = new Date().toISOString().slice(0, 10);
+    for (const t of cache.tasks) {
+        if (t.userId !== userId) continue;
+        if (taskType === 'subscribe' && t.taskType === 'subscribe' && t.creatorName === creatorName) return 'DUPLICATE_SUBSCRIBE';
+        if (DAILY_DEDUP_TYPES.has(taskType) && t.taskType === taskType && t.videoId === videoId && utcDay(t.timestamp) === today) return 'SAME_DAY_DUPLICATE';
+    }
+    return null;
+}
+
 const TASK_REWARDS_USD = {
     watch: 0.01,
     like: 0.005,
@@ -400,6 +443,15 @@ app.post('/api/verify-task', async (req, res) => {
                     return res.json({ success: false, verified: false, alreadyClaimed: true, reason: `You already earned a reward for subscribing to ${creatorName}. Each creator can only be claimed once.` });
                 }
             } catch(e) { console.warn('Subscribe dup check skipped:', e.message); }
+        }
+
+        // Duplicates are never paid. Checked against the in-memory task list so it also holds while Firestore is down.
+        const dupReason = duplicateReasonForNewTask({ userId, taskType, videoId, creatorName });
+        if (dupReason) {
+            return res.json({ success: false, verified: false, alreadyClaimed: true, duplicate: dupReason,
+                reason: dupReason === 'DUPLICATE_SUBSCRIBE'
+                    ? `You already earned a reward for subscribing to ${creatorName}. Each creator can only be claimed once.`
+                    : `You already completed this ${taskType} task on this video today. Duplicate submissions are not paid.` });
         }
 
         const base64Data = screenshot.replace(/^data:image\/\w+;base64,/, '');
@@ -896,22 +948,11 @@ app.get('/api/admin/unpaid-tasks', async (req, res) => {
         console.log(`Admin unpaid-tasks: processing ${allTasks.length} total tasks`);
 
         const unpaid = [];
-        const seenSubscribes = new Set();
-        allTasks.sort((a, b) => (a.timestamp || '') < (b.timestamp || '') ? -1 : 1);
-        for (const t of allTasks) {
-            if (t.taskType === 'subscribe') {
-                const key = `${t.userId}:${t.creatorName}`;
-                if (!seenSubscribes.has(key)) {
-                    seenSubscribes.add(key);
-                    t._isFirstSubscribe = true;
-                } else {
-                    t._isFirstSubscribe = false;
-                }
-            }
-        }
+        const blocks = computeDuplicateBlocks(allTasks);
+        let blockedCount = 0, blockedUSD = 0;
         for (const t of allTasks) {
             if (!t.txSignature && !t.payoutSuccess) {
-                if (t.taskType === 'subscribe' && !t._isFirstSubscribe) continue;
+                if (blocks.has(String(t.docId || t._docId || ''))) { blockedCount++; blockedUSD += t.rewardUSD || 0; continue; } // duplicates are never paid
                 const userDoc = await getUserProfileCached(t.userId);
                 const wallet = userDoc ? userDoc.walletAddress : t.walletAddress;
                 unpaid.push({
@@ -932,7 +973,7 @@ app.get('/api/admin/unpaid-tasks', async (req, res) => {
         const paidCount = allTasks.filter(t => t.txSignature || t.payoutSuccess).length;
         const noPayout = allTasks.filter(t => !t.txSignature && !t.payoutSuccess).length;
         console.log(`Admin unpaid-tasks: ${allTasks.length} total, ${paidCount} paid, ${noPayout} no-payout-flag, ${unpaid.length} eligible unpaid`);
-        res.json({ unpaid, debug: { totalTasks: allTasks.length, paidCount, noPayoutFlag: noPayout, eligibleUnpaid: unpaid.length } });
+        res.json({ unpaid, debug: { totalTasks: allTasks.length, paidCount, noPayoutFlag: noPayout, eligibleUnpaid: unpaid.length, blockedDuplicates: blockedCount, blockedDuplicatesUSD: parseFloat(blockedUSD.toFixed(4)) } });
     } catch (err) {
         console.error('Admin unpaid error:', err.message);
         res.status(500).json({ error: 'Failed to fetch unpaid tasks' });
@@ -960,12 +1001,13 @@ app.get('/api/admin/all-tasks', async (req, res) => {
         const subKeys = {};   // userId:creatorName -> count
         const dayKeys = {};   // userId:videoId:taskType:date -> count
         const userTaskCounts = {}; // userId:date -> count (botting)
+        const dupBlocks = computeDuplicateBlocks(allTasks.map(t => ({ ...t, docId: t.docId })));
         for (const t of allTasks) {
             if (t.taskType === 'subscribe') {
                 const k = `${t.userId}:${t.creatorName}`;
                 subKeys[k] = (subKeys[k] || 0) + 1;
             }
-            if (t.taskType === 'watch' || t.taskType === 'like') {
+            if (DAILY_DEDUP_TYPES.has(t.taskType)) {
                 const date = (t.timestamp || '').slice(0, 10);
                 const k = `${t.userId}:${t.videoId}:${t.taskType}:${date}`;
                 dayKeys[k] = (dayKeys[k] || 0) + 1;
@@ -981,7 +1023,7 @@ app.get('/api/admin/all-tasks', async (req, res) => {
                 const k = `${t.userId}:${t.creatorName}`;
                 if ((subKeys[k] || 0) > 1) flags.push('DUPLICATE_SUBSCRIBE');
             }
-            if (t.taskType === 'watch' || t.taskType === 'like') {
+            if (DAILY_DEDUP_TYPES.has(t.taskType)) {
                 const date = (t.timestamp || '').slice(0, 10);
                 const k = `${t.userId}:${t.videoId}:${t.taskType}:${date}`;
                 if ((dayKeys[k] || 0) > 1) flags.push('SAME_DAY_DUPLICATE');
@@ -1005,6 +1047,7 @@ app.get('/api/admin/all-tasks', async (req, res) => {
                 timestamp: t.timestamp || '',
                 walletAddress: t.walletAddress || '',
                 flags,
+                payoutBlocked: dupBlocks.get(String(t.docId || '')) || '',
             };
         });
 
@@ -1029,6 +1072,11 @@ app.post('/api/admin/retry-payout', async (req, res) => {
             return res.status(400).json({ error: 'Treasury key not configured' });
         }
         const taskDoc = await firestore.getDoc('tasks', docId);
+        // Duplicates are never paid, even by an admin retry
+        let pool = cache.tasks.map(t => ({ ...t, docId: t._docId || t.docId }));
+        if (taskDoc && !pool.some(t => String(t.docId) === String(docId))) pool.push({ ...taskDoc, docId });
+        const dupBlock = computeDuplicateBlocks(pool).get(String(docId));
+        if (dupBlock) return res.status(409).json({ error: `Payout blocked: ${DUPLICATE_REASON_TEXT[dupBlock]}.`, blocked: dupBlock });
         const treasuryKey = decryptPrivateKey(TREASURY_PRIVATE_KEY_ENCRYPTED, TREASURY_ENCRYPTION_KEY);
         const txSignature = await sendSolPayment(treasuryKey, walletAddress, parseFloat(rewardSOL));
         const retryTimestamp = new Date().toISOString();
@@ -1069,24 +1117,15 @@ app.post('/api/admin/retry-all', async (req, res) => {
             } catch (e) { console.warn('Retry-all listAll error:', e.message); allTasks = []; }
         }
 
-        // Find eligible unpaid tasks — dedup subscribe, same-day watch/like
-        allTasks.sort((a, b) => (a.timestamp || '') < (b.timestamp || '') ? -1 : 1);
-        const seenSubs = new Set();
-        const seenDailyActions = new Set(); // userId:videoId:taskType:date
+        // Find eligible unpaid tasks. Duplicates (extra subscribes, same-day watch/like/comment) are never paid;
+        // the earliest task in each group is the legitimate one, whether or not it has been paid yet.
+        const blocks = computeDuplicateBlocks(allTasks);
+        let skippedDuplicates = 0;
         const eligible = [];
         for (const t of allTasks) {
             if (t.txSignature || t.payoutSuccess) continue;
-            if (t.taskType === 'subscribe') {
-                const key = `${t.userId}:${t.creatorName}`;
-                if (seenSubs.has(key)) { console.log(`DEDUP SKIP subscribe: ${t.username} -> ${t.creatorName}`); continue; }
-                seenSubs.add(key);
-            }
-            if (t.taskType === 'watch' || t.taskType === 'like') {
-                const date = (t.timestamp || '').slice(0, 10); // YYYY-MM-DD
-                const dayKey = `${t.userId}:${t.videoId}:${t.taskType}:${date}`;
-                if (seenDailyActions.has(dayKey)) { console.log(`DEDUP SKIP ${t.taskType}: ${t.username} -> ${t.videoId} on ${date}`); continue; }
-                seenDailyActions.add(dayKey);
-            }
+            const reason = blocks.get(String(t.docId || t._docId || ''));
+            if (reason) { skippedDuplicates++; console.log(`DUPLICATE BLOCKED (${reason}): ${t.username} -> ${t.videoTitle}`); continue; }
             eligible.push(t);
         }
 
@@ -1142,7 +1181,7 @@ app.post('/api/admin/retry-all', async (req, res) => {
         // Update ticker stats immediately so they reflect these payouts in real time
         recomputeStatsFromCache();
         console.log(`BATCH COMPLETE: ${paidWallets}/${wallets.length} wallets paid (${paidTasks} tasks), ${remaining} wallets remaining, ${skippedNoWallet} tasks skipped (no wallet)`);
-        res.json({ results, paidWallets, paidTasks, skippedNoWallet, remaining });
+        res.json({ results, paidWallets, paidTasks, skippedNoWallet, skippedDuplicates, remaining });
     } catch (err) {
         console.error('Retry-all error:', err.message);
         res.status(500).json({ error: err.message });
